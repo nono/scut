@@ -205,7 +205,7 @@ func (d *Doer) statusError(req *http.Request, resp *http.Response) error {
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrBody))
 	e := &exit.Error{
-		Code:       codeFor(resp.StatusCode),
+		Code:       CodeFor(resp.StatusCode),
 		Status:     resp.StatusCode,
 		RetryAfter: retryAfter(resp),
 		Msg:        fmt.Sprintf("%s %s: %s", req.Method, req.URL.Path, resp.Status),
@@ -222,7 +222,8 @@ func (d *Doer) statusError(req *http.Request, resp *http.Response) error {
 	return e
 }
 
-func codeFor(status int) exit.Code {
+// CodeFor maps an HTTP status to an exit code.
+func CodeFor(status int) exit.Code {
 	switch {
 	case status == http.StatusUnauthorized, status == http.StatusForbidden:
 		return exit.Auth

@@ -207,11 +207,7 @@ func download(ctx context.Context, c *http.Client, hosts []string, token string,
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		code := exit.Other
-		if resp.StatusCode >= 500 {
-			code = exit.Unavailable
-		}
-		return &exit.Error{Code: code, Status: resp.StatusCode, Msg: fmt.Sprintf("download file %d: status %d", f.ID, resp.StatusCode)}
+		return &exit.Error{Code: transport.CodeFor(resp.StatusCode), Status: resp.StatusCode, Msg: fmt.Sprintf("download file %d: status %d", f.ID, resp.StatusCode)}
 	}
 	tmp, err := os.CreateTemp(dir, ".scut-*")
 	if err != nil {

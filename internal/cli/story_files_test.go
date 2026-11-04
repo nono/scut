@@ -121,7 +121,7 @@ func entries(t *testing.T, dir string) []string {
 }
 
 func TestFilesErrorLeavesNoFile(t *testing.T) {
-	h := filesHarness(t, []fileSpec{{1, "a.txt", "hello", -1}}, 400, nil)
+	h := filesHarness(t, []fileSpec{{1, "a.txt", "hello", -1}}, 410, nil)
 	out := t.TempDir()
 	code, stdout, errs := h.run("story", "files", "5818", "--out", out)
 	if code != 1 {
@@ -142,6 +142,15 @@ func TestFilesServerError(t *testing.T) {
 	h := filesHarness(t, []fileSpec{{1, "a.txt", "hello", -1}}, 503, nil)
 	if code, _, errs := h.run("story", "files", "5818", "--out", t.TempDir()); code != 5 {
 		t.Errorf("code %d, stderr %s", code, errs)
+	}
+}
+
+func TestFilesStatusCodes(t *testing.T) {
+	for status, want := range map[int]int{401: 4, 403: 4, 404: 3, 429: 5, 410: 1} {
+		h := filesHarness(t, []fileSpec{{1, "a.txt", "hello", -1}}, status, nil)
+		if code, _, errs := h.run("story", "files", "5818", "--out", t.TempDir()); code != want {
+			t.Errorf("status %d: code %d, want %d, stderr %s", status, code, want, errs)
+		}
 	}
 }
 
