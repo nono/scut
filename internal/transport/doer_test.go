@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -91,7 +93,7 @@ func TestDoerRetries(t *testing.T) {
 		t.Fatal(err)
 	}
 	if n.Load() != 3 || len(w.d) != 2 {
-		t.Errorf("tries %d, waits %v", n.Load(), w.d)
+		t.Fatalf("tries %d, waits %v", n.Load(), w.d)
 	}
 	if w.d[0] < 400*time.Millisecond || w.d[0] > 600*time.Millisecond || w.d[1] < 800*time.Millisecond || w.d[1] > 1200*time.Millisecond {
 		t.Errorf("backoff out of range: %v", w.d)
@@ -197,14 +199,102 @@ func TestDoerStatusMap(t *testing.T) {
 }
 
 func TestDoerTokenNotInError(t *testing.T) {
-	d := transport.New(settings, transport.WithBaseURL("http://127.0.0.1:1"), transport.WithSleep(func(time.Duration) {}))
+	check := func(name string, err error) {
+		t.Helper()
+		e := asExit(t, err)
+		if strings.Contains(e.Msg, token) || strings.Contains(e.Suggestion, token) || strings.Contains(string(e.API), token) || strings.Contains(err.Error(), token) {
+			t.Errorf("%s: token in error: %+v", name, e)
+		}
+	}
+	d := newDoer(t, &waits{}, "GET", func(rw http.ResponseWriter, r *http.Request) {
+		rw.Header().Set("Content-Type", "application/json")
+		rw.WriteHeader(422)
+		_, _ = rw.Write([]byte(`{"message":"bad ` + token + `","detail":"` + token + `"}`))
+	})
 	err := raw(d, "GET")
-	e := asExit(t, err)
-	if e.Code != exit.Unavailable {
+	if e := asExit(t, err); !strings.Contains(e.Msg, "***") || !strings.Contains(string(e.API), "***") {
+		t.Errorf("token not scrubbed: %+v", e)
+	}
+	check("body", err)
+
+	d = transport.New(settings, transport.WithBaseURL("http://127.0.0.1:1"), transport.WithSleep(func(time.Duration) {}))
+	err = raw(d, "GET")
+	if e := asExit(t, err); e.Code != exit.Unavailable {
 		t.Errorf("code %d", e.Code)
 	}
-	if strings.Contains(err.Error(), token) {
-		t.Errorf("token in error: %v", err)
+	check("connect", err)
+}
+
+func TestDoerBudgetWallClock(t *testing.T) {
+	now := time.Unix(1000, 0)
+	var n atomic.Int32
+	base := testapi.Fake(t, map[string]http.HandlerFunc{"GET /api/v4/acme/stories/1": func(rw http.ResponseWriter, r *http.Request) {
+		n.Add(1)
+		now = now.Add(15 * time.Second) // the try takes 15 s
+		rw.WriteHeader(503)
+	}})
+	w := &waits{}
+	d := transport.New(settings, transport.WithBaseURL(base), transport.WithSleep(func(x time.Duration) {
+		w.sleep(x)
+		now = now.Add(x)
+	}), transport.WithClock(func() time.Time { return now }))
+	e := asExit(t, raw(d, "GET"))
+	if n.Load() != 2 || e.Status != 503 {
+		t.Errorf("tries %d, status %d, waits %v", n.Load(), e.Status, w.d)
+	}
+}
+
+func TestDoerNoRetryTLS(t *testing.T) {
+	var n atomic.Int32
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) { n.Add(1) }))
+	t.Cleanup(srv.Close)
+	w := &waits{}
+	d := transport.New(settings, transport.WithBaseURL(srv.URL), transport.WithSleep(w.sleep))
+	e := asExit(t, raw(d, "GET"))
+	if e.Code != exit.Other || len(w.d) != 0 || n.Load() != 0 {
+		t.Errorf("code %d, waits %v, hits %d, msg %s", e.Code, w.d, n.Load(), e.Msg)
+	}
+}
+
+func TestListCursor(t *testing.T) {
+	cases := map[string]string{
+		`{"entities":[{"id":1}],"next_page_url":"https://api.app.shortcut.com/api/v4/acme/stories?cursor=abc%3D"}`: "abc=",
+		`{"entities":[{"id":1}],"current_page":3}`: "",
+	}
+	for body, want := range cases {
+		d := newDoer(t, &waits{}, "GET", func(rw http.ResponseWriter, r *http.Request) {
+			rw.Header().Set("Content-Type", "application/json")
+			_, _ = rw.Write([]byte(body))
+		})
+		items, cur, err := d.List(context.Background(), "/stories/1", nil)
+		if err != nil || cur != want || len(items) != 1 {
+			t.Errorf("%s: items %d, cursor %q, err %v", body, len(items), cur, err)
+		}
+	}
+}
+
+func TestPageList(t *testing.T) {
+	var calls int
+	base := testapi.Fake(t, map[string]http.HandlerFunc{"GET /api/v4/acme/stories": func(rw http.ResponseWriter, r *http.Request) {
+		calls++
+		next := map[string]string{"": "p2", "p2": "p3"}[r.URL.Query().Get("cursor")]
+		env := map[string]any{"entities": []int{calls}}
+		if next != "" {
+			env["next_page_url"] = "http://x/api/v4/acme/stories?cursor=" + next
+		}
+		rw.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(rw).Encode(env)
+	}})
+	d := transport.New(settings, transport.WithBaseURL(base))
+	got, err := transport.Page(context.Background(), func(c string) ([]json.RawMessage, string, error) {
+		q := url.Values{}
+		if c != "" {
+			q.Set("cursor", c)
+		}
+		return d.List(context.Background(), "/stories", q)
+	}, -1)
+	if err != nil || len(got) != 3 || calls != 3 {
+		t.Errorf("items %d, calls %d, err %v", len(got), calls, err)
 	}
 }
 
@@ -243,8 +333,8 @@ func TestRawPaths(t *testing.T) {
 
 func TestRawUnwrap(t *testing.T) {
 	for body, want := range map[string]string{
-		`{"entity":{"id":1}}`:                         `{"id":1}`,
-		`{"entities":[{"id":1},{"id":2}],"next":"c"}`: `[{"id":1},{"id":2}]`,
+		`{"entity":{"id":1}}`: `{"id":1}`,
+		`{"$schema":"x","current_page":1,"total_items":9,"next_page_url":"https://api.app.shortcut.com/api/v4/acme/stories?cursor=c","entities":[{"id":1},{"id":2}]}`: `[{"id":1},{"id":2}]`,
 	} {
 		d := newDoer(t, &waits{}, "GET", func(rw http.ResponseWriter, r *http.Request) {
 			rw.Header().Set("Content-Type", "application/json")

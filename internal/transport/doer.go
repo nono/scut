@@ -5,7 +5,10 @@ package transport
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand/v2"
@@ -31,6 +34,7 @@ const (
 	maxTries     = 4
 	retryBudget  = 20 * time.Second
 	firstBackoff = 500 * time.Millisecond
+	tryTimeout   = 30 * time.Second // limit of each single try
 	maxErrBody   = 1 << 20
 )
 
@@ -41,6 +45,7 @@ type Doer struct {
 	base  string
 	hc    *http.Client
 	sleep func(time.Duration) // nil: wait on a timer and on ctx
+	now   func() time.Time
 }
 
 // Option changes a Doer.
@@ -55,9 +60,12 @@ func WithSleep(f func(time.Duration)) Option { return func(d *Doer) { d.sleep = 
 // WithHTTPClient sets the HTTP client.
 func WithHTTPClient(c *http.Client) Option { return func(d *Doer) { d.hc = c } }
 
+// WithClock sets the clock that measures the retry budget.
+func WithClock(f func() time.Time) Option { return func(d *Doer) { d.now = f } }
+
 // New returns a Doer for s.
 func New(s config.Settings, opts ...Option) *Doer {
-	d := &Doer{s: s, base: DefaultBaseURL, hc: &http.Client{Timeout: 60 * time.Second}}
+	d := &Doer{s: s, base: DefaultBaseURL, hc: &http.Client{Timeout: tryTimeout}, now: time.Now}
 	for _, o := range opts {
 		o(d)
 	}
@@ -82,6 +90,10 @@ func (d *Doer) Do(req *http.Request) (*http.Response, error) {
 	req.Header.Set("User-Agent", "scut/"+Version)
 	ctx := req.Context()
 	retry := req.Method == http.MethodGet
+	// The budget bounds the whole call: no try starts after retryBudget from
+	// the first try, and no wait ends after it. The elapsed time is the larger
+	// of the clock and the sum of the waits, so an injected sleep still counts.
+	start := d.now()
 	var total time.Duration
 	for try := 1; ; try++ {
 		resp, err := d.hc.Do(req)
@@ -105,7 +117,8 @@ func (d *Doer) Do(req *http.Request) (*http.Response, error) {
 		if wait == 0 {
 			wait = jitter(firstBackoff << (try - 1))
 		}
-		if total+wait > retryBudget {
+		elapsed := max(d.now().Sub(start), total)
+		if elapsed+wait > retryBudget {
 			return nil, final
 		}
 		total += wait
@@ -168,10 +181,22 @@ func (d *Doer) connectError(req *http.Request, err error) error {
 	if ue, ok := err.(*url.Error); ok {
 		err = ue.Err
 	}
+	code := exit.Unavailable
+	if isTLS(err) { // a bad certificate does not heal: no retry
+		code = exit.Other
+	}
 	return &exit.Error{
-		Code: exit.Unavailable,
+		Code: code,
 		Msg:  d.scrub(fmt.Sprintf("%s %s %s: %v", req.Method, req.URL.Host, req.URL.Path, err)),
 	}
+}
+
+func isTLS(err error) bool {
+	var cv *tls.CertificateVerificationError
+	var ua x509.UnknownAuthorityError
+	var he x509.HostnameError
+	var ci x509.CertificateInvalidError
+	return errors.As(err, &cv) || errors.As(err, &ua) || errors.As(err, &he) || errors.As(err, &ci)
 }
 
 func (d *Doer) statusError(req *http.Request, resp *http.Response) error {
@@ -183,7 +208,7 @@ func (d *Doer) statusError(req *http.Request, resp *http.Response) error {
 		Msg:    fmt.Sprintf("%s %s: %s", req.Method, req.URL.Path, resp.Status),
 	}
 	if isJSON(resp.Header.Get("Content-Type")) && json.Valid(body) {
-		e.API = json.RawMessage(bytes.TrimSpace(body))
+		e.API = json.RawMessage(d.scrub(string(bytes.TrimSpace(body))))
 		var m struct {
 			Message string `json:"message"`
 		}
@@ -217,6 +242,38 @@ func isJSON(ct string) bool {
 // A path that does not start with /api/ is relative to the workspace.
 // Any other JSON body is returned as is.
 func (d *Doer) Raw(ctx context.Context, method, path string, query url.Values, body any) (json.RawMessage, error) {
+	b, err := d.send(ctx, method, path, query, body)
+	if err != nil {
+		return nil, err
+	}
+	return unwrap(b)
+}
+
+// List gets one page of a list endpoint. cursor is the cursor parameter of
+// next_page_url, or "" on the last page.
+func (d *Doer) List(ctx context.Context, path string, query url.Values) (items []json.RawMessage, cursor string, err error) {
+	b, err := d.send(ctx, http.MethodGet, path, query, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	var env struct {
+		Entities    []json.RawMessage `json:"entities"`
+		NextPageURL string            `json:"next_page_url"`
+	}
+	if err := json.Unmarshal(b, &env); err != nil {
+		return nil, "", &exit.Error{Code: exit.Other, Msg: "response is not a list"}
+	}
+	if env.NextPageURL != "" {
+		u, err := url.Parse(env.NextPageURL)
+		if err != nil {
+			return nil, "", &exit.Error{Code: exit.Other, Msg: "bad next_page_url"}
+		}
+		cursor = u.Query().Get("cursor")
+	}
+	return env.Entities, cursor, nil
+}
+
+func (d *Doer) send(ctx context.Context, method, path string, query url.Values, body any) ([]byte, error) {
 	if !strings.HasPrefix(path, "/api/") {
 		path = "/api/v4/" + url.PathEscape(d.s.Workspace) + "/" + strings.TrimLeft(path, "/")
 	}
@@ -252,7 +309,7 @@ func (d *Doer) Raw(ctx context.Context, method, path string, query url.Values, b
 		}
 		return nil, &exit.Error{Code: exit.Unavailable, Msg: d.scrub("read response: " + err.Error())}
 	}
-	return unwrap(b)
+	return b, nil
 }
 
 func unwrap(b []byte) (json.RawMessage, error) {
