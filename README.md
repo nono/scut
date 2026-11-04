@@ -112,3 +112,7 @@ make live   # read-only smoke test on a real workspace
 
 `make live` needs `SCUT_TOKEN` or `~/.config/shortcut-v4-token`. It skips without one.
 The Prism contract tests need Node 22 or later. With `CI=true` they fail instead of skipping.
+
+## License
+
+AGPL-3.0-or-later. See [LICENSE](LICENSE).
