@@ -250,3 +250,31 @@ func TestProfile(t *testing.T) {
 		t.Fatalf("got %+v, %v", s, err)
 	}
 }
+
+// A value from a [profile.<name>] table names that table in its source.
+func TestProfileSource(t *testing.T) {
+	e := newEnv(t)
+	write(t, e.userFile, "team = \"T\"\nstate = \"S\"\noutput = \"human\"\n[fields]\nA = \"1\"\n"+
+		"[profile.work]\nteam = \"Nope\"\noutput = \"xml\"\n[profile.work.fields]\nB = \"2\"\n")
+	_, err := config.Load(e.opts(map[string]string{"profile": "work"}))
+	var xe *exit.Error
+	if want := e.userFile + `: key profile.work.output: "xml" is not valid, use json or human`; !errors.As(err, &xe) || xe.Msg != want {
+		t.Errorf("got %v, want %s", err, want)
+	}
+	write(t, e.repoFile, "[profile.work]\nworkflow = \"W\"\n")
+	s, err := config.Load(e.opts(map[string]string{"profile": "work", "output": "json"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{
+		"team":     e.userFile + ": key profile.work.team",
+		"state":    e.userFile + ": key state",
+		"workflow": e.repoFile + ": key profile.work.workflow",
+		"fields.A": e.userFile + `: key fields."A"`,
+		"fields.B": e.userFile + `: key profile.work.fields."B"`,
+	} {
+		if got := s.Sources[key]; got != want {
+			t.Errorf("%s: %q, want %q", key, got, want)
+		}
+	}
+}

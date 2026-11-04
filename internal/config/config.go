@@ -23,7 +23,8 @@ type Settings struct {
 	Output                                  string
 	CacheDir                                string // <cache>/scut/<Workspace>; Load takes Workspace from the token, which ParseToken checks
 	// Sources maps a key (team, …, fields.<name>) to the source of a value
-	// from env or a file: the env name, or "<path>: key <key>".
+	// from env or a file: the env name, or "<path>: key <key>", with <key> as
+	// profile.<name>.<key> when a profile table gave the value.
 	Sources map[string]string
 }
 
@@ -68,7 +69,27 @@ type fileData struct {
 // layer is one file with the profile applied.
 type layer struct {
 	values
-	path string
+	path    string
+	profile string          // the name of the profile
+	byProf  map[string]bool // keys (team, …, fields.<name>) that the profile table gave
+}
+
+// key returns the TOML key of k in the file: profile.<name>.<k> when the
+// profile table gave it.
+func (l layer) key(k string) string {
+	if l.byProf[k] {
+		return "profile." + l.profile + "." + k
+	}
+	return k
+}
+
+// fieldKey returns the TOML key of the field name in the file.
+func (l layer) fieldKey(name string) string {
+	k := fmt.Sprintf("fields.%q", name)
+	if l.byProf["fields."+name] {
+		return "profile." + l.profile + "." + k
+	}
+	return k
 }
 
 const defaultProfile = "default"
@@ -105,10 +126,10 @@ func Load(o Options) (Settings, error) {
 			s.Sources[key] = env
 			return getenv(env)
 		case rf != "":
-			s.Sources[key] = repo.path + ": key " + key
+			s.Sources[key] = repo.path + ": key " + repo.key(key)
 			return rf
 		case uf != "":
-			s.Sources[key] = user.path + ": key " + key
+			s.Sources[key] = user.path + ": key " + user.key(key)
 			return uf
 		}
 		return ""
@@ -133,8 +154,8 @@ func Load(o Options) (Settings, error) {
 		m   map[string]string
 		src func(k string) string
 	}{
-		{user.Fields, func(k string) string { return fmt.Sprintf("%s: key fields.%q", user.path, k) }},
-		{repo.Fields, func(k string) string { return fmt.Sprintf("%s: key fields.%q", repo.path, k) }},
+		{user.Fields, func(k string) string { return user.path + ": key " + user.fieldKey(k) }},
+		{repo.Fields, func(k string) string { return repo.path + ": key " + repo.fieldKey(k) }},
 		{envFields, func(string) string { return "SCUT_FIELDS" }},
 	} {
 		for k, v := range l.m {
@@ -230,7 +251,7 @@ func readTokenFile(p, home string) (string, error) {
 
 // readLayer reads one file. A missing file gives an empty layer.
 func readLayer(path, profile string, repo bool) (layer, error) {
-	l := layer{path: path}
+	l := layer{path: path, profile: profile}
 	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return l, nil
@@ -254,6 +275,14 @@ func readLayer(path, profile string, repo bool) (layer, error) {
 	l.values = d.values
 	if p, ok := d.Profile[profile]; ok {
 		l.values = overlay(l.values, p)
+		l.byProf = map[string]bool{}
+		for k, v := range map[string]string{"team": p.Team, "state": p.State, "workflow": p.Workflow,
+			"requester": p.Requester, "owner": p.Owner, "output": p.Output} {
+			l.byProf[k] = v != ""
+		}
+		for k := range p.Fields {
+			l.byProf["fields."+k] = true
+		}
 	}
 	all := []values{d.values}
 	for _, p := range d.Profile {
