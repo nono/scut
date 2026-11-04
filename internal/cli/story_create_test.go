@@ -203,6 +203,47 @@ Squad = "Red"
 	}
 }
 
+// A name from a config file or env that does not resolve names its source.
+func TestCreateConfigSource(t *testing.T) {
+	for _, tc := range []struct{ file, env, want string }{
+		{`team = "Nope"`, "", `: key team: no team "Nope"`},
+		{"[fields]\nSquad = \"Green\"\n", "", `: key fields."Squad": no value "Green" for field "Squad"`},
+		{`owner = "nobody"`, "", `: key owner: no member "nobody"`},
+		{"", "SCUT_REQUESTER", `SCUT_REQUESTER: no member "nobody"`},
+	} {
+		var c calls
+		f := &createFake{}
+		h := createHarness(t, f, &c, nil)
+		repoFile := filepath.Join(h.env.Dir, ".scut.toml")
+		if err := os.WriteFile(repoFile, []byte(tc.file), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		get := h.env.Getenv
+		h.env.Getenv = func(k string) string {
+			if k == tc.env {
+				return "nobody"
+			}
+			return get(k)
+		}
+		code, _, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
+		msg, _ := decode(t, errs)["error"].(string)
+		want := tc.want
+		if tc.file != "" {
+			want = repoFile + want
+		}
+		if code != 3 || msg != want {
+			t.Errorf("code %d, error %q, want %q", code, msg, want)
+		}
+	}
+	// A flag value has no source.
+	var c calls
+	h := createHarness(t, &createFake{}, &c, nil)
+	_, _, errs := h.run("story", "create", "--name", "x", "--state", "To Do", "--team", "Nope")
+	if msg, _ := decode(t, errs)["error"].(string); msg != `no team "Nope"` {
+		t.Errorf("flag: %q", msg)
+	}
+}
+
 func listWith(ext string) string {
 	return listBody(map[string]any{"id": 5818, "external_id": ext, "name": "x", "app_url": "https://app/5818"})
 }

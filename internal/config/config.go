@@ -22,6 +22,22 @@ type Settings struct {
 	Fields                                  map[string]string
 	Output                                  string
 	CacheDir                                string
+	// Sources maps a key (team, …, fields.<name>) to the source of a value
+	// from env or a file: the env name, or "<path>: key <key>".
+	Sources map[string]string
+}
+
+// Explain adds the source of the value of key to a lookup miss (exit 2 or 3),
+// so the user knows where to fix it. A flag value has no source.
+func (s Settings) Explain(key string, err error) error {
+	var e *exit.Error
+	src := s.Sources[key]
+	if src == "" || !errors.As(err, &e) || (e.Code != exit.NotFound && e.Code != exit.Usage) {
+		return err
+	}
+	c := *e
+	c.Msg = src + ": " + e.Msg
+	return &c
 }
 
 // Options are the inputs of Load.
@@ -80,9 +96,22 @@ func Load(o Options) (Settings, error) {
 		}
 	}
 
-	s := Settings{Profile: profile, Fields: map[string]string{}}
-	pick := func(flag, env, rf, uf string) string {
-		return first(o.Flags[flag], getenv(env), rf, uf)
+	s := Settings{Profile: profile, Fields: map[string]string{}, Sources: map[string]string{}}
+	pick := func(key, env, rf, uf string) string {
+		switch {
+		case o.Flags[key] != "":
+			return o.Flags[key]
+		case getenv(env) != "":
+			s.Sources[key] = env
+			return getenv(env)
+		case rf != "":
+			s.Sources[key] = repo.path + ": key " + key
+			return rf
+		case uf != "":
+			s.Sources[key] = user.path + ": key " + key
+			return uf
+		}
+		return ""
 	}
 	s.Team = pick("team", "SCUT_TEAM", repo.Team, user.Team)
 	s.State = pick("state", "SCUT_STATE", repo.State, user.State)
@@ -94,15 +123,23 @@ func Load(o Options) (Settings, error) {
 		s.Output = "json"
 	}
 	if s.Output != "json" && s.Output != "human" {
-		return Settings{}, exit.Usagef("output %q is not valid, use json or human", s.Output)
+		return Settings{}, exit.Usagef("%s: %q is not valid, use json or human", first(s.Sources["output"], "output"), s.Output)
 	}
 	envFields, err := parseFields(getenv("SCUT_FIELDS"))
 	if err != nil {
 		return Settings{}, err
 	}
-	for _, m := range []map[string]string{user.Fields, repo.Fields, envFields} {
-		for k, v := range m {
+	for _, l := range []struct {
+		m   map[string]string
+		src func(k string) string
+	}{
+		{user.Fields, func(k string) string { return fmt.Sprintf("%s: key fields.%q", user.path, k) }},
+		{repo.Fields, func(k string) string { return fmt.Sprintf("%s: key fields.%q", repo.path, k) }},
+		{envFields, func(string) string { return "SCUT_FIELDS" }},
+	} {
+		for k, v := range l.m {
 			s.Fields[k] = v
+			s.Sources["fields."+k] = l.src(k)
 		}
 	}
 

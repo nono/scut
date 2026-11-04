@@ -181,9 +181,46 @@ func TestUnknownKey(t *testing.T) {
 
 func TestBadOutput(t *testing.T) {
 	e := newEnv(t)
-	e.env["SCUT_OUTPUT"] = "xml"
-	if _, err := config.Load(e.opts(nil)); err == nil {
-		t.Fatal("want error")
+	write(t, e.userFile, `output = "xml"`)
+	_, err := config.Load(e.opts(nil))
+	var xe *exit.Error
+	if want := e.userFile + `: key output: "xml" is not valid, use json or human`; !errors.As(err, &xe) || xe.Code != exit.Usage || xe.Msg != want {
+		t.Errorf("got %v, want %s", err, want)
+	}
+	e.env["SCUT_OUTPUT"] = "yaml"
+	_, err = config.Load(e.opts(nil))
+	if want := `SCUT_OUTPUT: "yaml" is not valid, use json or human`; !errors.As(err, &xe) || xe.Msg != want {
+		t.Errorf("got %v, want %s", err, want)
+	}
+}
+
+// Explain names the source of a value in a lookup error.
+func TestExplain(t *testing.T) {
+	e := newEnv(t)
+	write(t, e.userFile, "state = \"S\"\n[fields]\nA = \"1\"\nB = \"2\"\n")
+	write(t, e.repoFile, "team = \"T\"\n")
+	e.env["SCUT_FIELDS"] = "B=3"
+	s, err := config.Load(e.opts(map[string]string{"workflow": "W"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	miss := exit.NotFoundf(`no x "y"`)
+	for key, want := range map[string]string{
+		"team":        e.repoFile + `: key team: no x "y"`,
+		"state":       e.userFile + `: key state: no x "y"`,
+		"fields.A":    e.userFile + `: key fields."A": no x "y"`,
+		"fields.B":    `SCUT_FIELDS: no x "y"`,
+		"workflow":    `no x "y"`, // a flag
+		"owner":       `no x "y"`, // not set
+		"fields.none": `no x "y"`,
+	} {
+		if got := s.Explain(key, miss).Error(); got != want {
+			t.Errorf("%s: %q, want %q", key, got, want)
+		}
+	}
+	other := &exit.Error{Code: exit.Unavailable, Msg: "down"}
+	if got := s.Explain("team", other); got != other {
+		t.Errorf("a failure that is not a lookup miss changed: %v", got)
 	}
 }
 

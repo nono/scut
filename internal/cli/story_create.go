@@ -121,6 +121,13 @@ func newStoryCreate(env Env) *cobra.Command {
 			ctx := cmd.Context()
 			r := d.Resolver
 			s := d.Settings
+			// explain names the config source of a value that does not resolve.
+			explain := func(key string, flagSet bool, err error) error {
+				if flagSet {
+					return err
+				}
+				return s.Explain(key, err)
+			}
 			stateName := first(*state, s.State)
 			if stateName == "" {
 				return exit.Usagef("give --state or set state in the config")
@@ -130,18 +137,18 @@ func newStoryCreate(env Env) *cobra.Command {
 			var teamID string
 			if teamName != "" {
 				if teamID, err = r.Team(teamName); err != nil {
-					return err
+					return explain("team", *team != "", err)
 				}
 				body["team_id"] = teamID
 			}
 			var wf int64
 			if wfName := first(*workflow, s.Workflow); wfName != "" {
 				if wf, err = r.Workflow(wfName); err != nil {
-					return err
+					return explain("workflow", *workflow != "", err)
 				}
 			}
 			if body["workflow_state_id"], err = r.State(stateName, wf, teamID); err != nil {
-				return err
+				return explain("state", *state != "", err)
 			}
 			if changed("epic") {
 				if body["epic_id"], err = r.Epic(*epic); err != nil {
@@ -154,12 +161,12 @@ func newStoryCreate(env Env) *cobra.Command {
 			}
 			if len(ownerNames) > 0 {
 				if body["owner_ids"], err = r.Members(ownerNames); err != nil {
-					return err
+					return explain("owner", len(*owners) > 0, err)
 				}
 			}
 			if rq := first(*requester, s.Requester); rq != "" {
 				if body["requester_id"], err = r.Member(rq); err != nil {
-					return err
+					return explain("requester", *requester != "", err)
 				}
 			}
 			if len(*labels) > 0 {
@@ -191,7 +198,7 @@ func newStoryCreate(env Env) *cobra.Command {
 				for _, n := range names {
 					fid, vid, err := r.Field(n, vals[n])
 					if err != nil {
-						return err
+						return explain("fields."+n, slices.ContainsFunc(specs, func(sp fieldSpec) bool { return sp.name == n }), err)
 					}
 					cfv = append(cfv, map[string]string{"field_id": fid, "value_id": vid})
 				}
