@@ -119,7 +119,7 @@ func newStoryFiles(env Env) *cobra.Command {
 					break
 				}
 				name := uniqueName(cleanName(f.Name, f.ID), f.ID, used)
-				p, err := download(ctx, client, hosts, d.Settings.Token, f, out, name)
+				p, err := downloadRetry(ctx, d, client, hosts, f, out, name)
 				if err != nil {
 					failure = err
 					break
@@ -205,6 +205,37 @@ func place(tmp, dir, name string, id int64) (string, error) {
 	}
 }
 
+// downloadRetry runs download. After a 429, a 502, a 503, a 504 or a lost
+// connection it tries again, with the backoff and the budget of the
+// transport. Each try writes a new temp file.
+func downloadRetry(ctx context.Context, d *deps, c *http.Client, hosts []string, f apiFile, dir, name string) (string, error) {
+	now := d.Now
+	if now == nil {
+		now = time.Now
+	}
+	start := now()
+	var total time.Duration
+	for try := 1; ; try++ {
+		p, err := download(ctx, c, hosts, d.Settings.Token, f, dir, name)
+		if err == nil || ctx.Err() != nil || !transport.Retryable(err) || try >= transport.MaxTries {
+			return p, err
+		}
+		var after time.Duration
+		var e *exit.Error
+		if errors.As(err, &e) {
+			after = e.RetryAfter
+		}
+		wait := transport.Backoff(try, after)
+		if max(now().Sub(start), total)+wait > transport.RetryBudget {
+			return "", err
+		}
+		total += wait
+		if serr := sleepCtx(ctx, d.Sleep, wait); serr != nil {
+			return "", fmt.Errorf("download file %d: %w", f.ID, serr)
+		}
+	}
+}
+
 // download writes one file through a temp file in dir, then links it to a
 // free name from name on. It returns the path.
 func download(ctx context.Context, c *http.Client, hosts []string, token string, f apiFile, dir, name string) (dest string, err error) {
@@ -233,7 +264,8 @@ func download(ctx context.Context, c *http.Client, hosts []string, token string,
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return "", &exit.Error{Code: transport.CodeFor(resp.StatusCode), Status: resp.StatusCode, Msg: fmt.Sprintf("download file %d: status %d", f.ID, resp.StatusCode)}
+		return "", &exit.Error{Code: transport.CodeFor(resp.StatusCode), Status: resp.StatusCode, RetryAfter: transport.RetryAfter(resp),
+			Msg: fmt.Sprintf("download file %d: status %d", f.ID, resp.StatusCode)}
 	}
 	tmp, err := os.CreateTemp(dir, ".scut-*")
 	if err != nil {

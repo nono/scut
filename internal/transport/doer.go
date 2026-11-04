@@ -33,8 +33,8 @@ const DefaultBaseURL = "https://api.app.shortcut.com"
 var Version = "dev"
 
 const (
-	maxTries     = 4
-	retryBudget  = 20 * time.Second
+	MaxTries     = 4                // tries of a safe request
+	RetryBudget  = 20 * time.Second // a call ends this long after it starts
 	firstBackoff = 500 * time.Millisecond
 	tryTimeout   = 30 * time.Second // limit of each single try
 	firstTryMin  = 2 * time.Second  // the first try has at least this, so a normal call is not cut
@@ -91,15 +91,15 @@ func (d *Doer) Do(req *http.Request) (*http.Response, error) {
 	ctx := req.Context()
 	retry := req.Method == http.MethodGet
 	// The budget bounds the whole call: each try, with the read of its body,
-	// has a deadline of the time left in retryBudget from the first try (at
+	// has a deadline of the time left in RetryBudget from the first try (at
 	// most tryTimeout; the first try has at least firstTryMin), and no wait
-	// ends after the budget. So a call ends retryBudget after it starts. The
+	// ends after the budget. So a call ends RetryBudget after it starts. The
 	// elapsed time is the larger of the clock and the sum of the waits, so an
 	// injected sleep still counts.
 	start := d.now()
 	var total time.Duration
 	for try := 1; ; try++ {
-		limit := min(tryTimeout, retryBudget-max(d.now().Sub(start), total))
+		limit := min(tryTimeout, RetryBudget-max(d.now().Sub(start), total))
 		if try == 1 {
 			limit = max(limit, firstTryMin)
 		}
@@ -118,18 +118,16 @@ func (d *Doer) Do(req *http.Request) (*http.Response, error) {
 			resp.Body = &cancelBody{resp.Body, cancel} // the deadline also bounds the read
 			return resp, nil
 		default:
-			wait = retryAfter(resp)
+			wait = RetryAfter(resp)
 			final = d.statusError(req, resp)
 			cancel()
 		}
-		if !retry || try >= maxTries || !Retryable(final) {
+		if !retry || try >= MaxTries || !Retryable(final) {
 			return nil, final
 		}
-		if wait == 0 {
-			wait = jitter(firstBackoff << (try - 1))
-		}
+		wait = Backoff(try, wait)
 		elapsed := max(d.now().Sub(start), total)
-		if elapsed+wait > retryBudget {
+		if elapsed+wait > RetryBudget {
 			return nil, final
 		}
 		total += wait
@@ -166,8 +164,13 @@ func (d *Doer) wait(ctx context.Context, w time.Duration) error {
 	}
 }
 
-func jitter(d time.Duration) time.Duration {
-	return time.Duration(float64(d) * (0.8 + 0.4*rand.Float64()))
+// Backoff returns the wait after failed try number try (from 1): after, when
+// the server gave a Retry-After, else 0.5 s doubled for each try, ±20 %.
+func Backoff(try int, after time.Duration) time.Duration {
+	if after > 0 {
+		return after
+	}
+	return time.Duration(float64(firstBackoff<<(try-1)) * (0.8 + 0.4*rand.Float64()))
 }
 
 // Retryable tells if err is a failure that a retry can heal: 429, 502, 503,
@@ -186,8 +189,8 @@ func Retryable(err error) bool {
 	return false
 }
 
-// retryAfter reads a Retry-After header in seconds. It returns 0 if absent.
-func retryAfter(resp *http.Response) time.Duration {
+// RetryAfter reads a Retry-After header in seconds. It returns 0 if absent.
+func RetryAfter(resp *http.Response) time.Duration {
 	n, err := strconv.Atoi(strings.TrimSpace(resp.Header.Get("Retry-After")))
 	if err != nil || n <= 0 {
 		return 0
@@ -235,7 +238,7 @@ func (d *Doer) statusError(req *http.Request, resp *http.Response) error {
 	e := &exit.Error{
 		Code:       CodeFor(resp.StatusCode),
 		Status:     resp.StatusCode,
-		RetryAfter: retryAfter(resp),
+		RetryAfter: RetryAfter(resp),
 		Msg:        fmt.Sprintf("%s %s: %s", req.Method, req.URL.Path, resp.Status),
 	}
 	if isJSON(resp.Header.Get("Content-Type")) && json.Valid(body) {

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 const filesPath = "/api/v4/acme/stories/5818/files"
@@ -59,6 +60,7 @@ func filesHarness(t *testing.T, specs []fileSpec, status int, gotHdr *http.Heade
 	}, "", searchEnv)
 	h.env.FileClient = host.Client()
 	h.env.FileHosts = []string{"127.0.0.1"}
+	h.env.Sleep = func(time.Duration) {}
 	return h
 }
 
@@ -142,6 +144,59 @@ func TestFilesServerError(t *testing.T) {
 	h := filesHarness(t, []fileSpec{{1, "a.txt", "hello", -1}}, 503, nil)
 	if code, _, errs := h.run("story", "files", "5818", "--out", t.TempDir()); code != 5 {
 		t.Errorf("code %d, stderr %s", code, errs)
+	}
+}
+
+// A download that fails with 429, 502, 503, 504 or a lost connection is
+// tried again, with a new temp file, in the budget of the transport.
+func TestFilesRetry(t *testing.T) {
+	for _, tc := range []struct {
+		fails   []int // status of each failed try; 0 drops the connection
+		hits    int
+		code    int
+		content string
+	}{
+		{[]int{503, 0, 429}, 4, 0, "hello"},
+		{[]int{502, 504, 503, 503}, 4, 5, ""},
+		{[]int{404}, 1, 3, ""},
+	} {
+		var hits atomic.Int32
+		host := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			i := int(hits.Add(1)) - 1
+			switch {
+			case i >= len(tc.fails):
+				_, _ = w.Write([]byte("hello"))
+			case tc.fails[i] == 0:
+				w.Header().Set("Content-Length", "5")
+				_, _ = w.Write([]byte("he")) // a cut body
+			default:
+				w.WriteHeader(tc.fails[i])
+			}
+		}))
+		t.Cleanup(host.Close)
+		h := newHarness(t, map[string]http.HandlerFunc{
+			"GET " + filesPath: jsonHandler(listBody(map[string]any{
+				"id": 1, "name": "a.txt", "content_type": "text/plain", "size": 5, "url": host.URL + "/f/1",
+			})),
+		}, "", searchEnv)
+		h.env.FileClient = host.Client()
+		h.env.FileHosts = []string{"127.0.0.1"}
+		var slept []time.Duration
+		h.env.Sleep = func(d time.Duration) { slept = append(slept, d) }
+		out := t.TempDir()
+		code, _, errs := h.run("story", "files", "5818", "--out", out)
+		if code != tc.code || int(hits.Load()) != tc.hits || len(slept) != tc.hits-1 {
+			t.Errorf("%v: code %d, hits %d, waits %v, stderr %s", tc.fails, code, hits.Load(), slept, errs)
+		}
+		got := entries(t, out)
+		if tc.content == "" && len(got) != 0 {
+			t.Errorf("%v: files %v", tc.fails, got)
+		}
+		if tc.content != "" {
+			if b, _ := os.ReadFile(filepath.Join(out, "a.txt")); string(b) != tc.content || len(got) != 1 {
+				t.Errorf("%v: files %v, content %q", tc.fails, got, b)
+			}
+		}
 	}
 }
 
