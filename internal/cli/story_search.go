@@ -95,7 +95,7 @@ func newStorySearch(env Env) *cobra.Command {
 			"Example: scut story search '!is:done epic:5387'\n\n" +
 			"The search index is eventually consistent: search can lag; use story view for current data.",
 		Args:        cobra.ExactArgs(1),
-		Annotations: map[string]string{OpsAnnotation: "searchStories"},
+		Annotations: map[string]string{OpsAnnotation: "searchStories,listMembers"},
 	}
 	limitFlag := cmd.Flags().String("limit", strconv.Itoa(defaultLimit), "maximum number of stories, or all")
 	fieldsFlag := cmd.Flags().String("fields", "", "comma-separated fields to show")

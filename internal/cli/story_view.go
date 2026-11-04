@@ -81,7 +81,7 @@ func newStoryView(env Env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:         "view [<story>…]",
 		Short:       "Show stories; default story from the git branch",
-		Annotations: map[string]string{OpsAnnotation: "getStory,listStoryComments,listStories"},
+		Annotations: map[string]string{OpsAnnotation: "getStory,listStoryComments,listStories,listMembers"},
 	}
 	fieldsFlag := cmd.Flags().String("fields", "", "comma-separated fields to show")
 	commentsFlag := cmd.Flags().String("comments", strconv.Itoa(defaultComments), "number of newest comments, or all")

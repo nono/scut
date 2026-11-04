@@ -114,7 +114,7 @@ func newEpicView(env Env) *cobra.Command {
 		Use:         "view <epic>",
 		Short:       "Show an epic, by ID or exact name",
 		Args:        cobra.ExactArgs(1),
-		Annotations: map[string]string{OpsAnnotation: "getEpic,searchEpics"},
+		Annotations: map[string]string{OpsAnnotation: "getEpic,searchEpics,listMembers"},
 		RunE: withDeps(env, func(cmd *cobra.Command, args []string, d *deps) error {
 			id, err := d.Resolver.Epic(args[0])
 			if err != nil {
@@ -139,7 +139,7 @@ func newEpicSearch(env Env) *cobra.Command {
 		Short:       "Search epics",
 		Long:        "Search epics with a Shortcut search query, sent as is.\n\nThe search index is eventually consistent: search can lag; use epic view for current data.",
 		Args:        cobra.ExactArgs(1),
-		Annotations: map[string]string{OpsAnnotation: "searchEpics"},
+		Annotations: map[string]string{OpsAnnotation: "searchEpics,listMembers"},
 	}
 	limitFlag := cmd.Flags().String("limit", strconv.Itoa(defaultLimit), "maximum number of epics, or all")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
@@ -168,7 +168,7 @@ func newEpicStories(env Env) *cobra.Command {
 		Short:       "List the stories of an epic, in position order",
 		Long:        "List the stories of an epic, in position order. The epic is an ID or an exact name.\nThe API default applies: archived stories are left out.",
 		Args:        cobra.ExactArgs(1),
-		Annotations: map[string]string{OpsAnnotation: "listEpicStories,searchEpics"},
+		Annotations: map[string]string{OpsAnnotation: "listEpicStories,searchEpics,listMembers"},
 	}
 	limitFlag := cmd.Flags().String("limit", strconv.Itoa(defaultLimit), "maximum number of stories, or all")
 	fieldsFlag := cmd.Flags().String("fields", "", "comma-separated fields to show")
@@ -207,7 +207,7 @@ func newEpicComment(env Env) *cobra.Command {
 		Use:         "comment <epic>",
 		Short:       "Add a comment to an epic",
 		Args:        cobra.ExactArgs(1),
-		Annotations: map[string]string{OpsAnnotation: "createEpicComment,searchEpics"},
+		Annotations: map[string]string{OpsAnnotation: "createEpicComment,searchEpics,listMembers"},
 	}
 	bodyFile := cmd.Flags().String("body-file", "", "read the comment text from this file; - is stdin")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
