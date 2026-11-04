@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -118,12 +119,12 @@ func newStoryFiles(env Env) *cobra.Command {
 					break
 				}
 				name := uniqueName(cleanName(f.Name, f.ID), f.ID, used)
-				p := filepath.Join(out, name)
-				if err := download(ctx, client, hosts, d.Settings.Token, f, out, p); err != nil {
+				p, err := download(ctx, client, hosts, d.Settings.Token, f, out, name)
+				if err != nil {
 					failure = err
 					break
 				}
-				done = append(done, storyFile{ID: f.ID, Name: name, Path: p, Size: f.Size, ContentType: f.ContentType})
+				done = append(done, storyFile{ID: f.ID, Name: filepath.Base(p), Path: p, Size: f.Size, ContentType: f.ContentType})
 			}
 			if err := d.Out(done); err != nil {
 				return err
@@ -161,22 +162,52 @@ func cleanName(name string, id int64) string {
 	return base
 }
 
+// altName returns the name to try after n taken names: name, then
+// <base>-<id><ext>, then <base>-<id>-<n><ext>.
+func altName(name string, id int64, n int) string {
+	if n == 0 {
+		return name
+	}
+	ext := path.Ext(name)
+	base := strings.TrimSuffix(name, ext) + "-" + strconv.FormatInt(id, 10)
+	if n == 1 {
+		return base + ext
+	}
+	return base + "-" + strconv.Itoa(n) + ext
+}
+
 // uniqueName adds the file ID before the extension if name is taken.
 func uniqueName(name string, id int64, used map[string]bool) string {
-	if used[name] {
-		ext := path.Ext(name)
-		base := strings.TrimSuffix(name, ext) + "-" + strconv.FormatInt(id, 10)
-		name = base + ext
-		for i := 2; used[name]; i++ {
-			name = base + "-" + strconv.Itoa(i) + ext
-		}
+	n := 0
+	for used[altName(name, id, n)] {
+		n++
 	}
+	name = altName(name, id, n)
 	used[name] = true
 	return name
 }
 
-// download writes one file through a temp file in dir, then renames it to dest.
-func download(ctx context.Context, c *http.Client, hosts []string, token string, f apiFile, dir, dest string) (err error) {
+// place links tmp to a free name in dir, from name on (see altName), then
+// removes tmp. A link never replaces a file, so two runs cannot replace each
+// other's file either. It returns the path.
+func place(tmp, dir, name string, id int64) (string, error) {
+	for n := 0; ; n++ {
+		dest := filepath.Join(dir, altName(name, id, n))
+		err := os.Link(tmp, dest)
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		_ = os.Remove(tmp)
+		return dest, nil
+	}
+}
+
+// download writes one file through a temp file in dir, then links it to a
+// free name from name on. It returns the path.
+func download(ctx context.Context, c *http.Client, hosts []string, token string, f apiFile, dir, name string) (dest string, err error) {
 	scrub := func(s string) string { return transport.Scrub(s, token) }
 	netErr := func(err error) error {
 		if ctx.Err() != nil {
@@ -190,23 +221,23 @@ func download(ctx context.Context, c *http.Client, hosts []string, token string,
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.URL, nil)
 	if err != nil {
-		return &exit.Error{Code: exit.Other, Msg: scrub(fmt.Sprintf("file %d: bad url", f.ID))}
+		return "", &exit.Error{Code: exit.Other, Msg: scrub(fmt.Sprintf("file %d: bad url", f.ID))}
 	}
 	if !tokenAllowed(req.URL, hosts) {
-		return &exit.Error{Code: exit.Other, Msg: "file host not allowed: " + req.URL.Hostname()}
+		return "", &exit.Error{Code: exit.Other, Msg: "file host not allowed: " + req.URL.Hostname()}
 	}
 	req.Header.Set("Shortcut-Token", token)
 	resp, err := c.Do(req)
 	if err != nil {
-		return netErr(err)
+		return "", netErr(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return &exit.Error{Code: transport.CodeFor(resp.StatusCode), Status: resp.StatusCode, Msg: fmt.Sprintf("download file %d: status %d", f.ID, resp.StatusCode)}
+		return "", &exit.Error{Code: transport.CodeFor(resp.StatusCode), Status: resp.StatusCode, Msg: fmt.Sprintf("download file %d: status %d", f.ID, resp.StatusCode)}
 	}
 	tmp, err := os.CreateTemp(dir, ".scut-*")
 	if err != nil {
-		return &exit.Error{Code: exit.Other, Msg: err.Error()}
+		return "", &exit.Error{Code: exit.Other, Msg: err.Error()}
 	}
 	defer func() {
 		if err != nil {
@@ -216,19 +247,19 @@ func download(ctx context.Context, c *http.Client, hosts []string, token string,
 	}()
 	n, err := io.Copy(tmp, resp.Body)
 	if err != nil {
-		return netErr(err)
+		return "", netErr(err)
 	}
 	if n != f.Size {
-		return &exit.Error{Code: exit.Other, Msg: fmt.Sprintf("download file %d: got %d bytes, expected %d", f.ID, n, f.Size)}
+		return "", &exit.Error{Code: exit.Other, Msg: fmt.Sprintf("download file %d: got %d bytes, expected %d", f.ID, n, f.Size)}
 	}
 	if err := tmp.Close(); err != nil {
-		return &exit.Error{Code: exit.Other, Msg: err.Error()}
+		return "", &exit.Error{Code: exit.Other, Msg: err.Error()}
 	}
 	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
-		return &exit.Error{Code: exit.Other, Msg: err.Error()}
+		return "", &exit.Error{Code: exit.Other, Msg: err.Error()}
 	}
-	if err := os.Rename(tmp.Name(), dest); err != nil {
-		return &exit.Error{Code: exit.Other, Msg: err.Error()}
+	if dest, err = place(tmp.Name(), dir, name, f.ID); err != nil {
+		return "", &exit.Error{Code: exit.Other, Msg: err.Error()}
 	}
-	return nil
+	return dest, nil
 }

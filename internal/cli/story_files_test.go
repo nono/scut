@@ -198,6 +198,36 @@ func TestFilesNameClean(t *testing.T) {
 	}
 }
 
+// A file that is already in --out is never replaced.
+func TestFilesNoReplace(t *testing.T) {
+	h := filesHarness(t, []fileSpec{{7, "a.txt", "new", -1}, {8, "b", "new b", -1}}, 0, nil)
+	out := t.TempDir()
+	for name, body := range map[string]string{"a.txt": "old", "b": "old b", "b-8": "old b-8"} {
+		if err := os.WriteFile(filepath.Join(out, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	code, stdout, errs := h.run("story", "files", "5818", "--out", out)
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	for name, body := range map[string]string{"a.txt": "old", "a-7.txt": "new", "b": "old b", "b-8": "old b-8", "b-8-2": "new b"} {
+		if b, _ := os.ReadFile(filepath.Join(out, name)); string(b) != body {
+			t.Errorf("%s: %q, want %q", name, b, body)
+		}
+	}
+	var l []map[string]any
+	if err := json.Unmarshal([]byte(stdout), &l); err != nil || len(l) != 2 {
+		t.Fatalf("stdout %s: %v", stdout, err)
+	}
+	if l[0]["path"] != filepath.Join(out, "a-7.txt") || l[0]["name"] != "a-7.txt" || l[1]["path"] != filepath.Join(out, "b-8-2") {
+		t.Errorf("stdout %s", stdout)
+	}
+	if got := entries(t, out); len(got) != 5 {
+		t.Errorf("files %v", got)
+	}
+}
+
 func TestFilesOutMissing(t *testing.T) {
 	h := newHarness(t, nil, "", nil)
 	if code, _, errs := h.run("story", "files", "5818"); code != 2 {

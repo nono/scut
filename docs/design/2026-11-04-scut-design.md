@@ -177,8 +177,8 @@ Before `scut` parses a body, it checks the status and the `Content-Type`.
 ### Files (U10, G6)
 
 - `story files` lists with `GET /stories/{id}/files` and downloads each `url` with the `Shortcut-Token` header.
-- `scut` writes to a temp file in `--out` and renames it when the download is complete. On a non-2xx status, or when the size is not the size in the entity, it deletes the temp file and exits with an error.
-- File names come from the entity `name`. `scut` cleans the name to its base name. If two names are the same, it adds `-<file id>`.
+- `scut` writes to a temp file in `--out` and moves it to its name when the download is complete. On a non-2xx status, or when the size is not the size in the entity, it deletes the temp file and exits with an error.
+- File names come from the entity `name`. `scut` cleans the name to its base name. If two names are the same, or the name is taken in `--out`, it adds `-<file id>` (then `-<file id>-2`, …). It never replaces a file: it links the temp file to the free name, and a link fails when the name exists.
 - Output: an array of `{id, name, path, size, content_type}`.
 
 ### Search (U2)
