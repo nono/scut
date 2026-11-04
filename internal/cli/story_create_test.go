@@ -254,9 +254,12 @@ func TestCreateConfigSource(t *testing.T) {
 			t.Errorf("code %d, error %q, want %q", code, msg, want)
 		}
 	}
-	// A flag value has no source.
+	// A flag value has no source, even over a config value.
 	var c calls
 	h := createHarness(t, &createFake{}, &c, nil)
+	if err := os.WriteFile(filepath.Join(h.env.Dir, ".scut.toml"), []byte(`team = "Other"`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	_, _, errs := h.run("story", "create", "--name", "x", "--state", "To Do", "--team", "Nope")
 	if msg, _ := decode(t, errs)["error"].(string); msg != `no team "Nope"` {
 		t.Errorf("flag: %q", msg)
