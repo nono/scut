@@ -159,7 +159,7 @@ Before `scut` parses a body, it checks the status and the `Content-Type`.
 ### Configuration (G4, G9)
 
 - User file: `$XDG_CONFIG_HOME/scut/config.toml`. Repo file: `.scut.toml`, found from the current directory up to the git root.
-- Precedence, the same for each setting: flag > env (`SCUT_*`) > repo file > user file > built-in default.
+- Precedence, the same for each setting: flag > env (`SCUT_*`) > repo file > user file > built-in default. The env names are `SCUT_TEAM`, `SCUT_STATE`, `SCUT_WORKFLOW`, `SCUT_REQUESTER`, `SCUT_OWNER`, `SCUT_OUTPUT` and `SCUT_FIELDS` (`Name=Value;Name=Value`, which overrides the `[fields]` of the files per key).
 - Token: `--token-file` flag > `SCUT_TOKEN` > `token_file` in the user file > OS keyring. The repo file cannot hold a token or a token file. `scut` refuses one there, because a repo file can be committed. Trim whitespace from the token.
 - `auth login` reads the token from stdin with no echo, checks it with `whoami`, and stores it in the keyring. `auth status` shows the workspace, the scopes and the source of the token, but never the token.
 - Defaults (your values): team Software Dev, state To Do, requester and owner `@me`, field Technical Area = Back end. These go in the user file.

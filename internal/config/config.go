@@ -26,7 +26,7 @@ type Settings struct {
 
 // Options are the inputs of Load.
 type Options struct {
-	Flags   map[string]string // keys: team, state, output, token-file, profile
+	Flags   map[string]string // keys: team, state, workflow, requester, owner, output, token-file, profile
 	Getenv  func(string) string
 	Dir     string // start dir of the search for .scut.toml
 	Keyring Keyring
@@ -86,9 +86,9 @@ func Load(o Options) (Settings, error) {
 	}
 	s.Team = pick("team", "SCUT_TEAM", repo.Team, user.Team)
 	s.State = pick("state", "SCUT_STATE", repo.State, user.State)
-	s.Workflow = first(getenv("SCUT_WORKFLOW"), repo.Workflow, user.Workflow)
-	s.Requester = first(repo.Requester, user.Requester)
-	s.Owner = first(repo.Owner, user.Owner)
+	s.Workflow = pick("workflow", "SCUT_WORKFLOW", repo.Workflow, user.Workflow)
+	s.Requester = pick("requester", "SCUT_REQUESTER", repo.Requester, user.Requester)
+	s.Owner = pick("owner", "SCUT_OWNER", repo.Owner, user.Owner)
 	s.Output = pick("output", "SCUT_OUTPUT", repo.Output, user.Output)
 	if s.Output == "" {
 		s.Output = "json"
@@ -96,8 +96,12 @@ func Load(o Options) (Settings, error) {
 	if s.Output != "json" && s.Output != "human" {
 		return Settings{}, exit.Usagef("output %q is not valid, use json or human", s.Output)
 	}
-	for _, l := range []layer{user, repo} {
-		for k, v := range l.Fields {
+	envFields, err := parseFields(getenv("SCUT_FIELDS"))
+	if err != nil {
+		return Settings{}, err
+	}
+	for _, m := range []map[string]string{user.Fields, repo.Fields, envFields} {
+		for k, v := range m {
 			s.Fields[k] = v
 		}
 	}
@@ -108,6 +112,23 @@ func Load(o Options) (Settings, error) {
 	cache := first(getenv("XDG_CACHE_HOME"), filepath.Join(home, ".cache"))
 	s.CacheDir = filepath.Join(cache, "scut", s.Workspace)
 	return s, nil
+}
+
+// parseFields reads SCUT_FIELDS: Name=Value pairs split by ";".
+func parseFields(env string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, p := range strings.Split(env, ";") {
+		if strings.TrimSpace(p) == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(p, "=")
+		k, v = strings.TrimSpace(k), strings.TrimSpace(v)
+		if !ok || k == "" {
+			return nil, exit.Usagef("SCUT_FIELDS: %q is not Name=Value", strings.TrimSpace(p))
+		}
+		out[k] = v
+	}
+	return out, nil
 }
 
 func resolveToken(s *Settings, o Options, getenv func(string) string, tokenFile, home string) error {

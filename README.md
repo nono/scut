@@ -57,6 +57,10 @@ A token in a repo file is an error.
 
 Precedence: flag, then `SCUT_*` environment variable, then repo file,
 then user file, then built-in default.
+The environment variables are `SCUT_TEAM`, `SCUT_STATE`, `SCUT_WORKFLOW`,
+`SCUT_REQUESTER`, `SCUT_OWNER`, `SCUT_OUTPUT` and `SCUT_FIELDS`.
+`SCUT_FIELDS` has the form `Name=Value;Name=Value`. Each name in it
+replaces that key of `[fields]`; the other keys stay.
 
 ## Use
 

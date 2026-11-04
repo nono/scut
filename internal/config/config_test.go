@@ -55,6 +55,9 @@ func TestPrecedence(t *testing.T) {
 		{"team", "SCUT_TEAM", func(s config.Settings) string { return s.Team }},
 		{"state", "SCUT_STATE", func(s config.Settings) string { return s.State }},
 		{"output", "SCUT_OUTPUT", func(s config.Settings) string { return s.Output }},
+		{"workflow", "SCUT_WORKFLOW", func(s config.Settings) string { return s.Workflow }},
+		{"requester", "SCUT_REQUESTER", func(s config.Settings) string { return s.Requester }},
+		{"owner", "SCUT_OWNER", func(s config.Settings) string { return s.Owner }},
 	}
 	for _, r := range rows {
 		t.Run(r.name, func(t *testing.T) {
@@ -111,6 +114,29 @@ func TestFieldsAndKeys(t *testing.T) {
 	e.env["SCUT_WORKFLOW"] = "E"
 	if s, _ = config.Load(e.opts(nil)); s.Workflow != "E" {
 		t.Errorf("workflow %q", s.Workflow)
+	}
+}
+
+// SCUT_FIELDS overrides the [fields] of the files, one key at a time.
+func TestFieldsEnv(t *testing.T) {
+	e := newEnv(t)
+	write(t, e.userFile, "[fields]\nA = \"1\"\nB = \"2\"\n")
+	write(t, e.repoFile, "[fields]\nB = \"3\"\n")
+	e.env["SCUT_FIELDS"] = "A=env; Technical Area = Back end ;"
+	s, err := config.Load(e.opts(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Fields) != 3 || s.Fields["A"] != "env" || s.Fields["B"] != "3" || s.Fields["Technical Area"] != "Back end" {
+		t.Errorf("fields %v", s.Fields)
+	}
+	for _, bad := range []string{"A", "=x", "A=1;B"} {
+		e.env["SCUT_FIELDS"] = bad
+		_, err := config.Load(e.opts(nil))
+		var xe *exit.Error
+		if !errors.As(err, &xe) || xe.Code != exit.Usage || !strings.HasPrefix(xe.Msg, "SCUT_FIELDS: ") {
+			t.Errorf("%q: got %v", bad, err)
+		}
 	}
 }
 
