@@ -257,8 +257,33 @@ func TestCreateGivesUp(t *testing.T) {
 	if !strings.Contains(sug, "may exist") || !strings.Contains(sug, f.externalID(0)) {
 		t.Errorf("suggestion %q", sug)
 	}
-	if f.count() != 4 || f.nList != 3 {
-		t.Errorf("%d creates, %d lists, want 4 and 3", f.count(), f.nList)
+	if f.count() != 4 || f.nList != 4 {
+		t.Errorf("%d creates, %d lists, want 4 and 4", f.count(), f.nList)
+	}
+}
+
+// After the last try, one more find runs; when it finds the story, exit 0.
+func TestCreateGivesUpFindsLast(t *testing.T) {
+	var c calls
+	f := &createFake{statuses: []int{504, 504, 504, 504}}
+	h := createHarness(t, f, &c, map[string]http.HandlerFunc{
+		"GET " + createPath: c.wrap(func(w http.ResponseWriter, r *http.Request) {
+			f.mu.Lock()
+			f.nList++
+			f.mu.Unlock()
+			body := listBody()
+			if f.count() == 4 { // the story shows up only after the last create
+				body = listWith(f.externalID(0))
+			}
+			jsonHandler(body)(w, r)
+		}),
+	})
+	code, out, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if f.count() != 4 || f.nList != 4 || decode(t, out)["id"] != float64(5818) || c.count(createPath+"/5818") != 1 {
+		t.Errorf("%d creates, %d lists, out %s", f.count(), f.nList, out)
 	}
 }
 
@@ -279,8 +304,8 @@ func TestCreateBudget(t *testing.T) {
 	now := time.Unix(1000, 0)
 	h.env.Now = func() time.Time { now = now.Add(25 * time.Second); return now }
 	code, _, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
-	if code != 5 || f.count() != 1 {
-		t.Errorf("code %d, creates %d, stderr %s", code, f.count(), errs)
+	if code != 5 || f.count() != 1 || f.nList != 1 {
+		t.Errorf("code %d, creates %d, lists %d, stderr %s", code, f.count(), f.nList, errs)
 	}
 	if !strings.Contains(errs, f.externalID(0)) {
 		t.Errorf("stderr %s", errs)

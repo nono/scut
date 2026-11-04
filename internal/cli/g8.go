@@ -83,6 +83,10 @@ func cancelled(externalID string) error {
 // cannot tell if the last one worked. Any other failure is final, so a 4xx and
 // a 500 are never retried. No try starts after createBudget from the first.
 //
+// When it gives up (try limit or budget) after an uncertain create that no
+// find has checked yet, it looks for the story once more, even after the
+// budget.
+//
 // When the story exists but the full entity cannot be read, it returns the
 // list item together with the error.
 func createStoryRetry(ctx context.Context, d *deps, body map[string]any) (json.RawMessage, error) {
@@ -96,6 +100,7 @@ func createStoryRetry(ctx context.Context, d *deps, body map[string]any) (json.R
 	elapsed := func() time.Duration { return max(now().Sub(start), total) }
 	sent := false      // a create was sent
 	uncertain := false // an earlier create may have worked
+	checked := false   // a find ran after the last create
 	var last error     // the last retryable failure
 	fail := func(err error) error {
 		switch {
@@ -106,6 +111,15 @@ func createStoryRetry(ctx context.Context, d *deps, body map[string]any) (json.R
 		}
 		return err
 	}
+	// giveUp runs the last find when no find checked the last create.
+	giveUp := func(err error) (json.RawMessage, error) {
+		if uncertain && !checked && ctx.Err() == nil {
+			if it, ok, ferr := findCreated(ctx, d.Doer, extID); ferr == nil && ok {
+				return readCreated(ctx, d, it, extID)
+			}
+		}
+		return nil, fail(err)
+	}
 	for try := 1; ; try++ {
 		var failure error
 		if uncertain {
@@ -114,25 +128,18 @@ func createStoryRetry(ctx context.Context, d *deps, body map[string]any) (json.R
 			case err != nil:
 				failure = err
 			case ok:
-				var s struct {
-					ID int64 `json:"id"`
-				}
-				if err := json.Unmarshal(it, &s); err != nil || s.ID == 0 {
-					return nil, mayExist(&exit.Error{Code: exit.Other, Msg: "bad story in list"}, extID)
-				}
-				full, err := d.Doer.Raw(ctx, "GET", "stories/"+strconv.FormatInt(s.ID, 10), nil, nil)
-				if err != nil {
-					return it, err
-				}
-				return full, nil
+				return readCreated(ctx, d, it, extID)
+			default:
+				checked = true
 			}
 		}
 		if failure == nil {
 			// The list call has its own budget: check ours again.
 			if try > 1 && elapsed() > createBudget {
-				return nil, fail(last)
+				return giveUp(last)
 			}
 			sent = true
+			checked = false
 			out, err := d.Doer.Raw(ctx, "POST", "stories", nil, body)
 			if err == nil {
 				return out, nil
@@ -153,13 +160,28 @@ func createStoryRetry(ctx context.Context, d *deps, body map[string]any) (json.R
 			wait = xe.RetryAfter
 		}
 		if try >= createTries || elapsed()+wait > createBudget {
-			return nil, fail(failure)
+			return giveUp(failure)
 		}
 		total += wait
 		if err := sleepCtx(ctx, d.Sleep, wait); err != nil {
 			return nil, fail(err)
 		}
 	}
+}
+
+// readCreated reads the full story of a list item that findCreated found.
+func readCreated(ctx context.Context, d *deps, it json.RawMessage, extID string) (json.RawMessage, error) {
+	var s struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(it, &s); err != nil || s.ID == 0 {
+		return nil, mayExist(&exit.Error{Code: exit.Other, Msg: "bad story in list"}, extID)
+	}
+	full, err := d.Doer.Raw(ctx, "GET", "stories/"+strconv.FormatInt(s.ID, 10), nil, nil)
+	if err != nil {
+		return it, err
+	}
+	return full, nil
 }
 
 // sleepCtx waits for w. With sleep set, it calls that instead of a timer.
