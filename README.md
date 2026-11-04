@@ -51,7 +51,7 @@ Other keys: `workflow`, `output` (`json` or `human`), `token_file`.
 A `[profile.<name>]` table holds the same keys for a second workspace.
 Pick it with `--profile <name>` or `SCUT_PROFILE`.
 
-The repo file `.scut.toml` has the same keys, except `token` and `token_file`.
+The repo file `.scut.toml` has the same keys, except `token_file`. No file accepts `token`.
 `scut` looks for it from the current directory up to the git root.
 A token in a repo file is an error.
 

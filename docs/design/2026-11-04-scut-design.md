@@ -18,7 +18,7 @@ A CLI that calls the REST API v4 directly, takes names, and prints compact JSON 
 
 ## Goals (v1)
 
-v1 has every MUST item of the requirements page: U1–U10 and G1, G3–G9. G2 is now COULD.
+v1 has every MUST item of the requirements page: U1–U10 and G1, G3–G9. G2 is COULD.
 
 v1 ships:
 
@@ -53,7 +53,7 @@ A command that does these things is a failure, even if it works:
 - **Scopes:** `r`, `w`, `s` (story write), `c` (comment write), `a` (admin). A read-only token (`sct_r_`) must work for all read commands.
 - **Rate limit:** 200 requests per minute.
 - **Language and install:** Go, one static binary, install with `mise` from tagged releases.
-- **Start time:** herdr runs `scut` for each action and event. With a warm cache, each read command makes at most 2 API calls, plus 1 call for each more page of `--limit`. Only `story view` of one story with comments makes 2, plus 1 when the story has tasks.
+- **Start time:** herdr runs `scut` for each action and event. With a warm cache, a read command makes 1 API call, plus 1 call for each more page of `--limit`. Exceptions: `story view` of one story with comments makes 2 calls, and 3 when the story has tasks. An epic given by name adds 1 search call, because epics are not cached.
 - **User rules (CLAUDE.md):** no shell script over 100 lines, no special cases for the inputs of tests. A coverage drop is worse than a failing test.
 
 ## Verified API facts (2026-11-04, spec version 4.0, 173 paths)
@@ -119,10 +119,10 @@ Writes need the story-write or comment-write scope, or `w`. `story unlink` and `
 
 ### Output (G7)
 
-- JSON on stdout by default, on a terminal and in a pipe. A list is an array. A view is an object. A write prints the entity that the API returns.
+- JSON on stdout by default, on a terminal and in a pipe. A list is an array. A view is an object. A write prints the compact shape of the entity that the API returns. `story unlink` prints `{"deleted": <link id>}`. `story link` prints one result per link.
 - `--human` or `SCUT_OUTPUT=human` prints text. Only `--human` on a terminal can open `$EDITOR` or prompt. Exception: `auth login` on a terminal prompts for the token on stderr, with no echo.
 - Default fields are compact. `story view` returns: id, name, type, state name, owners and requester as mention names, epic id and name, labels, custom fields as `{name: value}`, the description, tasks, links, branches, PRs, and the last 10 comments. `search` and `epic stories` leave out the description and comments. `--fields` takes API field names and passes them to the API `fields` parameter. It also takes the output names (`state`, `type`, `tasks`, …) as aliases. An API field that the compact shape does not model is printed as the API sent it, under its API name. `genskill` writes the Story field names from the committed spec to `internal/cli/storyfields_gen.go`, and `make check-skill` fails when that file drifts.
-- Names in output (state, member, field) come from the cache. The design must keep the IDs as well, so a script can use them.
+- Member names in output come from the cache. State and field names come from the API response. The design must keep the IDs as well, so a script can use them.
 - Deleted comments (`text: null`) show as `{"deleted": true}`.
 
 ### Errors and exit codes (G11)
@@ -143,7 +143,7 @@ Before `scut` parses a body, it checks the status and the `Content-Type`.
 
 ### Retries (G5, G8)
 
-- Retry 429, 502, 503, 504 and connect failures with exponential backoff and jitter. Use `Retry-After` when the response has one. Default: 4 tries at most, and a call ends 20 s after it starts (my call): each try, with the read of its body, has a deadline of the time left in the 20 s (at most 30 s; the first try has at least 2 s). After the last try, exit 5.
+- Retry 429, 502, 503, 504 and connect failures with exponential backoff and jitter. Use a `Retry-After` in seconds when the response has one. Default: 4 tries at most, and a call ends 20 s after it starts (my call): each try, with the read of its body, has a deadline of the time left in the 20 s (at most 30 s; the first try has at least 2 s). After the last try, exit 5.
 - A failed `GET` can be retried. A `POST` create is retried only through the G8 check.
 - **G8 check:** each create sends `external_id` = a new UUIDv4. Before each retry, and on exit 5, read the newest stories (`order_by=created_at desc`, `limit 25`, `fields=id,external_id,name,app_url`) and look for that UUID. If it is there, print that story and exit 0.
 - **G8 after each failure (ruling of 2026-11-04, replaces R17):** a 4xx other than 429 makes no story: exit with its code. After a 429, a 503 or a connect failure before the request was sent, the server did not take the request: read, then create again. After a 502, a 504 or a timeout (no answer, or a cut body), the server may still save the story after the read: never create again, and read again with the backoff until the budget ends. After any other failure (a 500, an empty or non-JSON 2xx body), read once. If no read finds the story, exit 5 with the `external_id` in `suggestion`.
@@ -192,7 +192,7 @@ Before `scut` parses a body, it checks the status and the `Content-Type`.
 
 - The skill is in this repo at `skills/scut/SKILL.md`, so `npx skills add nono/scut` can install it. `scut` has no command to install the skill.
 - The command reference in `SKILL.md` is generated from the command tree by a dev tool (`go run ./internal/cmd/genskill`). CI fails if the committed file differs from the generated one, so the reference cannot drift from `--help`.
-- `scut usage` prints about 200 tokens: the nouns and one line each. `scut <noun> usage` prints that noun's commands and flags.
+- `scut usage` prints about 400 bytes (about 100 tokens): the nouns and one line each. `scut <noun> usage` prints that noun's commands and flags.
 - The skill says: use `scut`; read `scut usage` first; JSON output; exit codes; write long text to a file and pass `--body-file`.
 - The skill does not mention the MCP.
 - The skill has a "Not supported" list (for example: unlink a PR or branch, docs, history, bulk). It tells the agent to say that the feature is missing, and not to work around it with `scut api` unless the user asks.
@@ -200,7 +200,7 @@ Before `scut` parses a body, it checks the status and the `Content-Type`.
 ## Build and test
 
 - Commit the v4 spec (`api/shortcut.openapi.json`). It is the contract for the Prism tests, the operation check of the `scut/ops` annotations and the coverage table. No Go client is generated from it: commands shape raw JSON (decision of 2026-11-04). CI downloads the live spec and shows a diff when it changed.
-- Unit tests for each package. Contract tests run each command against Prism (Stoplight) in mock mode on the committed spec. A write test checks the request body against the schema (shortcut-cli #366).
+- Unit tests for each package. Contract tests run against Prism (Stoplight) in mock mode on the committed spec. They cover `story view`, `search`, `comments`, `comment`, `create` and `update`, `epic view`, `search`, `stories` and `comment`, `team list`, `member list`, `workflow list` and `states`, `field list` and `values`, and `cache clear`. `story link`, `unlink`, `relink`, `branch`, `files`, `whoami`, `api` and `auth` have no Prism test. A write test checks the request body against the schema (shortcut-cli #366).
 - Recorded responses (fixtures) for flows that Prism cannot model: G8 retry, paging loop, file download error page, name resolution.
 - One live smoke test, run by hand or in CI with a read-only token: `whoami`, `story view`, `story search`, `story files` on a test story (it has a 9,692-byte attachment).
 - Generate a coverage table of the v4 endpoints that `scut` calls, and check it in CI.
@@ -209,7 +209,7 @@ Before `scut` parses a body, it checks the status and the `Content-Type`.
 
 ## Left to the builder
 
-- The Go libraries: the CLI framework, the OpenAPI generator, TOML, the keyring.
+- The Go libraries: the CLI framework, TOML, the keyring.
 - The package layout.
 - The `--human` text format.
 - The JSON field names of the compact output, if they keep the API names when the value is the same.
