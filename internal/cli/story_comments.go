@@ -28,15 +28,18 @@ func newStoryComments(env Env) *cobra.Command {
 		}
 		return withDeps(env, func(cmd *cobra.Command, _ []string, d *deps) error {
 			q := url.Values{"order_dir": {"asc"}}
-			raw, err := listPages(cmd, d, "stories/"+strconv.FormatInt(id, 10)+"/comments", q, limit)
-			if err != nil {
-				return err
+			raw, stop := listPages(cmd, d, "stories/"+strconv.FormatInt(id, 10)+"/comments", q, limit)
+			if raw == nil && stop != nil {
+				return stop
 			}
 			out, err := shapeComments(raw, d.Resolver)
 			if err != nil {
 				return err
 			}
-			return d.Out(out)
+			if err := d.Out(out); err != nil {
+				return err
+			}
+			return stop // a list cut short: the items read, then the error
 		})(cmd, args)
 	}
 	return cmd

@@ -174,6 +174,25 @@ func TestSearchLimitAll(t *testing.T) {
 	}
 }
 
+// A repeated cursor stops the list: stdout has the items read, stderr the error.
+func TestSearchCursorRepeats(t *testing.T) {
+	body := strings.TrimSuffix(listBody(storyFixture(t)), "}") + `,"next_page_url":"/api/v4/acme/stories/search?cursor=same"}`
+	h := newHarness(t, map[string]http.HandlerFunc{
+		"GET " + searchPath:        jsonHandler(body),
+		"GET /api/v4/acme/members": membersRoute(),
+	}, "", searchEnv)
+	code, out, errs := h.run("story", "search", "x", "--limit", "all")
+	if code != 1 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if n := len(decodeList(t, out)); n != 2 {
+		t.Errorf("%d items, want 2", n)
+	}
+	if e := decode(t, errs); e["error"] != "stopped after 2 pages: the cursor repeats" {
+		t.Errorf("stderr %s", errs)
+	}
+}
+
 func TestSearchLimitStops(t *testing.T) {
 	var c calls
 	h := newHarness(t, map[string]http.HandlerFunc{

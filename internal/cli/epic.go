@@ -148,15 +148,18 @@ func newEpicSearch(env Env) *cobra.Command {
 			return err
 		}
 		return withDeps(env, func(cmd *cobra.Command, _ []string, d *deps) error {
-			raw, err := listPages(cmd, d, "epics/search", url.Values{"query": {args[0]}}, limit)
-			if err != nil {
-				return err
+			raw, stop := listPages(cmd, d, "epics/search", url.Values{"query": {args[0]}}, limit)
+			if raw == nil && stop != nil {
+				return stop
 			}
 			out, err := shapeEpics(d, raw, false)
 			if err != nil {
 				return err
 			}
-			return d.Out(out)
+			if err := d.Out(out); err != nil {
+				return err
+			}
+			return stop // a list cut short: the items read, then the error
 		})(cmd, args)
 	}
 	return cmd
@@ -188,15 +191,18 @@ func newEpicStories(env Env) *cobra.Command {
 			}
 			q := url.Values{"order_by": {"position"}, "order_dir": {"asc"}}
 			fieldsQuery(q, fields)
-			raw, err := listPages(cmd, d, "epics/"+strconv.FormatInt(id, 10)+"/stories", q, limit)
-			if err != nil {
-				return err
+			raw, stop := listPages(cmd, d, "epics/"+strconv.FormatInt(id, 10)+"/stories", q, limit)
+			if raw == nil && stop != nil {
+				return stop
 			}
 			out, err := shapeStories(d, raw, listShapeOpts(*fieldsFlag, fields))
 			if err != nil {
 				return err
 			}
-			return d.Out(out)
+			if err := d.Out(out); err != nil {
+				return err
+			}
+			return stop // a list cut short: the items read, then the error
 		})(cmd, args)
 	}
 	return cmd

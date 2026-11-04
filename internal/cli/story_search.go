@@ -111,15 +111,18 @@ func newStorySearch(env Env) *cobra.Command {
 		return withDeps(env, func(cmd *cobra.Command, _ []string, d *deps) error {
 			q := url.Values{"query": {args[0]}}
 			fieldsQuery(q, fields)
-			raw, err := listPages(cmd, d, "stories/search", q, limit)
-			if err != nil {
-				return err
+			raw, stop := listPages(cmd, d, "stories/search", q, limit)
+			if raw == nil && stop != nil {
+				return stop
 			}
 			out, err := shapeStories(d, raw, listShapeOpts(*fieldsFlag, fields))
 			if err != nil {
 				return err
 			}
-			return d.Out(out)
+			if err := d.Out(out); err != nil {
+				return err
+			}
+			return stop // a list cut short: the items read, then the error
 		})(cmd, args)
 	}
 	return cmd
