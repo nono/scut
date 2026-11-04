@@ -33,8 +33,8 @@ const DefaultBaseURL = "https://api.app.shortcut.com"
 var Version = "dev"
 
 const (
-	MaxTries     = 4                // tries of a safe request
-	RetryBudget  = 20 * time.Second // a call ends this long after it starts
+	maxTries     = 4                // tries of a safe request
+	retryBudget  = 20 * time.Second // a call ends this long after it starts
 	firstBackoff = 500 * time.Millisecond
 	tryTimeout   = 30 * time.Second // limit of each single try
 	firstTryMin  = 2 * time.Second  // the first try has at least this, so a normal call is not cut
@@ -46,8 +46,7 @@ type Doer struct {
 	s     config.Settings
 	base  string
 	hc    *http.Client
-	sleep func(time.Duration) // nil: wait on a timer and on ctx
-	now   func() time.Time
+	clock Clock
 }
 
 // Option changes a Doer.
@@ -57,17 +56,17 @@ type Option func(*Doer)
 func WithBaseURL(u string) Option { return func(d *Doer) { d.base = strings.TrimRight(u, "/") } }
 
 // WithSleep sets the function that waits between tries.
-func WithSleep(f func(time.Duration)) Option { return func(d *Doer) { d.sleep = f } }
+func WithSleep(f func(time.Duration)) Option { return func(d *Doer) { d.clock.Sleep = f } }
 
 // WithHTTPClient sets the HTTP client.
 func WithHTTPClient(c *http.Client) Option { return func(d *Doer) { d.hc = c } }
 
 // WithClock sets the clock that measures the retry budget.
-func WithClock(f func() time.Time) Option { return func(d *Doer) { d.now = f } }
+func WithClock(f func() time.Time) Option { return func(d *Doer) { d.clock.Now = f } }
 
 // New returns a Doer for s.
 func New(s config.Settings, opts ...Option) *Doer {
-	d := &Doer{s: s, base: DefaultBaseURL, hc: &http.Client{Timeout: tryTimeout}, now: time.Now}
+	d := &Doer{s: s, base: DefaultBaseURL, hc: &http.Client{Timeout: tryTimeout}}
 	for _, o := range opts {
 		o(d)
 	}
@@ -89,52 +88,42 @@ func (d *Doer) Do(req *http.Request) (*http.Response, error) {
 	req.Header.Set("Authorization", "Bearer "+d.s.Token)
 	req.Header.Set("User-Agent", "scut/"+Version)
 	ctx := req.Context()
-	retry := req.Method == http.MethodGet
-	// The budget bounds the whole call: each try, with the read of its body,
-	// has a deadline of the time left in RetryBudget from the first try (at
-	// most tryTimeout; the first try has at least firstTryMin), and no wait
-	// ends after the budget. So a call ends RetryBudget after it starts. The
-	// elapsed time is the larger of the clock and the sum of the waits, so an
-	// injected sleep still counts.
-	start := d.now()
-	var total time.Duration
-	for try := 1; ; try++ {
-		limit := min(tryTimeout, RetryBudget-max(d.now().Sub(start), total))
-		if try == 1 {
+	// Each try, with the read of its body, has a deadline of the time left in
+	// the budget (at most tryTimeout; the first try has at least firstTryMin).
+	// So a call ends retryBudget after it starts.
+	var resp *http.Response
+	try := func(n int, left time.Duration) error {
+		limit := min(tryTimeout, left)
+		if n == 1 {
 			limit = max(limit, firstTryMin)
 		}
 		tctx, cancel := context.WithTimeout(ctx, limit)
-		resp, err := d.hc.Do(req.WithContext(tctx))
-		var wait time.Duration
-		var final error
+		r, err := d.hc.Do(req.WithContext(tctx))
 		switch {
 		case err != nil:
 			cancel()
 			if ctx.Err() != nil {
-				return nil, fmt.Errorf("%s %s: %w", req.Method, req.URL.Path, ctx.Err())
+				return fmt.Errorf("%s %s: %w", req.Method, req.URL.Path, ctx.Err())
 			}
-			final = d.connectError(req, err)
-		case resp.StatusCode/100 == 2:
-			resp.Body = &cancelBody{resp.Body, cancel} // the deadline also bounds the read
-			return resp, nil
-		default:
-			wait = RetryAfter(resp)
-			final = d.statusError(req, resp)
-			cancel()
+			return d.connectError(req, err)
+		case r.StatusCode/100 == 2:
+			r.Body = &cancelBody{r.Body, cancel} // the deadline also bounds the read
+			resp = r
+			return nil
 		}
-		if !retry || try >= MaxTries || !Retryable(final) {
-			return nil, final
-		}
-		wait = Backoff(try, wait)
-		elapsed := max(d.now().Sub(start), total)
-		if elapsed+wait > RetryBudget {
-			return nil, final
-		}
-		total += wait
-		if err := d.wait(ctx, wait); err != nil {
-			return nil, fmt.Errorf("%s %s: %w", req.Method, req.URL.Path, err)
-		}
+		defer cancel()
+		return d.statusError(req, r)
 	}
+	var err error
+	if req.Method == http.MethodGet {
+		err = Retry(ctx, d.clock, req.Method+" "+req.URL.Path, try)
+	} else {
+		err = try(1, retryBudget)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 // cancelBody ends the context of a try when the body is closed.
@@ -149,9 +138,53 @@ func (b *cancelBody) Close() error {
 	return err
 }
 
-func (d *Doer) wait(ctx context.Context, w time.Duration) error {
-	if d.sleep != nil {
-		d.sleep(w)
+// Clock measures the retry budget and waits between tries.
+type Clock struct {
+	Now   func() time.Time    // nil: time.Now
+	Sleep func(time.Duration) // nil: wait on a timer and on ctx
+}
+
+// Retry calls try with the try number (from 1) and the time left in the
+// budget, until try returns nil, a failure that is not Retryable, or the
+// failure of try number maxTries. Between tries it waits Backoff, with the
+// Retry-After of the failure. No wait ends after retryBudget from the start:
+// then it returns the last failure. The elapsed time is the larger of the
+// clock and the sum of the waits, so an injected sleep still counts. If the
+// wait fails, it returns that error after name.
+func Retry(ctx context.Context, c Clock, name string, try func(n int, left time.Duration) error) error {
+	now := c.Now
+	if now == nil {
+		now = time.Now
+	}
+	start := now()
+	var total time.Duration
+	elapsed := func() time.Duration { return max(now().Sub(start), total) }
+	for n := 1; ; n++ {
+		err := try(n, retryBudget-elapsed())
+		if err == nil || n >= maxTries || !Retryable(err) {
+			return err
+		}
+		var after time.Duration
+		var e *exit.Error
+		if errors.As(err, &e) {
+			after = e.RetryAfter
+		}
+		wait := Backoff(n, after)
+		if elapsed()+wait > retryBudget {
+			return err
+		}
+		total += wait
+		if serr := Sleep(ctx, c.Sleep, wait); serr != nil {
+			return fmt.Errorf("%s: %w", name, serr)
+		}
+	}
+}
+
+// Sleep waits for w, or until ctx ends. With sleep set, it calls that instead
+// of a timer, then returns ctx.Err().
+func Sleep(ctx context.Context, sleep func(time.Duration), w time.Duration) error {
+	if sleep != nil {
+		sleep(w)
 		return ctx.Err()
 	}
 	t := time.NewTimer(w)

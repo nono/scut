@@ -20,8 +20,7 @@ type deps struct {
 	Doer     *transport.Doer
 	Resolver *resolve.R
 	Out      func(v any) error
-	Sleep    func(time.Duration) // nil: wait on a timer
-	Now      func() time.Time
+	Clock    transport.Clock
 }
 
 // globalFlags returns the values of the root flags, in the keys of config.Options.Flags.
@@ -72,8 +71,7 @@ func newDeps(cmd *cobra.Command, env Env) (*deps, error) {
 		Doer:     d,
 		Resolver: resolve.New(d, c).WithContext(cmd.Context()),
 		Out:      func(v any) error { return output.Print(w, v, human) },
-		Sleep:    env.Sleep,
-		Now:      now,
+		Clock:    transport.Clock{Now: now, Sleep: env.Sleep},
 	}, nil
 }
 

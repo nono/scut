@@ -205,35 +205,17 @@ func place(tmp, dir, name string, id int64) (string, error) {
 	}
 }
 
-// downloadRetry runs download. After a 429, a 502, a 503, a 504 or a lost
-// connection it tries again, with the backoff and the budget of the
-// transport. Each try writes a new temp file.
+// downloadRetry runs download with transport.Retry: after a 429, a 502, a
+// 503, a 504 or a lost connection it tries again. Each try writes a new temp
+// file.
 func downloadRetry(ctx context.Context, d *deps, c *http.Client, hosts []string, f apiFile, dir, name string) (string, error) {
-	now := d.Now
-	if now == nil {
-		now = time.Now
-	}
-	start := now()
-	var total time.Duration
-	for try := 1; ; try++ {
-		p, err := download(ctx, c, hosts, d.Settings.Token, f, dir, name)
-		if err == nil || ctx.Err() != nil || !transport.Retryable(err) || try >= transport.MaxTries {
-			return p, err
-		}
-		var after time.Duration
-		var e *exit.Error
-		if errors.As(err, &e) {
-			after = e.RetryAfter
-		}
-		wait := transport.Backoff(try, after)
-		if max(now().Sub(start), total)+wait > transport.RetryBudget {
-			return "", err
-		}
-		total += wait
-		if serr := sleepCtx(ctx, d.Sleep, wait); serr != nil {
-			return "", fmt.Errorf("download file %d: %w", f.ID, serr)
-		}
-	}
+	var p string
+	err := transport.Retry(ctx, d.Clock, fmt.Sprintf("download file %d", f.ID), func(int, time.Duration) error {
+		var err error
+		p, err = download(ctx, c, hosts, d.Settings.Token, f, dir, name)
+		return err
+	})
+	return p, err
 }
 
 // download writes one file through a temp file in dir, then links it to a

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	mrand "math/rand/v2"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -20,9 +19,8 @@ import (
 // try after 20 s from the first. The transport does not retry a POST, because
 // a retry after a timeout can make a second story.
 const (
-	createTries   = 4
-	createBudget  = 20 * time.Second
-	createBackoff = 500 * time.Millisecond
+	createTries  = 4
+	createBudget = 20 * time.Second
 )
 
 // newExternalID returns a random UUID (version 4). The story carries it, so a
@@ -139,7 +137,7 @@ func unavailable(err error) error {
 // list item together with the error.
 func createStoryRetry(ctx context.Context, d *deps, body map[string]any) (json.RawMessage, error) {
 	extID, _ := body["external_id"].(string)
-	now := d.Now
+	now := d.Clock.Now
 	if now == nil {
 		now = time.Now
 	}
@@ -218,17 +216,18 @@ func createStoryRetry(ctx context.Context, d *deps, body map[string]any) (json.R
 		if !transport.Retryable(failure) {
 			return giveUp(failure)
 		}
-		wait := time.Duration(float64(createBackoff<<(try-1)) * (0.8 + 0.4*mrand.Float64()))
+		var after time.Duration
 		var xe *exit.Error
-		if errors.As(failure, &xe) && xe.RetryAfter > 0 {
-			wait = xe.RetryAfter
+		if errors.As(failure, &xe) {
+			after = xe.RetryAfter
 		}
+		wait := transport.Backoff(try, after)
 		// Finds alone stop at the budget only; a new create also stops at the try limit.
 		if (resend && try >= createTries) || elapsed()+wait > createBudget {
 			return giveUp(failure)
 		}
 		total += wait
-		if err := sleepCtx(ctx, d.Sleep, wait); err != nil {
+		if err := transport.Sleep(ctx, d.Clock.Sleep, wait); err != nil {
 			return nil, fail(err)
 		}
 	}
@@ -247,20 +246,4 @@ func readCreated(ctx context.Context, d *deps, it json.RawMessage, extID string)
 		return it, err
 	}
 	return full, nil
-}
-
-// sleepCtx waits for w. With sleep set, it calls that instead of a timer.
-func sleepCtx(ctx context.Context, sleep func(time.Duration), w time.Duration) error {
-	if sleep != nil {
-		sleep(w)
-		return ctx.Err()
-	}
-	t := time.NewTimer(w)
-	defer t.Stop()
-	select {
-	case <-t.C:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
 }
