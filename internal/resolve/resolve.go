@@ -1,0 +1,460 @@
+// Package resolve turns names into API IDs.
+// A name match is exact and case-sensitive. On a miss in cached data, the
+// cache is refreshed once before the lookup fails.
+package resolve
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/url"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+
+	"github.com/nono/scut/internal/cache"
+	"github.com/nono/scut/internal/exit"
+	"github.com/nono/scut/internal/transport"
+)
+
+const pageSize = "100"
+
+var (
+	uuidRe  = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+	digitRe = regexp.MustCompile(`^\d+$`)
+)
+
+// nestedFields lists, for each cached kind, the nested lists to complete.
+var nestedFields = map[string][]string{
+	"teams":     {"workflows"},
+	"workflows": {"workflow_states"},
+}
+
+// R resolves names with the cache, and the API on a miss.
+type R struct {
+	d   *transport.Doer
+	c   *cache.Store
+	ctx context.Context
+}
+
+// New returns a resolver.
+func New(d *transport.Doer, c *cache.Store) *R {
+	return &R{d: d, c: c, ctx: context.Background()}
+}
+
+// WithContext returns a copy of r whose API calls use ctx.
+func (r *R) WithContext(ctx context.Context) *R {
+	cp := *r
+	cp.ctx = ctx
+	return &cp
+}
+
+// entity holds the fields that lookups read. The cache keeps the raw JSON.
+type entity struct {
+	ID              json.RawMessage `json:"id"`
+	Name            string          `json:"name"`
+	MentionName     string          `json:"mention_name"`
+	Email           string          `json:"email_address"`
+	DefaultWorkflow struct {
+		ID json.RawMessage `json:"id"`
+	} `json:"default_workflow"`
+	Workflows      nestedList `json:"workflows"`
+	WorkflowStates nestedList `json:"workflow_states"`
+	Values         []struct {
+		ID    json.RawMessage `json:"id"`
+		Value string          `json:"value"`
+	} `json:"values"`
+}
+
+type nestedList struct {
+	CurrentItems int               `json:"current_items"`
+	TotalItems   int               `json:"total_items"`
+	Entities     []json.RawMessage `json:"entities"`
+	ListURL      string            `json:"list_url"`
+}
+
+func idString(raw json.RawMessage) string { return strings.Trim(string(raw), `"`) }
+
+func idInt(raw json.RawMessage) (int64, error) {
+	return strconv.ParseInt(idString(raw), 10, 64)
+}
+
+// pageAll reads every page of a list endpoint.
+func (r *R) pageAll(path string, q url.Values) ([]json.RawMessage, error) {
+	return transport.Page(r.ctx, func(cursor string) ([]json.RawMessage, string, error) {
+		qq := q
+		if cursor != "" { // the API wants the cursor alone
+			qq = url.Values{"cursor": {cursor}}
+		}
+		return r.d.List(r.ctx, path, qq)
+	}, -1)
+}
+
+// fetch gets the whole list of kind and stores it in the cache.
+func (r *R) fetch(kind string) ([]json.RawMessage, error) {
+	items, err := r.pageAll("/"+kind, url.Values{"limit": {pageSize}})
+	if err != nil {
+		return nil, err
+	}
+	for i, it := range items {
+		if items[i], err = r.complete(it, nestedFields[kind]); err != nil {
+			return nil, err
+		}
+	}
+	if err := r.c.Put(kind, items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// complete follows list_url of each nested list that is cut short.
+func (r *R) complete(item json.RawMessage, fields []string) (json.RawMessage, error) {
+	if len(fields) == 0 {
+		return item, nil
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(item, &m); err != nil {
+		return item, nil
+	}
+	changed := false
+	for _, f := range fields {
+		var n nestedList
+		if json.Unmarshal(m[f], &n) != nil || n.CurrentItems >= n.TotalItems || n.ListURL == "" {
+			continue
+		}
+		u, err := url.Parse(n.ListURL)
+		if err != nil {
+			return nil, &exit.Error{Code: exit.Other, Msg: "bad list_url"}
+		}
+		all, err := r.pageAll(u.Path, u.Query())
+		if err != nil {
+			return nil, err
+		}
+		var mm map[string]json.RawMessage
+		if json.Unmarshal(m[f], &mm) != nil {
+			continue
+		}
+		mm["entities"], _ = json.Marshal(all)
+		m[f], _ = json.Marshal(mm)
+		changed = true
+	}
+	if !changed {
+		return item, nil
+	}
+	return json.Marshal(m)
+}
+
+// load returns the entities of kind. fetched is true when they came from the API.
+func (r *R) load(kind string, force bool) (es []entity, fetched bool, err error) {
+	var raw []json.RawMessage
+	if !force {
+		if fresh, err := r.c.Get(kind, &raw); err != nil {
+			return nil, false, err
+		} else if !fresh {
+			raw = nil
+		}
+	}
+	if raw == nil {
+		if raw, err = r.fetch(kind); err != nil {
+			return nil, false, err
+		}
+		fetched = true
+	}
+	es = make([]entity, 0, len(raw))
+	for _, b := range raw {
+		var e entity
+		if err := json.Unmarshal(b, &e); err != nil {
+			return nil, false, &exit.Error{Code: exit.Other, Msg: "bad " + kind + " data"}
+		}
+		es = append(es, e)
+	}
+	return es, fetched, nil
+}
+
+// lookup runs try on the entities of kind. A not-found error from try on
+// cached data makes one refresh and one more try. Other errors end it.
+func lookup[T any](r *R, kind string, try func([]entity) (T, error)) (T, error) {
+	var zero T
+	es, fetched, err := r.load(kind, false)
+	if err != nil {
+		return zero, err
+	}
+	v, err := try(es)
+	var e *exit.Error
+	if errors.As(err, &e) && e.Code == exit.NotFound && !fetched {
+		if es, _, err = r.load(kind, true); err != nil {
+			return zero, err
+		}
+		return try(es)
+	}
+	return v, err
+}
+
+func miss(valid []string, format string, args ...any) *exit.Error {
+	slices.Sort(valid)
+	return &exit.Error{Code: exit.NotFound, Msg: fmt.Sprintf(format, args...), Valid: slices.Compact(valid)}
+}
+
+// Me returns the ID of the member that owns the token.
+func (r *R) Me() (string, error) {
+	var id string
+	if fresh, err := r.c.Get("whoami", &id); err != nil {
+		return "", err
+	} else if fresh && id != "" {
+		return id, nil
+	}
+	b, err := r.d.Raw(r.ctx, "GET", "/api/v4/whoami", nil, nil)
+	if err != nil {
+		return "", err
+	}
+	var w struct {
+		Member struct {
+			ID string `json:"id"`
+		} `json:"member"`
+	}
+	if json.Unmarshal(b, &w) != nil || w.Member.ID == "" {
+		return "", &exit.Error{Code: exit.Other, Msg: "whoami has no member"}
+	}
+	if err := r.c.Put("whoami", w.Member.ID); err != nil {
+		return "", err
+	}
+	return w.Member.ID, nil
+}
+
+// Member resolves @me, a mention name (with or without @), an email or a UUID.
+func (r *R) Member(name string) (string, error) {
+	if name == "@me" {
+		return r.Me()
+	}
+	if uuidRe.MatchString(name) {
+		return name, nil
+	}
+	mention := strings.TrimPrefix(name, "@")
+	return lookup(r, "members", func(es []entity) (string, error) {
+		var valid []string
+		for _, e := range es {
+			if e.MentionName == mention || (e.Email != "" && e.Email == name) {
+				return idString(e.ID), nil
+			}
+			valid = append(valid, e.MentionName)
+		}
+		return "", miss(valid, "no member %q", name)
+	})
+}
+
+// Members resolves each name. It fails on the first name that does not resolve.
+func (r *R) Members(names []string) ([]string, error) {
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		id, err := r.Member(n)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, nil
+}
+
+// Team resolves a team name to its UUID.
+func (r *R) Team(name string) (string, error) {
+	return lookup(r, "teams", func(es []entity) (string, error) {
+		var valid []string
+		for _, e := range es {
+			if e.Name == name {
+				return idString(e.ID), nil
+			}
+			valid = append(valid, e.Name)
+		}
+		return "", miss(valid, "no team %q", name)
+	})
+}
+
+// Workflow resolves a workflow name to its ID.
+func (r *R) Workflow(name string) (int64, error) {
+	return lookup(r, "workflows", func(es []entity) (int64, error) {
+		var valid []string
+		for _, e := range es {
+			if e.Name == name {
+				return idInt(e.ID)
+			}
+			valid = append(valid, e.Name)
+		}
+		return 0, miss(valid, "no workflow %q", name)
+	})
+}
+
+// State resolves a state name. With workflowID, it looks in that workflow.
+// Else with teamID, it looks in the default workflow of that team. Else it
+// looks in all workflows, and a name in more than one is a usage error.
+func (r *R) State(name string, workflowID int64, teamID string) (int64, error) {
+	if workflowID == 0 && teamID != "" {
+		w, err := lookup(r, "teams", func(es []entity) (int64, error) {
+			for _, e := range es {
+				if idString(e.ID) == teamID {
+					return idInt(e.DefaultWorkflow.ID)
+				}
+			}
+			return 0, exit.NotFoundf("no team %q", teamID)
+		})
+		if err != nil {
+			return 0, err
+		}
+		workflowID = w
+	}
+	return lookup(r, "workflows", func(es []entity) (int64, error) {
+		return findState(es, name, workflowID)
+	})
+}
+
+func stateEntities(e entity) []entity {
+	out := make([]entity, 0, len(e.WorkflowStates.Entities))
+	for _, b := range e.WorkflowStates.Entities {
+		var s entity
+		if json.Unmarshal(b, &s) == nil {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func findState(es []entity, name string, workflowID int64) (int64, error) {
+	if workflowID != 0 {
+		for _, w := range es {
+			if id, err := idInt(w.ID); err != nil || id != workflowID {
+				continue
+			}
+			var valid []string
+			for _, s := range stateEntities(w) {
+				if s.Name == name {
+					return idInt(s.ID)
+				}
+				valid = append(valid, s.Name)
+			}
+			return 0, miss(valid, "no state %q in workflow %q", name, w.Name)
+		}
+		return 0, exit.NotFoundf("no workflow %d", workflowID)
+	}
+	var ids, inWorkflows, valid []string
+	for _, w := range es {
+		for _, s := range stateEntities(w) {
+			valid = append(valid, s.Name)
+			if s.Name == name {
+				ids = append(ids, idString(s.ID))
+				inWorkflows = append(inWorkflows, w.Name)
+			}
+		}
+	}
+	switch len(ids) {
+	case 0:
+		return 0, miss(valid, "no state %q", name)
+	case 1:
+		return strconv.ParseInt(ids[0], 10, 64)
+	}
+	slices.Sort(inWorkflows)
+	return 0, &exit.Error{
+		Code:       exit.Usage,
+		Msg:        fmt.Sprintf("state %q is in more than one workflow", name),
+		Suggestion: "give a workflow or a team",
+		Valid:      inWorkflows,
+	}
+}
+
+// Field resolves a custom field name and one of its values.
+func (r *R) Field(name, value string) (fieldID, valueID string, err error) {
+	type pair struct{ f, v string }
+	p, err := lookup(r, "custom-fields", func(es []entity) (pair, error) {
+		var fields []string
+		for _, f := range es {
+			if f.Name != name {
+				fields = append(fields, f.Name)
+				continue
+			}
+			var vals []string
+			for _, v := range f.Values {
+				if v.Value == value {
+					return pair{idString(f.ID), idString(v.ID)}, nil
+				}
+				vals = append(vals, v.Value)
+			}
+			return pair{}, miss(vals, "no value %q for field %q", value, name)
+		}
+		return pair{}, miss(fields, "no field %q", name)
+	})
+	return p.f, p.v, err
+}
+
+// Label resolves a label name to its ID.
+func (r *R) Label(name string) (int64, error) {
+	return lookup(r, "labels", func(es []entity) (int64, error) {
+		var valid []string
+		for _, e := range es {
+			if e.Name == name {
+				return idInt(e.ID)
+			}
+			valid = append(valid, e.Name)
+		}
+		return 0, miss(valid, "no label %q", name)
+	})
+}
+
+// Epic resolves an epic ID or an exact epic name. Epics are not cached.
+func (r *R) Epic(s string) (int64, error) {
+	if digitRe.MatchString(s) {
+		return strconv.ParseInt(s, 10, 64)
+	}
+	items, err := r.pageAll("/epics/search", url.Values{"query": {s}, "limit": {pageSize}})
+	if err != nil {
+		return 0, err
+	}
+	var ids, names []string
+	for _, b := range items {
+		var e entity
+		if json.Unmarshal(b, &e) != nil {
+			continue
+		}
+		names = append(names, e.Name)
+		if e.Name == s {
+			ids = append(ids, idString(e.ID))
+		}
+	}
+	switch len(ids) {
+	case 0:
+		return 0, miss(names, "no epic %q", s)
+	case 1:
+		return strconv.ParseInt(ids[0], 10, 64)
+	}
+	return 0, &exit.Error{
+		Code:       exit.Usage,
+		Msg:        fmt.Sprintf("epic name %q matches more than one epic", s),
+		Suggestion: "give the epic ID",
+		Valid:      ids,
+	}
+}
+
+// Names maps IDs to names, for output. kind is members, teams, workflows or
+// labels. A member maps to its mention name. An unknown ID is left out.
+func (r *R) Names(kind string, ids ...string) (map[string]string, error) {
+	switch kind {
+	case "members", "teams", "workflows", "labels":
+	default:
+		return nil, exit.Usagef("no names for %q", kind)
+	}
+	es, _, err := r.load(kind, false)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, e := range es {
+		id := idString(e.ID)
+		if !slices.Contains(ids, id) {
+			continue
+		}
+		out[id] = e.Name
+		if kind == "members" {
+			out[id] = e.MentionName
+		}
+	}
+	return out, nil
+}
