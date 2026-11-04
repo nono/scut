@@ -182,8 +182,9 @@ func TestCacheClear(t *testing.T) {
 	if decode(t, out)["cleared"] != dir {
 		t.Errorf("out %s", out)
 	}
-	if _, err := os.Stat(dir); !os.IsNotExist(err) {
-		t.Errorf("cache dir still there: %v", err)
+	// Only the marker of the clear is left.
+	if ents, err := os.ReadDir(dir); err != nil || len(ents) != 1 || ents[0].Name() != "cleared-at" {
+		t.Errorf("cache dir after clear: %v, %v", ents, err)
 	}
 }
 

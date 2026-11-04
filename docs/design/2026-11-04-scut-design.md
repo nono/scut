@@ -154,7 +154,7 @@ Before `scut` parses a body, it checks the status and the `Content-Type`.
 - The match is exact and case-sensitive (my call: case-sensitive avoids two names that differ only in case). If there is no match, exit 3 and list the valid names in `valid`.
 - A state name that is in more than one workflow needs `--workflow`, or the workflow of `--team`. Otherwise exit 2 and list the workflows.
 - Story, epic and project IDs are integers. Member, team, state and field IDs are UUIDs. Normalize the input before the lookup.
-- **Cache:** members, teams, workflows and states, custom fields and values, labels. Store as JSON in `$XDG_CACHE_HOME/scut/<workspace>/`. TTL is 1 hour (my call). On a name miss, refresh once and try again before the error.
+- **Cache:** members, teams, workflows and states, custom fields and values, labels. Store as JSON in `$XDG_CACHE_HOME/scut/<workspace>/`. TTL is 1 hour (my call). Each entry keeps the time of its fetch. `cache clear` writes the time of the clear to a `cleared-at` marker, and an entry fetched before it is stale, so a fetch that ends after a clear cannot bring back old data. On a name miss, refresh once and try again before the error.
 
 ### Configuration (G4, G9)
 

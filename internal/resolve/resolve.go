@@ -88,6 +88,7 @@ func (r *R) pageAll(path string, q url.Values) ([]json.RawMessage, error) {
 
 // fetch gets the whole list of kind and stores it in the cache.
 func (r *R) fetch(kind string) ([]json.RawMessage, error) {
+	at := r.c.Now() // before the call: a cache clear during it makes the data stale
 	items, err := r.pageAll("/"+kind, url.Values{"limit": {pageSize}})
 	if err != nil {
 		return nil, err
@@ -100,7 +101,7 @@ func (r *R) fetch(kind string) ([]json.RawMessage, error) {
 	if items == nil {
 		items = []json.RawMessage{} // store [] (a fresh empty list), not null
 	}
-	_ = r.c.Put(kind, items) // a cache that cannot be written must not fail the lookup
+	_ = r.c.Put(kind, items, at) // a cache that cannot be written must not fail the lookup
 	return items, nil
 }
 
@@ -202,6 +203,7 @@ func (r *R) Me() (string, error) {
 	} else if fresh && id != "" {
 		return id, nil
 	}
+	at := r.c.Now()
 	b, err := r.d.Raw(r.ctx, "GET", "/api/v4/whoami", nil, nil)
 	if err != nil {
 		return "", err
@@ -214,7 +216,7 @@ func (r *R) Me() (string, error) {
 	if json.Unmarshal(b, &w) != nil || w.Member.ID == "" {
 		return "", &exit.Error{Code: exit.Other, Msg: "whoami has no member"}
 	}
-	_ = r.c.Put(key, w.Member.ID) // see fetch
+	_ = r.c.Put(key, w.Member.ID, at) // see fetch
 	return w.Member.ID, nil
 }
 

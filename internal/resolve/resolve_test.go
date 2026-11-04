@@ -141,7 +141,7 @@ func TestResolveRefreshOnMiss(t *testing.T) {
 
 	// Stale cache, API now has the name: one refresh, found.
 	e2 := newEnv(t, nil)
-	_ = e2.c.Put("labels", []map[string]any{{"id": 1, "name": "old"}})
+	_ = e2.c.Put("labels", []map[string]any{{"id": 1, "name": "old"}}, e2.now)
 	e2.now = e2.now.Add(2 * time.Hour)
 	id, err := e2.r.Label("bug")
 	if err != nil || id != 7 || e2.n("GET /api/v4/acme/labels") != 1 {
@@ -151,7 +151,7 @@ func TestResolveRefreshOnMiss(t *testing.T) {
 
 func TestResolveFreshHitNoCall(t *testing.T) {
 	e := newEnv(t, nil)
-	_ = e.c.Put("teams", []map[string]any{{"id": softwareID, "name": "Software Dev"}})
+	_ = e.c.Put("teams", []map[string]any{{"id": softwareID, "name": "Software Dev"}}, e.now)
 	id, err := e.r.Team("Software Dev")
 	if err != nil || id != softwareID || e.n("GET /api/v4/acme/teams") != 0 {
 		t.Errorf("id %s, err %v", id, err)
@@ -214,7 +214,7 @@ func TestMeCachePerToken(t *testing.T) {
 func TestMemberMe(t *testing.T) {
 	e := newEnv(t, nil)
 	sum := sha256.Sum256([]byte("sct_rw_acme_s3cret"))
-	_ = e.c.Put("whoami-"+hex.EncodeToString(sum[:])[:16], me)
+	_ = e.c.Put("whoami-"+hex.EncodeToString(sum[:])[:16], me, e.now)
 	id, err := e.r.Member("@me")
 	if err != nil || id != me || e.n("GET /api/v4/whoami") != 0 {
 		t.Errorf("id %s, err %v, calls %d", id, err, e.n("GET /api/v4/whoami"))
@@ -348,6 +348,28 @@ func TestUnwritableCache(t *testing.T) {
 	}
 	if id, err := e.r.Me(); err != nil || id != me {
 		t.Errorf("me: %s, %v", id, err)
+	}
+}
+
+// A cache clear during a fetch makes the fetched list stale: it holds data
+// from before the clear.
+func TestClearDuringFetch(t *testing.T) {
+	var e *env
+	e = newEnv(t, func(a *api) {
+		a.routes["GET /api/v4/acme/labels"] = func(w http.ResponseWriter, r *http.Request) {
+			e.now = e.now.Add(time.Second)
+			_ = e.c.Clear()
+			e.now = e.now.Add(time.Second)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(list(map[string]any{"id": 7, "name": "bug"}))
+		}
+	})
+	if _, err := e.r.Label("bug"); err != nil {
+		t.Fatal(err)
+	}
+	var raw []json.RawMessage
+	if fresh, err := e.c.Get("labels", &raw); fresh || err != nil || len(raw) != 1 {
+		t.Errorf("fresh %v, %d items, err %v", fresh, len(raw), err)
 	}
 }
 
