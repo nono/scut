@@ -246,14 +246,16 @@ func (d *Doer) connectError(req *http.Request, err error) error {
 		err = ue.Err
 	}
 	code := exit.Unavailable
-	if isTLS(err) { // a bad certificate does not heal: no retry
+	tlsErr := isTLS(err)
+	if tlsErr { // a bad certificate does not heal: no retry
 		code = exit.Other
 	}
 	var op *net.OpError
 	return &exit.Error{
-		Code:    code,
-		Msg:     d.scrub(fmt.Sprintf("%s %s %s: %v", req.Method, req.URL.Host, req.URL.Path, err)),
-		NotSent: errors.As(err, &op) && op.Op == "dial",
+		Code: code,
+		Msg:  d.scrub(fmt.Sprintf("%s %s %s: %v", req.Method, req.URL.Host, req.URL.Path, err)),
+		// A bad certificate stops the handshake, before the request is sent.
+		NotSent: tlsErr || errors.As(err, &op) && op.Op == "dial",
 	}
 }
 

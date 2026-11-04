@@ -80,7 +80,7 @@ func cancelled(externalID string) error {
 type createOutcome int
 
 const (
-	createRefused createOutcome = iota // a 4xx (not 429): no story
+	createRefused createOutcome = iota // a 4xx (not 429), or a bad certificate: no story
 	createResend                       // 429, 503, or no connection: the server did not take it
 	createWait                         // 502, 504, no answer, or a cut body: the server may still save it
 	createFinal                        // any other failure after the send: the story may exist
@@ -93,6 +93,8 @@ func classifyCreate(err error) createOutcome {
 		return createFinal
 	}
 	switch {
+	case e.NotSent && e.Code != exit.Unavailable: // a bad certificate: a retry does not heal it
+		return createRefused
 	case e.Status == http.StatusTooManyRequests, e.Status == http.StatusServiceUnavailable, e.NotSent:
 		return createResend
 	case e.Status/100 == 4:
@@ -128,6 +130,8 @@ func unavailable(err error) error {
 //     the backoff until createBudget ends.
 //   - After any other failure (a 500, an empty or bad 2xx body), it looks for
 //     the story once.
+//   - After a bad certificate, no request was sent: it stops at once, as
+//     after a 4xx.
 //
 // No create starts after createBudget from the first. When it gives up after
 // an uncertain create that no find has checked yet, it looks for the story

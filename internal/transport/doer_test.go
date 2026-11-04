@@ -314,8 +314,8 @@ func TestDoerNoRetryTLS(t *testing.T) {
 	w := &waits{}
 	d := transport.New(settings, transport.WithBaseURL(srv.URL), transport.WithSleep(w.sleep))
 	e := asExit(t, raw(d, "GET"))
-	if e.Code != exit.Other || len(w.d) != 0 || n.Load() != 0 {
-		t.Errorf("code %d, waits %v, hits %d, msg %s", e.Code, w.d, n.Load(), e.Msg)
+	if e.Code != exit.Other || !e.NotSent || len(w.d) != 0 || n.Load() != 0 {
+		t.Errorf("code %d, not sent %v, waits %v, hits %d, msg %s", e.Code, e.NotSent, w.d, n.Load(), e.Msg)
 	}
 }
 

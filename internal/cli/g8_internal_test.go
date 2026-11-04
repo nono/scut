@@ -6,12 +6,15 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/nono/scut/internal/config"
+	"github.com/nono/scut/internal/exit"
 	"github.com/nono/scut/internal/transport"
 )
 
@@ -63,3 +66,27 @@ func TestCreateResendAfterDialError(t *testing.T) {
 		t.Errorf("out %s, err %v, creates %d, lists %d, want 2, 1", out, err, rt.posts, rt.lists)
 	}
 }
+
+// A bad certificate ends the create at once: the handshake did not end, so no
+// story was made.
+func TestCreateTLSError(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	t.Cleanup(srv.Close)
+	var lists atomic.Int32
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method == http.MethodGet {
+			lists.Add(1)
+		}
+		return http.DefaultTransport.RoundTrip(r) // it does not trust the server
+	})
+	d := createDeps(&http.Client{Transport: rt}, srv.URL)
+	_, err := createStoryRetry(context.Background(), d, map[string]any{"name": "x", "external_id": "e1"})
+	var e *exit.Error
+	if !errors.As(err, &e) || e.Code != exit.Other || strings.Contains(e.Suggestion, "may exist") || lists.Load() != 0 {
+		t.Errorf("err %v, lists %d, want exit 1, 0 lists; got %+v", err, lists.Load(), e)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
