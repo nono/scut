@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync/atomic"
 	"testing"
@@ -53,6 +55,7 @@ type env struct {
 	*api
 	now time.Time
 	c   *cache.Store
+	d   *transport.Doer
 	r   *resolve.R
 }
 
@@ -86,6 +89,7 @@ func newEnv(t *testing.T, setup func(a *api)) *env {
 	e := &env{api: a, now: time.Date(2026, 11, 4, 10, 0, 0, 0, time.UTC)}
 	e.c = cache.New(t.TempDir(), time.Hour, func() time.Time { return e.now })
 	d := transport.New(config.Settings{Token: "sct_rw_acme_s3cret", Workspace: "acme"}, transport.WithBaseURL(base))
+	e.d = d
 	e.r = resolve.New(d, e.c)
 	return e
 }
@@ -249,14 +253,29 @@ func TestEpic(t *testing.T) {
 		inner := a.routes["GET /api/v4/acme/epics/search"]
 		a.routes["GET /api/v4/acme/epics/search"] = func(w http.ResponseWriter, r *http.Request) {
 			query = r.URL.Query().Get("query")
+			if r.URL.Query().Get("cursor") == "" && query == `"Late"` {
+				w.Header().Set("Content-Type", "application/json")
+				p1 := list(map[string]any{"id": 8, "name": "Late one"})
+				p1["next_page_url"] = "http://x/api/v4/acme/epics/search?cursor=p2"
+				_ = json.NewEncoder(w).Encode(p1)
+				return
+			}
+			if r.URL.Query().Get("cursor") == "p2" {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(list(map[string]any{"id": 9, "name": "Late"}))
+				return
+			}
 			inner(w, r)
 		}
 	})
 	if id, err := e.r.Epic("42"); err != nil || id != 42 {
 		t.Errorf("id: %d, %v", id, err)
 	}
-	if id, err := e.r.Epic("Alpha"); err != nil || id != 2 || query != "Alpha" {
+	if id, err := e.r.Epic("Alpha"); err != nil || id != 2 || query != `"Alpha"` {
 		t.Errorf("name: %d, %v, query %q", id, err, query)
+	}
+	if id, err := e.r.Epic("Late"); err != nil || id != 9 {
+		t.Errorf("page 2: %d, %v", id, err)
 	}
 	_, err := e.r.Epic("Dup")
 	x := wantErr(t, err, exit.Usage)
@@ -279,4 +298,47 @@ func TestNames(t *testing.T) {
 	}
 	_, err = e.r.Names("bogus", "1")
 	_ = wantErr(t, err, exit.Usage)
+}
+
+func TestUnwritableCache(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root ignores directory modes")
+	}
+	e := newEnv(t, nil)
+	dir := filepath.Join(t.TempDir(), "ro")
+	if err := os.Mkdir(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	e.r = resolve.New(e.d, cache.New(dir, time.Hour, time.Now))
+	if id, err := e.r.Team("Software Dev"); err != nil || id != softwareID {
+		t.Errorf("team: %s, %v", id, err)
+	}
+	if id, err := e.r.Me(); err != nil || id != me {
+		t.Errorf("me: %s, %v", id, err)
+	}
+}
+
+func TestEmptyListIsFresh(t *testing.T) {
+	e := newEnv(t, func(a *api) { a.json("GET /api/v4/acme/labels", list()) })
+	for range 2 {
+		if got, err := e.r.Names("labels", "1"); err != nil || len(got) != 0 {
+			t.Fatalf("got %v, %v", got, err)
+		}
+	}
+	if n := e.n("GET /api/v4/acme/labels"); n != 1 {
+		t.Errorf("fetches %d", n)
+	}
+}
+
+func TestMemberEmptyMention(t *testing.T) {
+	e := newEnv(t, func(a *api) {
+		a.json("GET /api/v4/acme/members", list(
+			map[string]any{"id": "u1", "mention_name": "", "email_address": "a@x.io"},
+			map[string]any{"id": "u2", "mention_name": "bob"}))
+	})
+	_, err := e.r.Member("")
+	x := wantErr(t, err, exit.NotFound)
+	if !slices.Equal(x.Valid, []string{"bob"}) {
+		t.Errorf("valid %v", x.Valid)
+	}
 }

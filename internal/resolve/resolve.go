@@ -103,9 +103,10 @@ func (r *R) fetch(kind string) ([]json.RawMessage, error) {
 			return nil, err
 		}
 	}
-	if err := r.c.Put(kind, items); err != nil {
-		return nil, err
+	if items == nil {
+		items = []json.RawMessage{} // store [] (a fresh empty list), not null
 	}
+	_ = r.c.Put(kind, items) // a cache that cannot be written must not fail the lookup
 	return items, nil
 }
 
@@ -217,9 +218,7 @@ func (r *R) Me() (string, error) {
 	if json.Unmarshal(b, &w) != nil || w.Member.ID == "" {
 		return "", &exit.Error{Code: exit.Other, Msg: "whoami has no member"}
 	}
-	if err := r.c.Put("whoami", w.Member.ID); err != nil {
-		return "", err
-	}
+	_ = r.c.Put("whoami", w.Member.ID) // see fetch
 	return w.Member.ID, nil
 }
 
@@ -235,6 +234,9 @@ func (r *R) Member(name string) (string, error) {
 	return lookup(r, "members", func(es []entity) (string, error) {
 		var valid []string
 		for _, e := range es {
+			if e.MentionName == "" {
+				continue
+			}
 			if e.MentionName == mention || (e.Email != "" && e.Email == name) {
 				return idString(e.ID), nil
 			}
@@ -399,12 +401,21 @@ func (r *R) Label(name string) (int64, error) {
 	})
 }
 
+// epicQuery quotes a name for the search, so that it matches as a phrase.
+// A name with a double quote is sent as is.
+func epicQuery(s string) string {
+	if strings.Contains(s, `"`) {
+		return s
+	}
+	return `"` + s + `"`
+}
+
 // Epic resolves an epic ID or an exact epic name. Epics are not cached.
 func (r *R) Epic(s string) (int64, error) {
 	if digitRe.MatchString(s) {
 		return strconv.ParseInt(s, 10, 64)
 	}
-	items, err := r.pageAll("/epics/search", url.Values{"query": {s}, "limit": {pageSize}})
+	items, err := r.pageAll("/epics/search", url.Values{"query": {epicQuery(s)}, "limit": {pageSize}})
 	if err != nil {
 		return 0, err
 	}
