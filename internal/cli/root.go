@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/nono/scut/internal/config"
 	"github.com/nono/scut/internal/exit"
 )
 
@@ -19,6 +20,8 @@ type Env struct {
 	Dir        string
 	Stdin      io.Reader
 	StdinIsTTY bool
+	Keyring    config.Keyring // nil: no keyring
+	APIBase    string         // empty: the real API
 }
 
 // OSEnv returns the Env of the running process.
@@ -26,12 +29,12 @@ func OSEnv() Env {
 	dir, _ := os.Getwd()
 	fi, err := os.Stdin.Stat()
 	tty := err == nil && fi.Mode()&os.ModeCharDevice != 0
-	return Env{Getenv: os.Getenv, Dir: dir, Stdin: os.Stdin, StdinIsTTY: tty}
+	return Env{Getenv: os.Getenv, Dir: dir, Stdin: os.Stdin, StdinIsTTY: tty, Keyring: config.OSKeyring{}}
 }
 
 // Group returns a command that only holds subcommands. Running it alone is a usage error.
 func Group(use, short string) *cobra.Command {
-	return &cobra.Command{
+	g := &cobra.Command{
 		Use:   use,
 		Short: short,
 		Args:  noArgs,
@@ -39,6 +42,8 @@ func Group(use, short string) *cobra.Command {
 			return exit.Usagef("%q needs a subcommand; see \"%s --help\"", cmd.CommandPath(), cmd.CommandPath())
 		},
 	}
+	g.AddCommand(newUsage(false))
+	return g
 }
 
 func noArgs(cmd *cobra.Command, args []string) error {
@@ -63,6 +68,12 @@ func NewRoot(env Env) *cobra.Command {
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
 		return exit.Usagef("%s", err)
 	})
+	root.CompletionOptions.DisableDefaultCmd = true
+	pf := root.PersistentFlags()
+	pf.Bool("human", false, "print text instead of JSON")
+	pf.String("token-file", "", "read the token from this file")
+	pf.String("profile", "", "settings and token profile (default \"default\")")
+	root.AddCommand(newUsage(true), newAuth(env), newWhoami(env), newAPI(env))
 	return root
 }
 
