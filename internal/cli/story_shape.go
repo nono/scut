@@ -44,30 +44,37 @@ type CommentOut struct {
 // send the matching field, so --fields narrows the output. A nested list that
 // the API cut short has a <key>_total count.
 type StoryOut struct {
-	ID            int64          `json:"id"`
-	Name          string         `json:"name,omitempty"`
-	Type          string         `json:"type,omitempty"`
-	State         *idName        `json:"state,omitempty"`
-	Owners        []memberOut    `json:"owners,omitzero"`
-	OwnersTotal   int            `json:"owners_total,omitempty"`
-	Requester     *memberOut     `json:"requester,omitempty"`
-	Epic          *idName        `json:"epic,omitempty"`
-	Labels        []string       `json:"labels,omitzero"`
-	LabelsTotal   int            `json:"labels_total,omitempty"`
-	Fields        map[string]any `json:"fields,omitzero"`
-	FieldsTotal   int            `json:"fields_total,omitempty"`
-	Description   *string        `json:"description,omitempty"`
-	Tasks         []TaskOut      `json:"tasks,omitzero"`
-	TasksTotal    int            `json:"tasks_total,omitempty"`
-	Links         []LinkOut      `json:"links,omitzero"`
-	LinksTotal    int            `json:"links_total,omitempty"`
-	Branches      []idName       `json:"branches,omitzero"`
-	BranchesTotal int            `json:"branches_total,omitempty"`
-	PullRequests  []idName       `json:"pull_requests,omitzero"`
-	PRsTotal      int            `json:"pull_requests_total,omitempty"`
-	Comments      []CommentOut   `json:"comments,omitzero"`
-	CommentsTotal int            `json:"comments_total,omitempty"`
-	AppURL        string         `json:"app_url,omitempty"`
+	ID            int64               `json:"id"`
+	Name          string              `json:"name,omitempty"`
+	Type          string              `json:"type,omitempty"`
+	State         *idName             `json:"state,omitempty"`
+	Owners        []memberOut         `json:"owners,omitzero"`
+	OwnersTotal   int                 `json:"owners_total,omitempty"`
+	Requester     *memberOut          `json:"requester,omitempty"`
+	Epic          *idName             `json:"epic,omitempty"`
+	Labels        []idName            `json:"labels,omitzero"`
+	LabelsTotal   int                 `json:"labels_total,omitempty"`
+	Fields        map[string]any      `json:"fields,omitzero"`
+	FieldIDs      map[string]fieldIDs `json:"field_ids,omitzero"`
+	FieldsTotal   int                 `json:"fields_total,omitempty"`
+	Description   *string             `json:"description,omitempty"`
+	Tasks         []TaskOut           `json:"tasks,omitzero"`
+	TasksTotal    int                 `json:"tasks_total,omitempty"`
+	Links         []LinkOut           `json:"links,omitzero"`
+	LinksTotal    int                 `json:"links_total,omitempty"`
+	Branches      []idName            `json:"branches,omitzero"`
+	BranchesTotal int                 `json:"branches_total,omitempty"`
+	PullRequests  []idName            `json:"pull_requests,omitzero"`
+	PRsTotal      int                 `json:"pull_requests_total,omitempty"`
+	Comments      []CommentOut        `json:"comments,omitzero"`
+	CommentsTotal int                 `json:"comments_total,omitempty"`
+	AppURL        string              `json:"app_url,omitempty"`
+}
+
+// fieldIDs holds the IDs of a custom field value, as the API takes them.
+type fieldIDs struct {
+	FieldID string `json:"field_id"`
+	ValueID string `json:"value_id"`
 }
 
 // shapeOpts selects the heavy parts of a story.
@@ -130,7 +137,9 @@ type storyIn struct {
 }
 
 type customIn struct {
+	ID    string `json:"id"`
 	Field struct {
+		ID   string `json:"id"`
 		Name string `json:"name"`
 	} `json:"field"`
 	Value any `json:"value"`
@@ -250,15 +259,14 @@ func shapeStory(raw json.RawMessage, r *resolve.R, opts shapeOpts) (StoryOut, er
 		}
 	}
 	if in.Labels != nil {
-		out.Labels = []string{}
-		for _, l := range in.Labels.Entities {
-			out.Labels = append(out.Labels, l.Name)
-		}
+		out.Labels = in.Labels.items()
 	}
 	if in.CustomFields != nil {
 		out.Fields = map[string]any{}
+		out.FieldIDs = map[string]fieldIDs{}
 		for _, c := range in.CustomFields.Entities {
 			out.Fields[c.Field.Name] = c.Value
+			out.FieldIDs[c.Field.Name] = fieldIDs{FieldID: c.Field.ID, ValueID: c.ID}
 		}
 	}
 	if opts.Description {

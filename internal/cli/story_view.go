@@ -27,15 +27,17 @@ func storyCmd(env Env) *cobra.Command {
 
 // apiFieldNames maps --fields names to API field names.
 var apiFieldNames = map[string]string{
-	"state":  "workflow_state",
-	"type":   "story_type",
-	"tasks":  "checklist_items",
-	"fields": "custom_field_values",
-	"links":  "story_links",
+	"state":     "workflow_state",
+	"type":      "story_type",
+	"tasks":     "checklist_items",
+	"fields":    "custom_field_values",
+	"field_ids": "custom_field_values",
+	"links":     "story_links",
 }
 
-// storyFieldNames are the --fields names that StoryOut can show.
-var storyFieldNames = []string{"app_url", "branches", "comments", "description", "epic", "fields", "id", "labels",
+// storyFieldNames are the --fields names that StoryOut can show. fields and
+// field_ids both ask for custom_field_values, so each gives both keys.
+var storyFieldNames = []string{"app_url", "branches", "comments", "description", "epic", "field_ids", "fields", "id", "labels",
 	"links", "name", "owners", "pull_requests", "requester", "state", "tasks", "type"}
 
 // apiFields maps a --fields list to the API names and keeps id. An unknown

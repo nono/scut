@@ -57,7 +57,9 @@ func listStoryFields(list string) ([]string, error) {
 		if a, ok := apiFieldNames[f]; ok {
 			f = a
 		}
-		out = append(out, f)
+		if !slices.Contains(out, f) {
+			out = append(out, f)
+		}
 	}
 	slices.Sort(out)
 	return out, nil

@@ -69,6 +69,12 @@ func TestSearchNoDescription(t *testing.T) {
 	if f == "" || strings.Contains(f, "description") || strings.Contains(f, "comments") || !strings.Contains(f, "workflow_state") {
 		t.Errorf("fields %q", f)
 	}
+	if strings.Count(f, "custom_field_values") != 1 {
+		t.Errorf("fields %q", f)
+	}
+	if _, ok := l[0]["field_ids"]; !ok {
+		t.Errorf("no field_ids in %s", out)
+	}
 	if got := c.param(searchPath, "limit"); got != "25" {
 		t.Errorf("limit %q", got)
 	}

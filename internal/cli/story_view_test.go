@@ -149,6 +149,10 @@ func TestViewOneStoryTwoCalls(t *testing.T) {
 	if f, _ := m["fields"].(map[string]any); f["Technical Area"] != "API" {
 		t.Errorf("fields: %v", m["fields"])
 	}
+	wantIDs := `{"Technical Area":{"field_id":"0f0f0f0f-08b2-4eb1-b29f-703a73481c90","value_id":"0f0f0f0f-044e-4240-8de7-9a49d9f3048b"}}`
+	if got := jsonOf(m["field_ids"]); got != wantIDs {
+		t.Errorf("field_ids: %s", got)
+	}
 	if m["app_url"] != "https://app.shortcut.com/acme/story/5818" || m["description"] == nil {
 		t.Errorf("url/description: %s", out)
 	}
@@ -212,7 +216,7 @@ func TestViewFieldsNoComments(t *testing.T) {
 func TestViewFieldsMapping(t *testing.T) {
 	var c calls
 	h := viewHarness(t, &c, map[string]any{"id": 5818}, nil)
-	code, _, errs := h.run("story", "view", "5818", "--fields", "id,type,tasks,fields,links,labels", "--comments", "0")
+	code, _, errs := h.run("story", "view", "5818", "--fields", "id,type,tasks,fields,links,labels,field_ids", "--comments", "0")
 	if code != 0 {
 		t.Fatalf("code %d, stderr %s", code, errs)
 	}
@@ -345,7 +349,7 @@ func TestViewTotal(t *testing.T) {
 	if got := jsonOf(m["pull_requests"]); got != `[{"id":6,"name":"pr1"}]` {
 		t.Errorf("pull_requests: %s", got)
 	}
-	if got := jsonOf(m["labels"]); got != `["bug"]` {
+	if got := jsonOf(m["labels"]); got != `[{"id":7,"name":"bug"}]` {
 		t.Errorf("labels: %s", got)
 	}
 	if got := jsonOf(m["epic"]); got != `{"id":12,"name":"Epic"}` {
