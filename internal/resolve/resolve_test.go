@@ -47,6 +47,9 @@ func (a *api) json(key string, v any) {
 func (a *api) n(key string) int { return int(a.calls[key].Load()) }
 
 func list(items ...any) map[string]any {
+	if items == nil {
+		items = []any{} // the API sends [], never null
+	}
 	return map[string]any{"current_page": 1, "current_items": len(items), "total_items": len(items), "total_pages": 1, "entities": items}
 }
 

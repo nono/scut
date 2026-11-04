@@ -547,19 +547,22 @@ func TestCreateEmptyBody(t *testing.T) {
 }
 
 func TestCreateNotJSON(t *testing.T) {
-	var c calls
-	f := &createFake{replies: []http.HandlerFunc{func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/html")
-		w.WriteHeader(201)
-		_, _ = io.WriteString(w, "<html>proxy</html>")
-	}}}
-	h := createHarness(t, f, &c, nil)
-	code, _, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
-	if code != 5 || f.count() != 1 || f.nList != 1 {
-		t.Errorf("code %d, creates %d, lists %d, stderr %s", code, f.count(), f.nList, errs)
-	}
-	if !strings.Contains(errs, "may exist") || !strings.Contains(errs, f.externalID(0)) {
-		t.Errorf("stderr %s", errs)
+	// The second body parses, but its media type is not JSON.
+	for _, body := range []string{"<html>proxy</html>", `{"entity":{"id":1}}`} {
+		var c calls
+		f := &createFake{replies: []http.HandlerFunc{func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(201)
+			_, _ = io.WriteString(w, body)
+		}}}
+		h := createHarness(t, f, &c, nil)
+		code, _, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
+		if code != 5 || f.count() != 1 || f.nList != 1 {
+			t.Errorf("%s: code %d, creates %d, lists %d, stderr %s", body, code, f.count(), f.nList, errs)
+		}
+		if !strings.Contains(errs, "may exist") || !strings.Contains(errs, f.externalID(0)) {
+			t.Errorf("%s: stderr %s", body, errs)
+		}
 	}
 }
 

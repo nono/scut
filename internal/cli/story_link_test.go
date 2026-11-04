@@ -24,6 +24,7 @@ func linkPosts(bodies *[]map[string]any) http.HandlerFunc {
 		var m map[string]any
 		_ = json.Unmarshal(b, &m)
 		*bodies = append(*bodies, m)
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
 		_, _ = io.WriteString(w, jsonOf(map[string]any{"entity": linkEntity(100+len(*bodies), 1, "x", 2)}))
 	}
@@ -141,6 +142,7 @@ func TestLinkPartialFail(t *testing.T) {
 				_, _ = io.WriteString(w, `{"message":"Story not found."}`)
 				return
 			}
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(201)
 			_, _ = io.WriteString(w, jsonOf(map[string]any{"entity": linkEntity(7, 5818, "blocks", 5819)}))
 		},
@@ -207,6 +209,7 @@ func TestRelatesToBothOrders(t *testing.T) {
 	patched := 0
 	routes["PATCH "+linksPath+"/11"] = func(w http.ResponseWriter, _ *http.Request) {
 		patched++
+		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, jsonOf(map[string]any{"entity": linkEntity(11, 5818, "blocks", 5820)}))
 	}
 	h := newHarness(t, routes, "", searchEnv)
@@ -229,6 +232,7 @@ func TestRelinkSwap(t *testing.T) {
 		var m map[string]any
 		_ = json.Unmarshal(b, &m)
 		bodies = append(bodies, m)
+		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, jsonOf(map[string]any{"entity": linkEntity(12, 5819, "blocks", 5818)}))
 	}
 	h := newHarness(t, routes, "", searchEnv)

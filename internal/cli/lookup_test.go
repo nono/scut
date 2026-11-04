@@ -12,6 +12,9 @@ import (
 )
 
 func listBody(items ...any) string {
+	if items == nil {
+		items = []any{} // the API sends [], never null
+	}
 	b, _ := json.Marshal(map[string]any{
 		"current_page": 1, "current_items": len(items), "total_items": len(items), "total_pages": 1, "entities": items,
 	})

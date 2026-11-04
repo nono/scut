@@ -289,10 +289,10 @@ func (d *Doer) List(ctx context.Context, path string, query url.Values) (items [
 		return nil, "", err
 	}
 	var env struct {
-		Entities    []json.RawMessage `json:"entities"`
-		NextPageURL string            `json:"next_page_url"`
+		Entities    *[]json.RawMessage `json:"entities"`
+		NextPageURL string             `json:"next_page_url"`
 	}
-	if err := json.Unmarshal(b, &env); err != nil {
+	if err := json.Unmarshal(b, &env); err != nil || env.Entities == nil {
 		return nil, "", &exit.Error{Code: exit.Other, Msg: "response is not a list"}
 	}
 	if env.NextPageURL != "" {
@@ -302,7 +302,7 @@ func (d *Doer) List(ctx context.Context, path string, query url.Values) (items [
 		}
 		cursor = u.Query().Get("cursor")
 	}
-	return env.Entities, cursor, nil
+	return *env.Entities, cursor, nil
 }
 
 func (d *Doer) send(ctx context.Context, method, path string, query url.Values, body any) ([]byte, error) {
@@ -340,6 +340,10 @@ func (d *Doer) send(ctx context.Context, method, path string, query url.Values, 
 			return nil, fmt.Errorf("read response: %w", ctx.Err())
 		}
 		return nil, &exit.Error{Code: exit.Unavailable, Msg: d.scrub("read response: " + err.Error())}
+	}
+	if ct := resp.Header.Get("Content-Type"); len(bytes.TrimSpace(b)) > 0 && !isJSON(ct) {
+		return nil, &exit.Error{Code: exit.Other, Status: resp.StatusCode,
+			Msg: fmt.Sprintf("%s %s: response is not JSON (Content-Type %q)", method, path, ct)}
 	}
 	return b, nil
 }

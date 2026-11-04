@@ -109,6 +109,7 @@ func TestDoerRetryAfter(t *testing.T) {
 			rw.WriteHeader(429)
 			return
 		}
+		rw.Header().Set("Content-Type", "application/json")
 		_, _ = rw.Write([]byte(`{}`))
 	})
 	if err := raw(d, "GET"); err != nil {
@@ -350,6 +351,47 @@ func TestListCursor(t *testing.T) {
 		if err != nil || cur != want || len(items) != 1 {
 			t.Errorf("%s: items %d, cursor %q, err %v", body, len(items), cur, err)
 		}
+	}
+}
+
+// A 2xx list response must have entities; an empty list is [] in it.
+func TestListNeedsEntities(t *testing.T) {
+	for body, ok := range map[string]bool{`{"entities":[]}`: true, `{"data":[]}`: false, `{"entities":null}`: false, `[]`: false} {
+		d := newDoer(t, &waits{}, "GET", func(rw http.ResponseWriter, r *http.Request) {
+			rw.Header().Set("Content-Type", "application/json")
+			_, _ = rw.Write([]byte(body))
+		})
+		_, _, err := d.List(context.Background(), "/stories/1", nil)
+		if ok != (err == nil) {
+			t.Errorf("%s: err %v", body, err)
+		}
+		if !ok {
+			if e := asExit(t, err); e.Code != exit.Other || e.Msg != "response is not a list" {
+				t.Errorf("%s: %+v", body, e)
+			}
+		}
+	}
+}
+
+// A 2xx body that is not of a JSON media type is an error, even if it parses.
+func TestDoerNonJSONContentType(t *testing.T) {
+	for _, ct := range []string{"text/html", "text/plain; charset=utf-8", ""} {
+		d := newDoer(t, &waits{}, "GET", func(rw http.ResponseWriter, r *http.Request) {
+			rw.Header()["Content-Type"] = []string{ct}
+			_, _ = rw.Write([]byte(`{"entity":{"id":1}}`))
+		})
+		_, err := d.Raw(context.Background(), "GET", "/stories/1", nil, nil)
+		if e := asExit(t, err); e.Code != exit.Other || !strings.Contains(e.Msg, "not JSON") {
+			t.Errorf("%q: %+v", ct, e)
+		}
+		if _, _, err := d.List(context.Background(), "/stories/1", nil); err == nil {
+			t.Errorf("%q: List: no error", ct)
+		}
+	}
+	// An empty body (a 204) needs no media type.
+	d := newDoer(t, &waits{}, "DELETE", func(rw http.ResponseWriter, r *http.Request) { rw.WriteHeader(204) })
+	if _, err := d.Raw(context.Background(), "DELETE", "/stories/1", nil, nil); err != nil {
+		t.Errorf("204: %v", err)
 	}
 }
 
