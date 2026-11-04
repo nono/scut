@@ -176,7 +176,7 @@ Before `scut` parses a body, it checks the status and the `Content-Type`.
 
 ### Files (U10, G6)
 
-- `story files` lists with `GET /stories/{id}/files` and downloads each `url` with the `Shortcut-Token` header. A download that fails with 429, 502, 503, 504 or a lost connection is tried again, with the backoff and budget of Retries, into a new temp file.
+- `story files` lists with `GET /stories/{id}/files` and downloads each `url` with the `Shortcut-Token` header. A download that fails with 429, 502, 503, 504 or a lost connection is tried again, with the backoff and budget of Retries, into a new temp file. A bad TLS certificate or a redirect error (more than 10 redirects) exits 1 with no retry.
 - `scut` writes to a temp file in `--out` and moves it to its name when the download is complete. On a non-2xx status, or when the size is not the size in the entity, it deletes the temp file and exits with an error.
 - File names come from the entity `name`. `scut` cleans the name to its base name. If two names are the same, or the name is taken in `--out`, it adds `-<file id>` (then `-<file id>-2`, …). It never replaces a file: it links the temp file to the free name, and a link fails when the name exists. On a file system with no hard links, it copies the temp file to a new file that it opens with `O_EXCL`, which also fails when the name exists.
 - Output: an array of `{id, name, path, size, content_type}`.

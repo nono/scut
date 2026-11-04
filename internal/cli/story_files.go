@@ -25,6 +25,9 @@ import (
 
 const fileTimeout = 60 * time.Second
 
+// errRedirect is the failure of CheckRedirect. A retry does not heal it.
+var errRedirect = errors.New("too many redirects")
+
 // defaultFileHosts may receive the token.
 var defaultFileHosts = []string{"media.app.shortcut.com", "api.app.shortcut.com"}
 
@@ -46,7 +49,7 @@ func fileClient(c *http.Client, hosts []string) *http.Client {
 	}
 	n.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 10 {
-			return errors.New("too many redirects")
+			return errRedirect
 		}
 		req.Header.Del("Authorization")
 		if !tokenAllowed(req.URL, hosts) {
@@ -272,7 +275,11 @@ func download(ctx context.Context, c *http.Client, hosts []string, token string,
 		if errors.As(err, &ue) {
 			err = ue.Err
 		}
-		return &exit.Error{Code: exit.Unavailable, Msg: scrub(fmt.Sprintf("download file %d: %v", f.ID, err))}
+		code := exit.Unavailable
+		if transport.IsTLS(err) || errors.Is(err, errRedirect) { // a retry does not heal it
+			code = exit.Other
+		}
+		return &exit.Error{Code: code, Msg: scrub(fmt.Sprintf("download file %d: %v", f.ID, err))}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.URL, nil)
 	if err != nil {

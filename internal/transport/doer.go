@@ -247,7 +247,7 @@ func (d *Doer) connectError(req *http.Request, err error) error {
 		err = ue.Err
 	}
 	code := exit.Unavailable
-	tlsErr := isTLS(err)
+	tlsErr := IsTLS(err)
 	if tlsErr { // a bad certificate does not heal: no retry
 		code = exit.Other
 	}
@@ -260,7 +260,8 @@ func (d *Doer) connectError(req *http.Request, err error) error {
 	}
 }
 
-func isTLS(err error) bool {
+// IsTLS tells if err is a failure to verify the certificate of the server.
+func IsTLS(err error) bool {
 	var cv *tls.CertificateVerificationError
 	var ua x509.UnknownAuthorityError
 	var he x509.HostnameError

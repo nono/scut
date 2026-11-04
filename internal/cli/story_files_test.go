@@ -3,6 +3,7 @@ package cli_test
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -422,5 +423,40 @@ func TestFilesAPIErrorLeavesNoDir(t *testing.T) {
 	}
 	if _, err := os.Stat(out); !os.IsNotExist(err) {
 		t.Errorf("out dir exists: %v", err)
+	}
+}
+
+// A bad certificate and a redirect error do not heal: exit 1, no retry.
+func TestFilesNoRetryTLSOrRedirect(t *testing.T) {
+	var conns atomic.Int32
+	untrusted := httptest.NewUnstartedServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	untrusted.Config.ConnState = func(_ net.Conn, s http.ConnState) {
+		if s == http.StateNew {
+			conns.Add(1)
+		}
+	}
+	untrusted.StartTLS()
+	t.Cleanup(untrusted.Close)
+	loop, hits := countingServer(t, true, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, r.URL.Path, http.StatusFound) // to itself, without end
+	})
+	for _, tc := range []struct {
+		name   string
+		srv    *httptest.Server
+		client *http.Client
+		tries  func() int32
+	}{
+		{"tls", untrusted, nil, conns.Load},
+		{"redirect", loop, loop.Client(), func() int32 { return hits.Load() / 10 }}, // 10 requests: the 11th is refused
+	} {
+		h := fileListHarness(t, tc.srv.URL+"/f/1")
+		h.env.FileClient = tc.client
+		h.env.FileHosts = []string{"127.0.0.1"}
+		var slept []time.Duration
+		h.env.Sleep = func(d time.Duration) { slept = append(slept, d) }
+		code, _, errs := h.run("story", "files", "5818", "--out", t.TempDir())
+		if code != 1 || tc.tries() != 1 || len(slept) != 0 {
+			t.Errorf("%s: code %d, tries %d, waits %v, stderr %s", tc.name, code, tc.tries(), slept, errs)
+		}
 	}
 }
