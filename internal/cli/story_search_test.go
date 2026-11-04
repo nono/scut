@@ -3,6 +3,7 @@ package cli_test
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -127,27 +128,36 @@ func TestSearchFieldsDescriptionComments(t *testing.T) {
 }
 
 // pagedHandler serves pages of 25 stories; page n links to page n+1 until last.
-func pagedHandler(t *testing.T, c *calls, pages int) http.HandlerFunc {
+// pagedHandler serves total stories in pages of the limit parameter of the
+// first call (the API default of 10 without it), as the API does.
+func pagedHandler(t *testing.T, c *calls, total int) http.HandlerFunc {
 	return c.wrap(func(w http.ResponseWriter, r *http.Request) {
-		if q := r.URL.Query(); q.Has("cursor") && len(q) > 1 {
+		q := r.URL.Query()
+		if q.Has("cursor") && len(q) > 1 {
 			w.WriteHeader(422)
 			_, _ = fmt.Fprint(w, `{"message":"Other parameters can't be used with cursor."}`)
 			return
 		}
-		page := 1
-		if cur := r.URL.Query().Get("cursor"); cur != "" {
-			_, _ = fmt.Sscanf(cur, "p%d", &page)
+		offset, size := 0, 10
+		if cur := q.Get("cursor"); cur != "" {
+			_, _ = fmt.Sscanf(cur, "o%ds%d", &offset, &size)
+		} else if l := q.Get("limit"); l != "" {
+			size, _ = strconv.Atoi(l)
 		}
-		items := make([]any, 25)
-		for i := range items {
+		if size < 1 || size > 100 {
+			w.WriteHeader(400)
+			return
+		}
+		var items []any
+		for i := offset; i < min(total, offset+size); i++ {
 			s := storyFixture(t)
-			s["id"] = page*100 + i
-			items[i] = s
+			s["id"] = 1000 + i
+			items = append(items, s)
 		}
 		body := listBody(items...)
-		if page < pages {
+		if offset+size < total {
 			body = strings.TrimSuffix(body, "}") +
-				fmt.Sprintf(`,"next_page_url":"/api/v4/acme/stories/search?query=x&cursor=p%d"}`, page+1)
+				fmt.Sprintf(`,"next_page_url":"/api/v4/acme/stories/search?cursor=o%ds%d"}`, offset+size, size)
 		}
 		jsonHandler(body)(w, r)
 	})
@@ -156,15 +166,15 @@ func pagedHandler(t *testing.T, c *calls, pages int) http.HandlerFunc {
 func TestSearchLimitAll(t *testing.T) {
 	var c calls
 	h := newHarness(t, map[string]http.HandlerFunc{
-		"GET " + searchPath:        pagedHandler(t, &c, 3),
+		"GET " + searchPath:        pagedHandler(t, &c, 250),
 		"GET /api/v4/acme/members": membersRoute(),
 	}, "", searchEnv)
 	code, out, errs := h.run("story", "search", "x", "--limit", "all")
 	if code != 0 {
 		t.Fatalf("code %d, stderr %s", code, errs)
 	}
-	if n := len(decodeList(t, out)); n != 75 {
-		t.Errorf("%d items, want 75", n)
+	if n := len(decodeList(t, out)); n != 250 {
+		t.Errorf("%d items, want 250", n)
 	}
 	if got := c.count(searchPath); got != 3 {
 		t.Errorf("%d calls", got)
@@ -193,21 +203,25 @@ func TestSearchCursorRepeats(t *testing.T) {
 	}
 }
 
+// A page holds up to 100 items: --limit N makes ceil(N/100) calls.
 func TestSearchLimitStops(t *testing.T) {
-	var c calls
-	h := newHarness(t, map[string]http.HandlerFunc{
-		"GET " + searchPath:        pagedHandler(t, &c, 3),
-		"GET /api/v4/acme/members": membersRoute(),
-	}, "", searchEnv)
-	code, out, errs := h.run("story", "search", "x", "--limit", "30")
-	if code != 0 {
-		t.Fatalf("code %d, stderr %s", code, errs)
-	}
-	if n := len(decodeList(t, out)); n != 30 {
-		t.Errorf("%d items, want 30", n)
-	}
-	if got := c.count(searchPath); got != 2 {
-		t.Errorf("%d calls, want 2", got)
+	for _, tc := range []struct {
+		limit       string
+		items, call int
+		size        string
+	}{{"30", 30, 1, "30"}, {"100", 100, 1, "100"}, {"150", 150, 2, "100"}} {
+		var c calls
+		h := newHarness(t, map[string]http.HandlerFunc{
+			"GET " + searchPath:        pagedHandler(t, &c, 300),
+			"GET /api/v4/acme/members": membersRoute(),
+		}, "", searchEnv)
+		code, out, errs := h.run("story", "search", "x", "--limit", tc.limit)
+		if code != 0 {
+			t.Fatalf("code %d, stderr %s", code, errs)
+		}
+		if n := len(decodeList(t, out)); n != tc.items || c.count(searchPath) != tc.call || c.firstParam(searchPath, "limit") != tc.size {
+			t.Errorf("--limit %s: %d items, %d calls, limit %q", tc.limit, n, c.count(searchPath), c.firstParam(searchPath, "limit"))
+		}
 	}
 }
 
@@ -215,15 +229,15 @@ func TestCommentsPaging(t *testing.T) {
 	var c calls
 	p := "/api/v4/acme/stories/5818/comments"
 	h := newHarness(t, map[string]http.HandlerFunc{
-		"GET " + p:                 pagedHandler(t, &c, 3),
+		"GET " + p:                 pagedHandler(t, &c, 150),
 		"GET /api/v4/acme/members": membersRoute(),
 	}, "", searchEnv)
 	code, out, errs := h.run("story", "comments", "5818", "--limit", "all")
 	if code != 0 {
 		t.Fatalf("code %d, stderr %s", code, errs)
 	}
-	if n := len(decodeList(t, out)); n != 75 {
-		t.Errorf("%d items, want 75", n)
+	if n := len(decodeList(t, out)); n != 150 || c.count(p) != 2 {
+		t.Errorf("%d items, %d calls, want 150 and 2", n, c.count(p))
 	}
 }
 

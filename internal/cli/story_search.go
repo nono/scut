@@ -29,12 +29,13 @@ func parseLimit(s string) (int, error) {
 	return n, nil
 }
 
-// pageSize is the page size to ask for when the caller wants limit items.
+// pageSize is the page size to ask for when the caller wants limit items
+// (all with limit < 0): the fewest calls.
 func pageSize(limit int) int {
 	if limit < 0 {
 		return maxPageSize
 	}
-	return min(defaultLimit, limit)
+	return min(maxPageSize, limit)
 }
 
 // listPages gets up to limit items (all with limit < 0) from a list endpoint.

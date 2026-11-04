@@ -210,11 +210,7 @@ func viewOne(ctx context.Context, d *deps, id int64, fields []string, nComments 
 // fetchComments gets the newest n comments, or all with n < 0.
 func fetchComments(ctx context.Context, d *deps, id int64, n int) ([]CommentOut, error) {
 	path := "stories/" + strconv.FormatInt(id, 10) + "/comments"
-	size := 100
-	if n > 0 && n < size {
-		size = n
-	}
-	q := url.Values{"order_dir": {"desc"}, "limit": {strconv.Itoa(size)}}
+	q := url.Values{"order_dir": {"desc"}, "limit": {strconv.Itoa(pageSize(n))}}
 	raw, err := transport.PageQuery(ctx, d.Doer, path, q, n)
 	if err != nil {
 		return nil, err

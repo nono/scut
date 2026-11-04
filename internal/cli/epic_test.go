@@ -116,7 +116,7 @@ func TestEpicStoriesFieldsAndAll(t *testing.T) {
 	var c calls
 	p := "/api/v4/acme/epics/5387/stories"
 	h := newHarness(t, map[string]http.HandlerFunc{
-		"GET " + p:                 pagedHandler(t, &c, 2),
+		"GET " + p:                 pagedHandler(t, &c, 50),
 		"GET /api/v4/acme/members": membersRoute(),
 	}, "", searchEnv)
 	code, out, errs := h.run("epic", "stories", "5387", "--limit", "all", "--fields", "name")
