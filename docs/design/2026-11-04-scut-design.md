@@ -40,7 +40,7 @@ A command that does these things is a failure, even if it works:
 
 - It drops a field with no error, or applies a filter after paging (shortcut-cli #293, PR 398).
 - It exits 0 on a failure, or prints a spinner or warnings on stderr.
-- It prompts for input when stdin is not a terminal or `--human` is not set.
+- It prompts for input when stdin is not a terminal or `--human` is not set. The one exception is `auth login` on a terminal.
 - It replaces a set (owners, labels) when you add or remove one item.
 - It makes a duplicate story when it retries a create.
 - It saves an error page as an attachment.
@@ -120,7 +120,7 @@ Writes need the story-write or comment-write scope, or `w`. `story unlink` and `
 ### Output (G7)
 
 - JSON on stdout by default, on a terminal and in a pipe. A list is an array. A view is an object. A write prints the entity that the API returns.
-- `--human` or `SCUT_OUTPUT=human` prints text. Only `--human` on a terminal can open `$EDITOR` or prompt.
+- `--human` or `SCUT_OUTPUT=human` prints text. Only `--human` on a terminal can open `$EDITOR` or prompt. Exception: `auth login` on a terminal prompts for the token on stderr, with no echo.
 - Default fields are compact. `story view` returns: id, name, type, state name, owners and requester as mention names, epic id and name, labels, custom fields as `{name: value}`, the description, tasks, links, branches, PRs, and the last 10 comments. `search` and `epic stories` leave out the description and comments. `--fields` takes API field names and passes them to the API `fields` parameter. It also takes the output names (`state`, `type`, `tasks`, …) as aliases. An API field that the compact shape does not model is printed as the API sent it, under its API name. `genskill` writes the Story field names from the committed spec to `internal/cli/storyfields_gen.go`, and `make check-skill` fails when that file drifts.
 - Names in output (state, member, field) come from the cache. The design must keep the IDs as well, so a script can use them.
 - Deleted comments (`text: null`) show as `{"deleted": true}`.
