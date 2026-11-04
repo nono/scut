@@ -15,7 +15,6 @@ func TestCheckCacheDir(t *testing.T) {
 		{base, ".."},
 		{filepath.Join(base, "scut"), "."},
 		{filepath.Join(base, "scut", "a", "b"), "a/b"},
-		{filepath.Join(base, "scut", "A"), "A"},
 		{filepath.Join(base, "other", "acme"), "acme"},
 		{filepath.Join(base, "scut", "acme"), "beta"},
 		{"scut/acme", "acme"},

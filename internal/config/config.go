@@ -21,7 +21,7 @@ type Settings struct {
 	Team, State, Workflow, Requester, Owner string
 	Fields                                  map[string]string
 	Output                                  string
-	CacheDir                                string
+	CacheDir                                string // <cache>/scut/<Workspace>; Load takes Workspace from the token, which ParseToken checks
 	// Sources maps a key (team, …, fields.<name>) to the source of a value
 	// from env or a file: the env name, or "<path>: key <key>".
 	Sources map[string]string

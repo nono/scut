@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/nono/scut/internal/cache"
-	"github.com/nono/scut/internal/config"
 	"github.com/nono/scut/internal/exit"
 )
 
@@ -224,9 +223,9 @@ func newFieldGroup(env Env) *cobra.Command {
 }
 
 // checkCacheDir refuses a dir that is not <cache>/scut/<slug>, so cache clear
-// cannot remove anything else.
+// cannot remove anything else. config.Load already checks the slug.
 func checkCacheDir(dir, slug string) error {
-	if !config.ValidSlug(slug) || !filepath.IsAbs(dir) || filepath.Clean(dir) != dir ||
+	if !filepath.IsAbs(dir) || filepath.Clean(dir) != dir ||
 		filepath.Base(dir) != slug || filepath.Base(filepath.Dir(dir)) != "scut" {
 		return &exit.Error{Code: exit.Other, Msg: fmt.Sprintf("cache dir %q is not <cache>/scut/<workspace>: not removed", dir)}
 	}
