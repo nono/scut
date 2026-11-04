@@ -244,6 +244,68 @@ func TestDoerBudgetWallClock(t *testing.T) {
 	}
 }
 
+type rtFunc func(*http.Request) (*http.Response, error)
+
+func (f rtFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// Each try has a deadline of the time left in the budget, so a call cannot
+// last much more than the budget. The first try has at least 2 s.
+func TestDoerTryDeadline(t *testing.T) {
+	now := time.Unix(1000, 0)
+	var left []time.Duration
+	hc := &http.Client{Transport: rtFunc(func(r *http.Request) (*http.Response, error) {
+		dl, ok := r.Context().Deadline()
+		if !ok {
+			t.Fatal("no deadline")
+		}
+		left = append(left, time.Until(dl))
+		now = now.Add(15 * time.Second) // the try takes 15 s
+		return &http.Response{StatusCode: 503, Status: "503", Body: http.NoBody, Header: http.Header{}}, nil
+	})}
+	d := transport.New(settings, transport.WithBaseURL("http://x"), transport.WithHTTPClient(hc),
+		transport.WithSleep(func(x time.Duration) { now = now.Add(x) }), transport.WithClock(func() time.Time { return now }))
+	_ = raw(d, "GET")
+	// Try 1 has the whole budget; try 2 starts after 15 s and a wait of about 0.5 s.
+	if len(left) != 2 || left[0] > 20*time.Second || left[0] < 19*time.Second || left[1] > 5*time.Second || left[1] < 4*time.Second {
+		t.Errorf("deadlines %v", left)
+	}
+
+	// A clock that says the budget is spent still gives the first try 2 s.
+	left = nil
+	d = transport.New(settings, transport.WithBaseURL("http://x"), transport.WithHTTPClient(hc),
+		transport.WithSleep(func(time.Duration) {}), transport.WithClock(func() time.Time { now = now.Add(time.Minute); return now }))
+	_ = raw(d, "GET")
+	if len(left) != 1 || left[0] > 2*time.Second || left[0] < time.Second {
+		t.Errorf("first try deadline %v", left)
+	}
+}
+
+// A body that is still being read when the deadline ends is cut: exit 5.
+func TestDoerDeadlineCutsBody(t *testing.T) {
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	base := testapi.Fake(t, map[string]http.HandlerFunc{"GET /api/v4/acme/stories/1": func(rw http.ResponseWriter, r *http.Request) {
+		rw.Header().Set("Content-Type", "application/json")
+		_, _ = rw.Write([]byte(`{"entity":`))
+		rw.(http.Flusher).Flush()
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}})
+	// The clock says the budget is spent: try 1 has the floor of 2 s.
+	now := time.Unix(1000, 0)
+	d := transport.New(settings, transport.WithBaseURL(base), transport.WithClock(func() time.Time {
+		now = now.Add(time.Minute)
+		return now
+	}))
+	start := time.Now()
+	e := asExit(t, raw(d, "GET"))
+	if took := time.Since(start); e.Code != exit.Unavailable || took < time.Second || took > 5*time.Second {
+		t.Errorf("%+v after %v", e, took)
+	}
+}
+
 func TestDoerNoRetryTLS(t *testing.T) {
 	var n atomic.Int32
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) { n.Add(1) }))

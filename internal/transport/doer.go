@@ -37,6 +37,7 @@ const (
 	retryBudget  = 20 * time.Second
 	firstBackoff = 500 * time.Millisecond
 	tryTimeout   = 30 * time.Second // limit of each single try
+	firstTryMin  = 2 * time.Second  // the first try has at least this, so a normal call is not cut
 	maxErrBody   = 1 << 20
 )
 
@@ -89,26 +90,37 @@ func (d *Doer) Do(req *http.Request) (*http.Response, error) {
 	req.Header.Set("User-Agent", "scut/"+Version)
 	ctx := req.Context()
 	retry := req.Method == http.MethodGet
-	// The budget bounds the whole call: no try starts after retryBudget from
-	// the first try, and no wait ends after it. The elapsed time is the larger
-	// of the clock and the sum of the waits, so an injected sleep still counts.
+	// The budget bounds the whole call: each try, with the read of its body,
+	// has a deadline of the time left in retryBudget from the first try (at
+	// most tryTimeout; the first try has at least firstTryMin), and no wait
+	// ends after the budget. So a call ends retryBudget after it starts. The
+	// elapsed time is the larger of the clock and the sum of the waits, so an
+	// injected sleep still counts.
 	start := d.now()
 	var total time.Duration
 	for try := 1; ; try++ {
-		resp, err := d.hc.Do(req)
+		limit := min(tryTimeout, retryBudget-max(d.now().Sub(start), total))
+		if try == 1 {
+			limit = max(limit, firstTryMin)
+		}
+		tctx, cancel := context.WithTimeout(ctx, limit)
+		resp, err := d.hc.Do(req.WithContext(tctx))
 		var wait time.Duration
 		var final error
 		switch {
 		case err != nil:
+			cancel()
 			if ctx.Err() != nil {
 				return nil, fmt.Errorf("%s %s: %w", req.Method, req.URL.Path, ctx.Err())
 			}
 			final = d.connectError(req, err)
 		case resp.StatusCode/100 == 2:
+			resp.Body = &cancelBody{resp.Body, cancel} // the deadline also bounds the read
 			return resp, nil
 		default:
 			wait = retryAfter(resp)
 			final = d.statusError(req, resp)
+			cancel()
 		}
 		if !retry || try >= maxTries || !Retryable(final) {
 			return nil, final
@@ -125,6 +137,18 @@ func (d *Doer) Do(req *http.Request) (*http.Response, error) {
 			return nil, fmt.Errorf("%s %s: %w", req.Method, req.URL.Path, err)
 		}
 	}
+}
+
+// cancelBody ends the context of a try when the body is closed.
+type cancelBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *cancelBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.cancel()
+	return err
 }
 
 func (d *Doer) wait(ctx context.Context, w time.Duration) error {
