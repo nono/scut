@@ -199,6 +199,28 @@ func TestUnlinkSwap(t *testing.T) {
 	}
 }
 
+// "relates to" has no direction: a link made as B relates to A matches A relates-to B.
+func TestRelatesToBothOrders(t *testing.T) {
+	routes := listRoute(linkEntity(11, 5820, "relates to", 5818), linkEntity(13, 5820, "blocks", 5818))
+	deleted := 0
+	routes["DELETE "+linksPath+"/11"] = func(w http.ResponseWriter, _ *http.Request) { deleted++; w.WriteHeader(204) }
+	patched := 0
+	routes["PATCH "+linksPath+"/11"] = func(w http.ResponseWriter, _ *http.Request) {
+		patched++
+		_, _ = io.WriteString(w, jsonOf(map[string]any{"entity": linkEntity(11, 5818, "blocks", 5820)}))
+	}
+	h := newHarness(t, routes, "", searchEnv)
+	if code, _, errs := h.run("story", "unlink", "5818", "relates-to", "5820"); code != 0 || deleted != 1 {
+		t.Errorf("unlink: code %d, deleted %d, stderr %s", code, deleted, errs)
+	}
+	if code, _, errs := h.run("story", "relink", "5818", "relates-to", "5820", "blocks"); code != 0 || patched != 1 {
+		t.Errorf("relink: code %d, patched %d, stderr %s", code, patched, errs)
+	}
+	if code, _, _ := h.run("story", "unlink", "5818", "blocks", "5820"); code != 3 {
+		t.Errorf("blocks has a direction: code %d", code)
+	}
+}
+
 func TestRelinkSwap(t *testing.T) {
 	routes := listRoute(linkEntity(12, 5818, "blocks", 5819))
 	var bodies []map[string]any

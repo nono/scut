@@ -169,11 +169,14 @@ func storyLinks(cmd *cobra.Command, d *deps, id int64) ([]apiLink, error) {
 }
 
 // findLink returns the link of story a that matches the API subject, verb and
-// object. No match gives exit 3 with the existing links as valid.
+// object. "relates to" has no direction, so it matches in both orders. No
+// match gives exit 3 with the existing links as valid.
 func findLink(links []apiLink, subject int64, verb string, object int64) (apiLink, error) {
 	valid := make([]string, 0, len(links))
 	for _, l := range links {
-		if l.Subject.ID == subject && l.Verb == verb && l.Object.ID == object {
+		same := l.Subject.ID == subject && l.Object.ID == object
+		swapped := l.Subject.ID == object && l.Object.ID == subject
+		if l.Verb == verb && (same || (verb == "relates to" && swapped)) {
 			return l, nil
 		}
 		valid = append(valid, l.String())
