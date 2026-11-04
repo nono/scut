@@ -111,7 +111,7 @@ func (d *Doer) Do(req *http.Request) (*http.Response, error) {
 			wait = retryAfter(resp)
 			final = d.statusError(req, resp)
 		}
-		if !retry || try >= maxTries || !retryable(final) {
+		if !retry || try >= maxTries || !Retryable(final) {
 			return nil, final
 		}
 		if wait == 0 {
@@ -147,9 +147,11 @@ func jitter(d time.Duration) time.Duration {
 	return time.Duration(float64(d) * (0.8 + 0.4*rand.Float64()))
 }
 
-func retryable(err error) bool {
-	e, ok := err.(*exit.Error)
-	if !ok {
+// Retryable tells if err is a failure that a retry can heal: 429, 502, 503,
+// 504 or a connect failure.
+func Retryable(err error) bool {
+	var e *exit.Error
+	if !errors.As(err, &e) {
 		return false
 	}
 	switch e.Status {
@@ -203,9 +205,10 @@ func (d *Doer) statusError(req *http.Request, resp *http.Response) error {
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrBody))
 	e := &exit.Error{
-		Code:   codeFor(resp.StatusCode),
-		Status: resp.StatusCode,
-		Msg:    fmt.Sprintf("%s %s: %s", req.Method, req.URL.Path, resp.Status),
+		Code:       codeFor(resp.StatusCode),
+		Status:     resp.StatusCode,
+		RetryAfter: retryAfter(resp),
+		Msg:        fmt.Sprintf("%s %s: %s", req.Method, req.URL.Path, resp.Status),
 	}
 	if isJSON(resp.Header.Get("Content-Type")) && json.Valid(body) {
 		e.API = json.RawMessage(d.scrub(string(bytes.TrimSpace(body))))

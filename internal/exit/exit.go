@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 )
 
 // Code is a process exit code.
@@ -29,6 +30,7 @@ type Error struct {
 	API        json.RawMessage
 	Suggestion string
 	Valid      []string
+	RetryAfter time.Duration // from a Retry-After header; not printed
 }
 
 func (e *Error) Error() string { return e.Msg }

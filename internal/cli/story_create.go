@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 
@@ -197,14 +199,25 @@ func newStoryCreate(env Env) *cobra.Command {
 			}
 			body["external_id"] = newExternalID()
 			raw, err := createStoryRetry(ctx, d, body)
-			if err != nil {
+			if raw == nil {
 				return err
 			}
-			out, err := shapeStory(raw, r, shapeOpts{Description: true})
-			if err != nil {
-				return err
+			if err == nil {
+				var out StoryOut
+				if out, err = shapeStory(raw, r, shapeOpts{Description: true}); err == nil {
+					return d.Out(out)
+				}
 			}
-			return d.Out(out)
+			// The story exists: give its ID although the output failed.
+			var c struct {
+				ID     int64  `json:"id"`
+				AppURL string `json:"app_url"`
+			}
+			_ = json.Unmarshal(raw, &c)
+			if oerr := d.Out(map[string]any{"id": c.ID, "app_url": c.AppURL}); oerr != nil {
+				return oerr
+			}
+			return created(err, c.AppURL)
 		})(cmd, args)
 	}
 	return cmd
@@ -218,4 +231,15 @@ func first(s ...string) string {
 		}
 	}
 	return ""
+}
+
+// created adds to err the advice that the story exists.
+func created(err error, appURL string) error {
+	var e *exit.Error
+	if !errors.As(err, &e) {
+		e = &exit.Error{Code: exit.Other, Msg: err.Error()}
+	}
+	c := *e
+	c.Suggestion = "the story was created: " + appURL
+	return &c
 }

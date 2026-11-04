@@ -1,7 +1,10 @@
 package cli_test
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"github.com/nono/scut/internal/cli"
 	"io"
 	"net/http"
 	"os"
@@ -9,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,9 +29,10 @@ type createFake struct {
 	mu     sync.Mutex
 	bodies []map[string]any
 	// statuses[i] is the status of create number i; 201 when out of range.
-	statuses []int
-	lists    []string // list response bodies, one per list call; empty list when out of range
-	nList    int
+	statuses   []int
+	retryAfter string   // Retry-After header of each non-201 answer
+	lists      []string // list response bodies, one per list call; empty list when out of range
+	nList      int
 }
 
 func (f *createFake) create(t *testing.T, c *calls) http.HandlerFunc {
@@ -45,6 +50,9 @@ func (f *createFake) create(t *testing.T, c *calls) http.HandlerFunc {
 		f.mu.Unlock()
 		if status != 201 {
 			w.Header().Set("Content-Type", "application/json")
+			if f.retryAfter != "" {
+				w.Header().Set("Retry-After", f.retryAfter)
+			}
 			w.WriteHeader(status)
 			_, _ = io.WriteString(w, `{"message":"boom"}`)
 			return
@@ -249,8 +257,8 @@ func TestCreateGivesUp(t *testing.T) {
 	if !strings.Contains(sug, "may exist") || !strings.Contains(sug, f.externalID(0)) {
 		t.Errorf("suggestion %q", sug)
 	}
-	if f.count() > 4 {
-		t.Errorf("%d creates", f.count())
+	if f.count() != 4 || f.nList != 3 {
+		t.Errorf("%d creates, %d lists, want 4 and 3", f.count(), f.nList)
 	}
 }
 
@@ -353,5 +361,91 @@ func TestCreateContract(t *testing.T) {
 	}
 	if _, ok := decode(t, out)["id"]; !ok {
 		t.Errorf("no id: %s", out)
+	}
+}
+
+// The list call may take long. No create starts after the budget.
+func TestCreateBudgetAfterList(t *testing.T) {
+	var c calls
+	var offset atomic.Int64
+	f := &createFake{statuses: []int{504, 201}}
+	h := createHarness(t, f, &c, map[string]http.HandlerFunc{
+		"GET " + createPath: c.wrap(func(w http.ResponseWriter, r *http.Request) {
+			offset.Add(int64(25 * time.Second))
+			jsonHandler(listBody())(w, r)
+		}),
+	})
+	base := time.Unix(1000, 0)
+	h.env.Now = func() time.Time { return base.Add(time.Duration(offset.Load())) }
+	code, _, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
+	if code != 5 || f.count() != 1 || !strings.Contains(errs, f.externalID(0)) {
+		t.Errorf("code %d, creates %d, stderr %s", code, f.count(), errs)
+	}
+}
+
+func TestCreateRetryAfter(t *testing.T) {
+	var c calls
+	f := &createFake{statuses: []int{429, 201}, retryAfter: "2"}
+	h := createHarness(t, f, &c, nil)
+	var slept []time.Duration
+	h.env.Sleep = func(d time.Duration) { slept = append(slept, d) }
+	code, _, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
+	if code != 0 || len(slept) != 1 || slept[0] != 2*time.Second {
+		t.Fatalf("code %d, slept %v, stderr %s", code, slept, errs)
+	}
+	var order []string
+	for _, p := range c.paths {
+		if p == createPath {
+			order = append(order, p)
+		}
+	}
+	if len(order) != 3 || f.count() != 2 || f.nList != 1 {
+		t.Errorf("paths %v, creates %d, lists %d", c.paths, f.count(), f.nList)
+	}
+}
+
+func TestCreateNoRetryOn500(t *testing.T) {
+	var c calls
+	f := &createFake{statuses: []int{500, 201}}
+	h := createHarness(t, f, &c, nil)
+	code, _, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
+	if code != 5 || f.count() != 1 || f.nList != 0 {
+		t.Errorf("code %d, creates %d, lists %d", code, f.count(), f.nList)
+	}
+	if !strings.Contains(errs, "may exist") || !strings.Contains(errs, f.externalID(0)) {
+		t.Errorf("stderr %s", errs)
+	}
+}
+
+func TestCreateCancelled(t *testing.T) {
+	var c calls
+	f := &createFake{statuses: []int{503}}
+	h := createHarness(t, f, &c, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h.env.Sleep = func(time.Duration) { cancel() }
+	var errb bytes.Buffer
+	code := cli.RunContext(ctx, cli.NewRoot(h.env), []string{"story", "create", "--name", "x", "--state", "To Do"}, &errb)
+	if code != 130 || f.count() != 1 || !strings.Contains(errb.String(), f.externalID(0)) {
+		t.Errorf("code %d, creates %d, stderr %s", code, f.count(), errb.String())
+	}
+}
+
+func TestCreateShapeFails(t *testing.T) {
+	var c calls
+	f := &createFake{}
+	h := createHarness(t, f, &c, map[string]http.HandlerFunc{
+		"GET /api/v4/acme/members": func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(500) },
+	})
+	code, out, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
+	if code == 0 {
+		t.Fatalf("code 0, stdout %s", out)
+	}
+	m := decode(t, out)
+	if m["id"] != float64(5818) || m["app_url"] == nil {
+		t.Errorf("stdout %s", out)
+	}
+	if !strings.Contains(errs, "the story was created: ") {
+		t.Errorf("stderr %s", errs)
 	}
 }

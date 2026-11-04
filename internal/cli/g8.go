@@ -60,11 +60,6 @@ func findCreated(ctx context.Context, d *transport.Doer, externalID string) (jso
 	return nil, false, nil
 }
 
-func unavailable(err error) bool {
-	var e *exit.Error
-	return errors.As(err, &e) && e.Code == exit.Unavailable
-}
-
 // mayExist adds to err the advice to look for the story before a new create.
 func mayExist(err error, externalID string) error {
 	var e *exit.Error
@@ -76,10 +71,20 @@ func mayExist(err error, externalID string) error {
 	return &c
 }
 
+// cancelled is the error for a cancel after a create was sent: the story may
+// exist, so the external_id must reach the user.
+func cancelled(externalID string) error {
+	return mayExist(&exit.Error{Code: exit.Cancelled, Msg: "cancelled"}, externalID)
+}
+
 // createStoryRetry sends the createStory request. body must hold external_id.
-// After a failure with exit code 5 it looks for the story by external_id
-// before each new try, and it never sends a create again while it cannot tell
-// if the last one worked. A 4xx is never retried.
+// After a retryable failure (transport.Retryable) it looks for the story by
+// external_id before each new try, and it never sends a create again while it
+// cannot tell if the last one worked. Any other failure is final, so a 4xx and
+// a 500 are never retried. No try starts after createBudget from the first.
+//
+// When the story exists but the full entity cannot be read, it returns the
+// list item together with the error.
 func createStoryRetry(ctx context.Context, d *deps, body map[string]any) (json.RawMessage, error) {
 	extID, _ := body["external_id"].(string)
 	now := d.Now
@@ -88,56 +93,71 @@ func createStoryRetry(ctx context.Context, d *deps, body map[string]any) (json.R
 	}
 	start := now()
 	var total time.Duration
+	elapsed := func() time.Duration { return max(now().Sub(start), total) }
+	sent := false      // a create was sent
 	uncertain := false // an earlier create may have worked
+	var last error     // the last retryable failure
+	fail := func(err error) error {
+		switch {
+		case sent && ctx.Err() != nil:
+			return cancelled(extID)
+		case uncertain:
+			return mayExist(err, extID)
+		}
+		return err
+	}
 	for try := 1; ; try++ {
 		var failure error
-		found := false
-		var raw json.RawMessage
 		if uncertain {
 			it, ok, err := findCreated(ctx, d.Doer, extID)
 			switch {
 			case err != nil:
 				failure = err
 			case ok:
-				found, raw = true, it
+				var s struct {
+					ID int64 `json:"id"`
+				}
+				if err := json.Unmarshal(it, &s); err != nil || s.ID == 0 {
+					return nil, mayExist(&exit.Error{Code: exit.Other, Msg: "bad story in list"}, extID)
+				}
+				full, err := d.Doer.Raw(ctx, "GET", "stories/"+strconv.FormatInt(s.ID, 10), nil, nil)
+				if err != nil {
+					return it, err
+				}
+				return full, nil
 			}
-		}
-		if found {
-			var s struct {
-				ID int64 `json:"id"`
-			}
-			if err := json.Unmarshal(raw, &s); err != nil || s.ID == 0 {
-				return nil, mayExist(&exit.Error{Code: exit.Other, Msg: "bad story in list"}, extID)
-			}
-			full, err := d.Doer.Raw(ctx, "GET", "stories/"+strconv.FormatInt(s.ID, 10), nil, nil)
-			if err != nil {
-				return nil, mayExist(err, extID)
-			}
-			return full, nil
 		}
 		if failure == nil {
+			// The list call has its own budget: check ours again.
+			if try > 1 && elapsed() > createBudget {
+				return nil, fail(last)
+			}
+			sent = true
 			out, err := d.Doer.Raw(ctx, "POST", "stories", nil, body)
 			if err == nil {
 				return out, nil
 			}
 			failure = err
-			if unavailable(err) {
+			var xe *exit.Error
+			if errors.As(err, &xe) && xe.Code == exit.Unavailable { // 5xx or no answer: the story may exist
 				uncertain = true
 			}
 		}
-		if !unavailable(failure) {
-			if uncertain {
-				return nil, mayExist(failure, extID)
-			}
-			return nil, failure
+		last = failure
+		if !transport.Retryable(failure) {
+			return nil, fail(failure)
 		}
 		wait := time.Duration(float64(createBackoff<<(try-1)) * (0.8 + 0.4*mrand.Float64()))
-		if try >= createTries || max(now().Sub(start), total)+wait > createBudget {
-			return nil, mayExist(failure, extID)
+		var xe *exit.Error
+		if errors.As(failure, &xe) && xe.RetryAfter > 0 {
+			wait = xe.RetryAfter
+		}
+		if try >= createTries || elapsed()+wait > createBudget {
+			return nil, fail(failure)
 		}
 		total += wait
 		if err := sleepCtx(ctx, d.Sleep, wait); err != nil {
-			return nil, fmt.Errorf("create story: %w", err)
+			return nil, fail(err)
 		}
 	}
 }
