@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"time"
@@ -25,6 +26,7 @@ type Env struct {
 	APIBase    string              // empty: the real API
 	Sleep      func(time.Duration) // nil: wait on a timer; tests set a no-op
 	Now        func() time.Time    // nil: time.Now
+	FileClient *http.Client        // nil: a client for the file host
 }
 
 // OSEnv returns the Env of the running process.
