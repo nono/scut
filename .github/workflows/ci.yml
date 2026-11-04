@@ -46,6 +46,10 @@ jobs:
         with:
           persist-credentials: false
       - name: Diff the published spec against api/shortcut.openapi.json
+        # Shortcut renumbers its generated schema names (Body123, Response456) on
+        # each publish. The names are replaced and the lines sorted before the
+        # diff, because a new number can change the order of the keys.
         run: |
           curl -fsSL -o "$RUNNER_TEMP/spec.json" https://developer.shortcut.com/api/rest/v4/shortcut.openapi.json
-          diff "$RUNNER_TEMP/spec.json" api/shortcut.openapi.json
+          norm() { jq -S . "$1" | sed -E 's/(Body|Response)[0-9]+/\1_N/g' | sort; }
+          diff <(norm api/shortcut.openapi.json) <(norm "$RUNNER_TEMP/spec.json")
