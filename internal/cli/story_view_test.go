@@ -547,6 +547,23 @@ func TestViewCommentsTotal(t *testing.T) {
 	}
 }
 
+func TestViewHumanTotals(t *testing.T) {
+	var c calls
+	story := storyFixture(t)
+	story["owners"] = map[string]any{"current_items": 1, "total_items": 3, "entities": []any{map[string]any{"id": testMember}}}
+	story["comments"] = map[string]any{"current_items": 0, "total_items": 25, "entities": []any{}}
+	h := viewHarness(t, &c, story, []any{comment(1, "a", false), comment(2, "b", false), comment(3, "c", false)})
+	code, out, errs := h.run("--human", "story", "view", "5818", "--comments", "3")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	for _, want := range []string{"Owners: @testuser (1 of 3)\n", "\nComments (3 of 25)\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("no %q in %s", want, out)
+		}
+	}
+}
+
 func TestViewUnknownField(t *testing.T) {
 	var c calls
 	h := viewHarness(t, &c, storyFixture(t), nil)

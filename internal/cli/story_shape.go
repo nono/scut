@@ -308,13 +308,16 @@ func (s StoryOut) Human() string {
 		for _, m := range s.Owners {
 			o = append(o, m.label())
 		}
-		fmt.Fprintf(&b, "Owners: %s\n", strings.Join(o, ", "))
+		fmt.Fprintf(&b, "Owners: %s%s\n", strings.Join(o, ", "), ofTotal(len(o), s.OwnersTotal))
 	}
 	if s.AppURL != "" {
 		fmt.Fprintf(&b, "%s\n", s.AppURL)
 	}
 	if s.Description != nil && *s.Description != "" {
 		fmt.Fprintf(&b, "\n%s\n", *s.Description)
+	}
+	if s.CommentsTotal > 0 {
+		fmt.Fprintf(&b, "\nComments%s\n", ofTotal(len(s.Comments), s.CommentsTotal))
 	}
 	for _, c := range s.Comments {
 		switch {
@@ -327,6 +330,14 @@ func (s StoryOut) Human() string {
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// ofTotal returns " (n of total)" for a list that the API cut short, else "".
+func ofTotal(n, total int) string {
+	if total <= n {
+		return ""
+	}
+	return fmt.Sprintf(" (%d of %d)", n, total)
 }
 
 func (m memberOut) label() string {
