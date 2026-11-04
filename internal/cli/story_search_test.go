@@ -127,7 +127,6 @@ func TestSearchFieldsDescriptionComments(t *testing.T) {
 	}
 }
 
-// pagedHandler serves pages of 25 stories; page n links to page n+1 until last.
 // pagedHandler serves total stories in pages of the limit parameter of the
 // first call (the API default of 10 without it), as the API does.
 func pagedHandler(t *testing.T, c *calls, total int) http.HandlerFunc {

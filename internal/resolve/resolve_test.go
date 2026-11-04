@@ -1,8 +1,6 @@
 package resolve_test
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -213,8 +211,7 @@ func TestMeCachePerToken(t *testing.T) {
 
 func TestMemberMe(t *testing.T) {
 	e := newEnv(t, nil)
-	sum := sha256.Sum256([]byte("sct_rw_acme_s3cret"))
-	_ = e.c.Put("whoami-"+hex.EncodeToString(sum[:])[:16], me, e.now)
+	_ = e.c.Put("whoami-"+e.d.TokenID(), me, e.now)
 	id, err := e.r.Member("@me")
 	if err != nil || id != me || e.n("GET /api/v4/whoami") != 0 {
 		t.Errorf("id %s, err %v, calls %d", id, err, e.n("GET /api/v4/whoami"))
