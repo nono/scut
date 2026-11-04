@@ -172,9 +172,12 @@ func retryAfter(resp *http.Response) time.Duration {
 	return time.Duration(n) * time.Second
 }
 
-func (d *Doer) scrub(s string) string {
-	if d.s.Token != "" {
-		s = strings.ReplaceAll(s, d.s.Token, "***")
+func (d *Doer) scrub(s string) string { return Scrub(s, d.s.Token) }
+
+// Scrub replaces each copy of token in s with ***.
+func Scrub(s, token string) string {
+	if token != "" {
+		s = strings.ReplaceAll(s, token, "***")
 	}
 	return s
 }

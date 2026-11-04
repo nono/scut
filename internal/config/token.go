@@ -8,7 +8,8 @@ import (
 	"github.com/zalando/go-keyring"
 )
 
-const keyringService = "scut"
+// KeyringService is the keyring service name of the scut tokens.
+const KeyringService = "scut"
 
 // Keyring stores secrets in a keyring.
 type Keyring interface {

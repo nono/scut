@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/nono/scut/internal/config"
 )
 
 func TestAuthLogin(t *testing.T) {
@@ -28,7 +30,7 @@ func TestAuthLogin(t *testing.T) {
 	if gotAuth != "Bearer "+token {
 		t.Errorf("auth header %q", gotAuth)
 	}
-	if got := h.kr.m["scut/default"]; got != token {
+	if got := h.kr.m[config.KeyringService+"/default"]; got != token || config.KeyringService != "scut" {
 		t.Errorf("keyring %v", h.kr.m)
 	}
 }

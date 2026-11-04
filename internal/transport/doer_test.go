@@ -361,3 +361,12 @@ func TestPrismGetStory(t *testing.T) {
 		t.Errorf("body not JSON")
 	}
 }
+
+func TestScrub(t *testing.T) {
+	if got := transport.Scrub("a sct_x b sct_x", "sct_x"); got != "a *** b ***" {
+		t.Errorf("got %q", got)
+	}
+	if got := transport.Scrub("abc", ""); got != "abc" {
+		t.Errorf("empty token: got %q", got)
+	}
+}

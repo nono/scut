@@ -130,7 +130,7 @@ func resolveToken(s *Settings, o Options, getenv func(string) string, tokenFile,
 	}
 	var kerr error
 	if raw == "" && o.Keyring != nil {
-		raw, kerr = o.Keyring.Get(keyringService, s.Profile)
+		raw, kerr = o.Keyring.Get(KeyringService, s.Profile)
 		if kerr == nil && raw != "" {
 			s.TokenSource = "keyring"
 		}

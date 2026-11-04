@@ -177,12 +177,7 @@ func uniqueName(name string, id int64, used map[string]bool) string {
 
 // download writes one file through a temp file in dir, then renames it to dest.
 func download(ctx context.Context, c *http.Client, hosts []string, token string, f apiFile, dir, dest string) (err error) {
-	scrub := func(s string) string {
-		if token != "" {
-			s = strings.ReplaceAll(s, token, "***")
-		}
-		return s
-	}
+	scrub := func(s string) string { return transport.Scrub(s, token) }
 	netErr := func(err error) error {
 		if ctx.Err() != nil {
 			return fmt.Errorf("download file %d: %w", f.ID, ctx.Err())

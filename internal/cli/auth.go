@@ -14,8 +14,6 @@ import (
 	"github.com/nono/scut/internal/transport"
 )
 
-const keyringService = "scut"
-
 func newAuth(env Env) *cobra.Command {
 	auth := Group("auth", "Store and check the API token")
 	auth.AddCommand(newAuthLogin(env), newAuthStatus(env))
@@ -57,7 +55,7 @@ func newAuthLogin(env Env) *cobra.Command {
 			if env.Keyring == nil {
 				return exit.Usagef("no keyring available")
 			}
-			if err := env.Keyring.Set(keyringService, profile, tok); err != nil {
+			if err := env.Keyring.Set(config.KeyringService, profile, tok); err != nil {
 				return &exit.Error{Code: exit.Other, Msg: "cannot store the token in the keyring: " + err.Error()}
 			}
 			return output.Print(cmd.OutOrStdout(), map[string]string{
