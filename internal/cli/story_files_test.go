@@ -253,6 +253,30 @@ func TestFilesNameClean(t *testing.T) {
 	}
 }
 
+// The name with the file ID can be taken too: then -2 follows it.
+func TestFilesNameCollisionTwice(t *testing.T) {
+	h := filesHarness(t, []fileSpec{{1, "a.txt", "1", -1}, {3, "a-2.txt", "3", -1}, {2, "a.txt", "2", -1}}, 0, nil)
+	out := t.TempDir()
+	code, stdout, errs := h.run("story", "files", "5818", "--out", out)
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	var l []map[string]any
+	if err := json.Unmarshal([]byte(stdout), &l); err != nil || len(l) != 3 {
+		t.Fatalf("stdout %s: %v", stdout, err)
+	}
+	for i, want := range []string{"a.txt", "a-2.txt", "a-2-2.txt"} {
+		if l[i]["path"] != filepath.Join(out, want) {
+			t.Errorf("file %d: path %v, want %s", i, l[i]["path"], want)
+		}
+	}
+	for name, body := range map[string]string{"a.txt": "1", "a-2.txt": "3", "a-2-2.txt": "2"} {
+		if b, _ := os.ReadFile(filepath.Join(out, name)); string(b) != body {
+			t.Errorf("%s: %q, want %q", name, b, body)
+		}
+	}
+}
+
 // A file that is already in --out is never replaced.
 func TestFilesNoReplace(t *testing.T) {
 	h := filesHarness(t, []fileSpec{{7, "a.txt", "new", -1}, {8, "b", "new b", -1}}, 0, nil)
