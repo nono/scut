@@ -12,9 +12,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
         with:
-          install_args: go
+          persist-credentials: false
+      - uses: jdx/mise-action@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Lint and test
+        env:
+          CI: "true"
+        run: make lint test
       - name: Build
         env:
           TAG: ${{ github.ref_name }}

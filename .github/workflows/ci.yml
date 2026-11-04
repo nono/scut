@@ -16,6 +16,8 @@ jobs:
       HAS_LIVE_TOKEN: ${{ secrets.SCUT_LIVE_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: jdx/mise-action@v2
       - uses: actions/setup-node@v4
         with:
@@ -25,9 +27,16 @@ jobs:
       - name: Test
         run: make test
       - name: Generated client is up to date
-        run: go generate ./internal/v4 && git diff --exit-code
+        run: |
+          make generate
+          out=$(git status --porcelain --untracked-files=all)
+          if [ -n "$out" ]; then
+            echo "$out"
+            echo "generated files differ from the committed ones"
+            exit 1
+          fi
       - name: Live smoke test
-        if: env.HAS_LIVE_TOKEN == 'true'
+        if: github.event_name == 'push' && env.HAS_LIVE_TOKEN == 'true'
         run: make live
         env:
           SCUT_TOKEN: ${{ secrets.SCUT_LIVE_TOKEN }}
@@ -37,6 +46,8 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Diff the published spec against api/shortcut.openapi.json
         run: |
           curl -fsSL -o "$RUNNER_TEMP/spec.json" https://developer.shortcut.com/api/rest/v4/shortcut.openapi.json
