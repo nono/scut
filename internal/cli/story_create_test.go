@@ -502,19 +502,6 @@ func TestCreateRetryAfter(t *testing.T) {
 	}
 }
 
-func TestCreateNoRetryOn500(t *testing.T) {
-	var c calls
-	f := &createFake{statuses: []int{500, 201}}
-	h := createHarness(t, f, &c, nil)
-	code, _, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
-	if code != 5 || f.count() != 1 || f.nList != 1 {
-		t.Errorf("code %d, creates %d, lists %d, want 5, 1, 1", code, f.count(), f.nList)
-	}
-	if !strings.Contains(errs, "may exist") || !strings.Contains(errs, f.externalID(0)) {
-		t.Errorf("stderr %s", errs)
-	}
-}
-
 // foundFrom returns a list handler that finds the first create from list call n (1-based) on.
 func foundFrom(f *createFake, c *calls, n int) map[string]http.HandlerFunc {
 	return map[string]http.HandlerFunc{
@@ -532,40 +519,45 @@ func foundFrom(f *createFake, c *calls, n int) map[string]http.HandlerFunc {
 	}
 }
 
-// A 500 is not retried, but the final find runs and can find the story.
-func TestCreate500FindsStory(t *testing.T) {
-	var c calls
-	f := &createFake{statuses: []int{500, 201}}
-	h := createHarness(t, f, &c, foundFrom(f, &c, 1))
-	code, out, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
-	if code != 0 || f.count() != 1 || f.nList != 1 || decode(t, out)["id"] != float64(5818) {
-		t.Errorf("code %d, creates %d, lists %d, stdout %s, stderr %s", code, f.count(), f.nList, out, errs)
-	}
-}
-
-func TestCreateEmptyBody(t *testing.T) {
+// A 500 or an empty 2xx body is not retried, but the final find runs: it
+// finds the story (exit 0), or exit 5 says that the story may exist.
+func TestCreateFinalFind(t *testing.T) {
 	empty := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(201) }
-	t.Run("found", func(t *testing.T) {
-		var c calls
-		f := &createFake{replies: []http.HandlerFunc{empty}}
-		h := createHarness(t, f, &c, foundFrom(f, &c, 1))
-		code, out, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
-		if code != 0 || f.count() != 1 || f.nList != 1 || decode(t, out)["id"] != float64(5818) {
-			t.Errorf("code %d, creates %d, lists %d, stdout %s, stderr %s", code, f.count(), f.nList, out, errs)
-		}
-	})
-	t.Run("missing", func(t *testing.T) {
-		var c calls
-		f := &createFake{replies: []http.HandlerFunc{empty}}
-		h := createHarness(t, f, &c, nil)
-		code, out, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
-		if code != 5 || f.count() != 1 || f.nList != 1 || out != "" {
-			t.Errorf("code %d, creates %d, lists %d, stdout %s", code, f.count(), f.nList, out)
-		}
-		if !strings.Contains(errs, "may exist") || !strings.Contains(errs, f.externalID(0)) {
-			t.Errorf("stderr %s", errs)
-		}
-	})
+	for _, tc := range []struct {
+		name     string
+		statuses []int
+		replies  []http.HandlerFunc
+		found    bool
+		wantCode int
+	}{
+		{"500 missing", []int{500, 201}, nil, false, 5},
+		{"500 found", []int{500, 201}, nil, true, 0},
+		{"empty missing", nil, []http.HandlerFunc{empty}, false, 5},
+		{"empty found", nil, []http.HandlerFunc{empty}, true, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var c calls
+			f := &createFake{statuses: tc.statuses, replies: tc.replies}
+			var routes map[string]http.HandlerFunc
+			if tc.found {
+				routes = foundFrom(f, &c, 1)
+			}
+			h := createHarness(t, f, &c, routes)
+			code, out, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
+			if code != tc.wantCode || f.count() != 1 || f.nList != 1 {
+				t.Errorf("code %d, creates %d, lists %d, want %d, 1, 1; stderr %s", code, f.count(), f.nList, tc.wantCode, errs)
+			}
+			if tc.found {
+				if decode(t, out)["id"] != float64(5818) {
+					t.Errorf("stdout %s", out)
+				}
+				return
+			}
+			if out != "" || !strings.Contains(errs, "may exist") || !strings.Contains(errs, f.externalID(0)) {
+				t.Errorf("stdout %s, stderr %s", out, errs)
+			}
+		})
+	}
 }
 
 func TestCreateNotJSON(t *testing.T) {
