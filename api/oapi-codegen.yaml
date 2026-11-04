@@ -1,0 +1,9 @@
+package: v4
+generate:
+  models: true
+  client: true
+output-options:
+  overlay:
+    path: ../../api/overlay.yaml
+# Paths resolve from the generator working directory: internal/v4.
+output: v4.gen.go

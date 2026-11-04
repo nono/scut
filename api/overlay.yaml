@@ -1,0 +1,44 @@
+overlay: 1.0.0
+info:
+  title: Rename schemas that clash with generated operation-params types
+  version: 1.0.0
+actions:
+  - target: $.components.schemas.CreateCategoryParams
+    update:
+      x-go-name: CreateCategoryParamsBody
+  - target: $.components.schemas.CreateDocParams
+    update:
+      x-go-name: CreateDocParamsBody
+  - target: $.components.schemas.CreateEntityTemplateParams
+    update:
+      x-go-name: CreateEntityTemplateParamsBody
+  - target: $.components.schemas.CreateEpicCommentParams
+    update:
+      x-go-name: CreateEpicCommentParamsBody
+  - target: $.components.schemas.CreateEpicParams
+    update:
+      x-go-name: CreateEpicParamsBody
+  - target: $.components.schemas.CreateIterationParams
+    update:
+      x-go-name: CreateIterationParamsBody
+  - target: $.components.schemas.CreateLabelParams
+    update:
+      x-go-name: CreateLabelParamsBody
+  - target: $.components.schemas.CreateLinkedFileParams
+    update:
+      x-go-name: CreateLinkedFileParamsBody
+  - target: $.components.schemas.CreateObjectiveParams
+    update:
+      x-go-name: CreateObjectiveParamsBody
+  - target: $.components.schemas.CreateStoryChecklistItemParams
+    update:
+      x-go-name: CreateStoryChecklistItemParamsBody
+  - target: $.components.schemas.CreateStoryCommentParams
+    update:
+      x-go-name: CreateStoryCommentParamsBody
+  - target: $.components.schemas.CreateStoryParams
+    update:
+      x-go-name: CreateStoryParamsBody
+  - target: $.components.schemas.CreateTeamParams
+    update:
+      x-go-name: CreateTeamParamsBody
