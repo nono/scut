@@ -246,10 +246,14 @@ func (r *R) Member(name string) (string, error) {
 
 // Members resolves each name. It fails on the first name that does not
 // resolve. Each ID appears once, in order of first use.
-func (r *R) Members(names []string) ([]string, error) {
-	out := make([]string, 0, len(names))
+func (r *R) Members(names []string) ([]string, error) { return each(names, r.Member) }
+
+// each resolves each name with one. It fails on the first name that does not
+// resolve. Each ID appears once, in order of first use.
+func each[T comparable](names []string, one func(string) (T, error)) ([]T, error) {
+	out := make([]T, 0, len(names))
 	for _, n := range names {
-		id, err := r.Member(n)
+		id, err := one(n)
 		if err != nil {
 			return nil, err
 		}
@@ -401,6 +405,9 @@ func (r *R) Label(name string) (int64, error) {
 		return 0, miss(valid, "no label %q", name)
 	})
 }
+
+// Labels resolves each label name, as Members does.
+func (r *R) Labels(names []string) ([]int64, error) { return each(names, r.Label) }
 
 // epicQuery quotes a name for the search, so that it matches as a phrase.
 // A name with a double quote is sent as is.

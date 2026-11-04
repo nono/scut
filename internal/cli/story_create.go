@@ -170,17 +170,9 @@ func newStoryCreate(env Env) *cobra.Command {
 				}
 			}
 			if len(*labels) > 0 {
-				ids := make([]int64, 0, len(*labels))
-				for _, l := range *labels {
-					id, err := r.Label(l)
-					if err != nil {
-						return err
-					}
-					if !slices.Contains(ids, id) {
-						ids = append(ids, id)
-					}
+				if body["label_ids"], err = r.Labels(*labels); err != nil {
+					return err
 				}
-				body["label_ids"] = ids
 			}
 			// A --field flag overrides the config value of the same field.
 			vals := map[string]string{}

@@ -266,6 +266,19 @@ func TestMembersDeduped(t *testing.T) {
 	}
 }
 
+func TestLabelsDeduped(t *testing.T) {
+	e := newEnv(t, nil)
+	got, err := e.r.Labels([]string{"bug", "bug"})
+	if err != nil || !slices.Equal(got, []int64{7}) {
+		t.Fatalf("got %v, %v", got, err)
+	}
+	got, err = e.r.Labels([]string{"bug", "ghost"})
+	_ = wantErr(t, err, exit.NotFound)
+	if got != nil {
+		t.Errorf("partial result %v", got)
+	}
+}
+
 func TestShortNestedList(t *testing.T) {
 	e := newEnv(t, func(a *api) {
 		a.json("GET /api/v4/acme/workflows", list(map[string]any{
