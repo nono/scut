@@ -31,6 +31,7 @@ type Error struct {
 	Suggestion string
 	Valid      []string
 	RetryAfter time.Duration // from a Retry-After header; not printed
+	NotSent    bool          // a connect failure: the request did not reach the server; not printed
 }
 
 func (e *Error) Error() string { return e.Msg }

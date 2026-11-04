@@ -33,6 +33,8 @@ type createFake struct {
 	retryAfter string   // Retry-After header of each non-201 answer
 	lists      []string // list response bodies, one per list call; empty list when out of range
 	nList      int
+	// replies[i], when set, answers create number i in place of statuses.
+	replies []http.HandlerFunc
 }
 
 func (f *createFake) create(t *testing.T, c *calls) http.HandlerFunc {
@@ -47,7 +49,15 @@ func (f *createFake) create(t *testing.T, c *calls) http.HandlerFunc {
 		if i < len(f.statuses) {
 			status = f.statuses[i]
 		}
+		var reply http.HandlerFunc
+		if i < len(f.replies) {
+			reply = f.replies[i]
+		}
 		f.mu.Unlock()
+		if reply != nil {
+			reply(w, r)
+			return
+		}
 		if status != 201 {
 			w.Header().Set("Content-Type", "application/json")
 			if f.retryAfter != "" {
@@ -230,7 +240,7 @@ func (f *createFake) count() int {
 
 func TestCreateRetryCreates(t *testing.T) {
 	var c calls
-	f := &createFake{statuses: []int{504, 201}}
+	f := &createFake{statuses: []int{503, 201}}
 	h := createHarness(t, f, &c, nil)
 	code, _, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
 	if code != 0 {
@@ -246,7 +256,7 @@ func TestCreateRetryCreates(t *testing.T) {
 
 func TestCreateGivesUp(t *testing.T) {
 	var c calls
-	f := &createFake{statuses: []int{504, 504, 504, 504, 504}}
+	f := &createFake{statuses: []int{503, 503, 503, 503, 503}}
 	h := createHarness(t, f, &c, nil)
 	code, _, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
 	if code != 5 {
@@ -265,7 +275,7 @@ func TestCreateGivesUp(t *testing.T) {
 // After the last try, one more find runs; when it finds the story, exit 0.
 func TestCreateGivesUpFindsLast(t *testing.T) {
 	var c calls
-	f := &createFake{statuses: []int{504, 504, 504, 504}}
+	f := &createFake{statuses: []int{503, 503, 503, 503}}
 	h := createHarness(t, f, &c, map[string]http.HandlerFunc{
 		"GET " + createPath: c.wrap(func(w http.ResponseWriter, r *http.Request) {
 			f.mu.Lock()
@@ -315,7 +325,7 @@ func TestCreateBudget(t *testing.T) {
 // When the list call fails, the create must not run again: its result is unknown.
 func TestCreateNoRecreateWhenFindFails(t *testing.T) {
 	var c calls
-	f := &createFake{statuses: []int{504, 201}}
+	f := &createFake{statuses: []int{503, 201}}
 	h := createHarness(t, f, &c, map[string]http.HandlerFunc{
 		"GET " + createPath: c.wrap(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -393,7 +403,7 @@ func TestCreateContract(t *testing.T) {
 func TestCreateBudgetAfterList(t *testing.T) {
 	var c calls
 	var offset atomic.Int64
-	f := &createFake{statuses: []int{504, 201}}
+	f := &createFake{statuses: []int{503, 201}}
 	h := createHarness(t, f, &c, map[string]http.HandlerFunc{
 		"GET " + createPath: c.wrap(func(w http.ResponseWriter, r *http.Request) {
 			offset.Add(int64(25 * time.Second))
@@ -434,11 +444,120 @@ func TestCreateNoRetryOn500(t *testing.T) {
 	f := &createFake{statuses: []int{500, 201}}
 	h := createHarness(t, f, &c, nil)
 	code, _, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
-	if code != 5 || f.count() != 1 || f.nList != 0 {
-		t.Errorf("code %d, creates %d, lists %d", code, f.count(), f.nList)
+	if code != 5 || f.count() != 1 || f.nList != 1 {
+		t.Errorf("code %d, creates %d, lists %d, want 5, 1, 1", code, f.count(), f.nList)
 	}
 	if !strings.Contains(errs, "may exist") || !strings.Contains(errs, f.externalID(0)) {
 		t.Errorf("stderr %s", errs)
+	}
+}
+
+// foundFrom returns a list handler that finds the first create from list call n (1-based) on.
+func foundFrom(f *createFake, c *calls, n int) map[string]http.HandlerFunc {
+	return map[string]http.HandlerFunc{
+		"GET " + createPath: c.wrap(func(w http.ResponseWriter, r *http.Request) {
+			f.mu.Lock()
+			f.nList++
+			i := f.nList
+			f.mu.Unlock()
+			body := listBody()
+			if i >= n {
+				body = listWith(f.externalID(0))
+			}
+			jsonHandler(body)(w, r)
+		}),
+	}
+}
+
+// A 500 is not retried, but the final find runs and can find the story.
+func TestCreate500FindsStory(t *testing.T) {
+	var c calls
+	f := &createFake{statuses: []int{500, 201}}
+	h := createHarness(t, f, &c, foundFrom(f, &c, 1))
+	code, out, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
+	if code != 0 || f.count() != 1 || f.nList != 1 || decode(t, out)["id"] != float64(5818) {
+		t.Errorf("code %d, creates %d, lists %d, stdout %s, stderr %s", code, f.count(), f.nList, out, errs)
+	}
+}
+
+func TestCreateEmptyBody(t *testing.T) {
+	empty := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(201) }
+	t.Run("found", func(t *testing.T) {
+		var c calls
+		f := &createFake{replies: []http.HandlerFunc{empty}}
+		h := createHarness(t, f, &c, foundFrom(f, &c, 1))
+		code, out, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
+		if code != 0 || f.count() != 1 || f.nList != 1 || decode(t, out)["id"] != float64(5818) {
+			t.Errorf("code %d, creates %d, lists %d, stdout %s, stderr %s", code, f.count(), f.nList, out, errs)
+		}
+	})
+	t.Run("missing", func(t *testing.T) {
+		var c calls
+		f := &createFake{replies: []http.HandlerFunc{empty}}
+		h := createHarness(t, f, &c, nil)
+		code, out, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
+		if code != 5 || f.count() != 1 || f.nList != 1 || out != "" {
+			t.Errorf("code %d, creates %d, lists %d, stdout %s", code, f.count(), f.nList, out)
+		}
+		if !strings.Contains(errs, "may exist") || !strings.Contains(errs, f.externalID(0)) {
+			t.Errorf("stderr %s", errs)
+		}
+	})
+}
+
+func TestCreateNotJSON(t *testing.T) {
+	var c calls
+	f := &createFake{replies: []http.HandlerFunc{func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(201)
+		_, _ = io.WriteString(w, "<html>proxy</html>")
+	}}}
+	h := createHarness(t, f, &c, nil)
+	code, _, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
+	if code != 5 || f.count() != 1 || f.nList != 1 {
+		t.Errorf("code %d, creates %d, lists %d, stderr %s", code, f.count(), f.nList, errs)
+	}
+	if !strings.Contains(errs, "may exist") || !strings.Contains(errs, f.externalID(0)) {
+		t.Errorf("stderr %s", errs)
+	}
+}
+
+// After a 502, a 504 or a cut body, the server may still save the story: no
+// new create, only finds until the budget ends.
+func TestCreateNoRepostAfterTimeout(t *testing.T) {
+	cut := func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Length", "1000")
+		w.WriteHeader(201)
+		_, _ = io.WriteString(w, `{"entity":`)
+	}
+	for name, f := range map[string]*createFake{
+		"502": {statuses: []int{502, 201}},
+		"504": {statuses: []int{504, 504, 201}},
+		"cut": {replies: []http.HandlerFunc{cut}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var c calls
+			h := createHarness(t, f, &c, nil)
+			code, _, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
+			// Waits of 0.5, 1, 2, 4 and 8 s fit in 20 s; the next does not.
+			if code != 5 || f.count() != 1 || f.nList != 5 {
+				t.Errorf("code %d, creates %d, lists %d, want 5, 1, 5; stderr %s", code, f.count(), f.nList, errs)
+			}
+			if !strings.Contains(errs, "may exist") || !strings.Contains(errs, f.externalID(0)) {
+				t.Errorf("stderr %s", errs)
+			}
+		})
+	}
+}
+
+func TestCreateTimeoutFindsLater(t *testing.T) {
+	var c calls
+	f := &createFake{statuses: []int{504, 201}}
+	h := createHarness(t, f, &c, foundFrom(f, &c, 3))
+	code, out, errs := h.run("story", "create", "--name", "x", "--state", "To Do")
+	if code != 0 || f.count() != 1 || f.nList != 3 || decode(t, out)["id"] != float64(5818) {
+		t.Errorf("code %d, creates %d, lists %d, stdout %s, stderr %s", code, f.count(), f.nList, out, errs)
 	}
 }
 

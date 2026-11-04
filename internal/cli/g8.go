@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	mrand "math/rand/v2"
+	"net/http"
 	"net/url"
 	"strconv"
 	"time"
@@ -77,15 +78,61 @@ func cancelled(externalID string) error {
 	return mayExist(&exit.Error{Code: exit.Cancelled, Msg: "cancelled"}, externalID)
 }
 
+// createOutcome tells what a failed create means for the next step.
+type createOutcome int
+
+const (
+	createRefused createOutcome = iota // a 4xx (not 429): no story
+	createResend                       // 429, 503, or no connection: the server did not take it
+	createWait                         // 502, 504, no answer, or a cut body: the server may still save it
+	createFinal                        // any other failure after the send: the story may exist
+)
+
+// classifyCreate returns the outcome of a create that failed with err.
+func classifyCreate(err error) createOutcome {
+	var e *exit.Error
+	if !errors.As(err, &e) {
+		return createFinal
+	}
+	switch {
+	case e.Status == http.StatusTooManyRequests, e.Status == http.StatusServiceUnavailable, e.NotSent:
+		return createResend
+	case e.Status/100 == 4:
+		return createRefused
+	case e.Status == http.StatusBadGateway, e.Status == http.StatusGatewayTimeout,
+		e.Status == 0 && e.Code == exit.Unavailable:
+		return createWait
+	}
+	return createFinal
+}
+
+// unavailable returns err with exit code 5: a create may have taken effect.
+func unavailable(err error) error {
+	var e *exit.Error
+	if !errors.As(err, &e) {
+		return &exit.Error{Code: exit.Unavailable, Msg: err.Error()}
+	}
+	c := *e
+	c.Code = exit.Unavailable
+	return &c
+}
+
 // createStoryRetry sends the createStory request. body must hold external_id.
-// After a retryable failure (transport.Retryable) it looks for the story by
-// external_id before each new try, and it never sends a create again while it
-// cannot tell if the last one worked. Any other failure is final, so a 4xx and
-// a 500 are never retried. No try starts after createBudget from the first.
+// Each failure after the send makes the result uncertain, except a 4xx. Then
+// it looks for the story by external_id, and it never sends a create again
+// while it cannot tell if the last one worked:
 //
-// When it gives up (try limit or budget) after an uncertain create that no
-// find has checked yet, it looks for the story once more, even after the
-// budget.
+//   - After a 429, a 503 or a connect failure, the server did not take the
+//     request: it looks for the story, then sends the create again.
+//   - After a 502, a 504, no answer or a cut body, the server may still save
+//     the story: it never sends the create again, and looks for the story with
+//     the backoff until createBudget ends.
+//   - After any other failure (a 500, an empty or bad 2xx body), it looks for
+//     the story once.
+//
+// No create starts after createBudget from the first. When it gives up after
+// an uncertain create that no find has checked yet, it looks for the story
+// once more, even after the budget. Exit 5 then says that the story may exist.
 //
 // When the story exists but the full entity cannot be read, it returns the
 // list item together with the error.
@@ -101,6 +148,7 @@ func createStoryRetry(ctx context.Context, d *deps, body map[string]any) (json.R
 	sent := false      // a create was sent
 	uncertain := false // an earlier create may have worked
 	checked := false   // a find ran after the last create
+	resend := true     // a new create may follow a find
 	var last error     // the last retryable failure
 	fail := func(err error) error {
 		switch {
@@ -131,6 +179,9 @@ func createStoryRetry(ctx context.Context, d *deps, body map[string]any) (json.R
 				return readCreated(ctx, d, it, extID)
 			default:
 				checked = true
+				if !resend {
+					failure = last // look again later
+				}
 			}
 		}
 		if failure == nil {
@@ -141,25 +192,38 @@ func createStoryRetry(ctx context.Context, d *deps, body map[string]any) (json.R
 			sent = true
 			checked = false
 			out, err := d.Doer.Raw(ctx, "POST", "stories", nil, body)
-			if err == nil {
+			if err == nil && out != nil {
 				return out, nil
 			}
-			failure = err
-			var xe *exit.Error
-			if errors.As(err, &xe) && xe.Code == exit.Unavailable { // 5xx or no answer: the story may exist
-				uncertain = true
+			if ctx.Err() != nil {
+				return nil, fail(err)
 			}
+			if err == nil {
+				err = &exit.Error{Code: exit.Other, Msg: "POST /stories: empty response"}
+			}
+			switch classifyCreate(err) {
+			case createRefused:
+				return giveUp(err)
+			case createFinal:
+				uncertain = true
+				return giveUp(unavailable(err))
+			case createWait:
+				resend = false
+			}
+			uncertain = true
+			failure = err
 		}
 		last = failure
 		if !transport.Retryable(failure) {
-			return nil, fail(failure)
+			return giveUp(failure)
 		}
 		wait := time.Duration(float64(createBackoff<<(try-1)) * (0.8 + 0.4*mrand.Float64()))
 		var xe *exit.Error
 		if errors.As(failure, &xe) && xe.RetryAfter > 0 {
 			wait = xe.RetryAfter
 		}
-		if try >= createTries || elapsed()+wait > createBudget {
+		// Finds alone stop at the budget only; a new create also stops at the try limit.
+		if (resend && try >= createTries) || elapsed()+wait > createBudget {
 			return giveUp(failure)
 		}
 		total += wait

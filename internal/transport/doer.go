@@ -13,6 +13,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -179,9 +180,11 @@ func (d *Doer) connectError(req *http.Request, err error) error {
 	if isTLS(err) { // a bad certificate does not heal: no retry
 		code = exit.Other
 	}
+	var op *net.OpError
 	return &exit.Error{
-		Code: code,
-		Msg:  d.scrub(fmt.Sprintf("%s %s %s: %v", req.Method, req.URL.Host, req.URL.Path, err)),
+		Code:    code,
+		Msg:     d.scrub(fmt.Sprintf("%s %s %s: %v", req.Method, req.URL.Host, req.URL.Path, err)),
+		NotSent: errors.As(err, &op) && op.Op == "dial",
 	}
 }
 

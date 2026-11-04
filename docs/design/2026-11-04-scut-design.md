@@ -145,6 +145,7 @@ Before `scut` parses a body, it checks the status and the `Content-Type`.
 - Retry 429, 502, 503, 504 and connect failures with exponential backoff and jitter. Use `Retry-After` when the response has one. Default: 4 tries in 20 s at most (my call). After the last try, exit 5.
 - A failed `GET` can be retried. A `POST` create is retried only through the G8 check.
 - **G8 check:** each create sends `external_id` = a new UUIDv4. Before each retry, and on exit 5, read the newest stories (`order_by=created_at desc`, `limit 25`, `fields=id,external_id,name,app_url`) and look for that UUID. If it is there, print that story and exit 0.
+- **G8 after each failure (ruling of 2026-11-04, replaces R17):** a 4xx other than 429 makes no story: exit with its code. After a 429, a 503 or a connect failure before the request was sent, the server did not take the request: read, then create again. After a 502, a 504 or a timeout (no answer, or a cut body), the server may still save the story after the read: never create again, and read again with the backoff until the budget ends. After any other failure (a 500, an empty or non-JSON 2xx body), read once. If no read finds the story, exit 5 with the `external_id` in `suggestion`.
 
 ### Names to IDs (G4)
 

@@ -256,6 +256,24 @@ func TestDoerNoRetryTLS(t *testing.T) {
 	}
 }
 
+// A dial failure did not send the request; a connection closed after the
+// request was read did.
+func TestDoerNotSent(t *testing.T) {
+	d := transport.New(settings, transport.WithBaseURL("http://127.0.0.1:1"))
+	if e := asExit(t, raw(d, "POST")); e.Code != exit.Unavailable || !e.NotSent {
+		t.Errorf("dial: %+v", e)
+	}
+	d = newDoer(t, &waits{}, "POST", func(rw http.ResponseWriter, r *http.Request) {
+		conn, _, err := rw.(http.Hijacker).Hijack()
+		if err == nil {
+			_ = conn.Close()
+		}
+	})
+	if e := asExit(t, raw(d, "POST")); e.Code != exit.Unavailable || e.NotSent {
+		t.Errorf("closed: %+v", e)
+	}
+}
+
 func TestListCursor(t *testing.T) {
 	cases := map[string]string{
 		`{"entities":[{"id":1}],"next_page_url":"https://api.app.shortcut.com/api/v4/acme/stories?cursor=abc%3D"}`: "abc=",
