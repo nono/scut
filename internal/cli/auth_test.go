@@ -94,8 +94,8 @@ func TestAuthLoginBadToken(t *testing.T) {
 
 func TestAuthLoginBadForm(t *testing.T) {
 	h := newHarness(t, map[string]http.HandlerFunc{}, "nonsense", nil)
-	if code, _, _ := h.run("auth", "login"); code != 2 {
-		t.Fatalf("code %d, want 2", code)
+	if code, _, errs := h.run("auth", "login"); code != 4 || !strings.Contains(errs, "malformed token") {
+		t.Fatalf("code %d, want 4; stderr %s", code, errs)
 	}
 	if len(h.kr.m) != 0 {
 		t.Errorf("keyring %v", h.kr.m)

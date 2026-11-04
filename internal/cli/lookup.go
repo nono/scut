@@ -3,11 +3,13 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/nono/scut/internal/cache"
+	"github.com/nono/scut/internal/config"
 	"github.com/nono/scut/internal/exit"
 )
 
@@ -221,6 +223,16 @@ func newFieldGroup(env Env) *cobra.Command {
 	return g
 }
 
+// checkCacheDir refuses a dir that is not <cache>/scut/<slug>, so cache clear
+// cannot remove anything else.
+func checkCacheDir(dir, slug string) error {
+	if !config.ValidSlug(slug) || !filepath.IsAbs(dir) || filepath.Clean(dir) != dir ||
+		filepath.Base(dir) != slug || filepath.Base(filepath.Dir(dir)) != "scut" {
+		return &exit.Error{Code: exit.Other, Msg: fmt.Sprintf("cache dir %q is not <cache>/scut/<workspace>: not removed", dir)}
+	}
+	return nil
+}
+
 func newCacheGroup(env Env) *cobra.Command {
 	g := Group("cache", "Manage the local cache")
 	g.AddCommand(&cobra.Command{
@@ -229,6 +241,9 @@ func newCacheGroup(env Env) *cobra.Command {
 		Args:  noArgs,
 		RunE: withDeps(env, func(_ *cobra.Command, _ []string, d *deps) error {
 			dir := d.Settings.CacheDir
+			if err := checkCacheDir(dir, d.Settings.Workspace); err != nil {
+				return err
+			}
 			if err := cache.New(dir, cacheTTL, time.Now).Clear(); err != nil {
 				return err
 			}

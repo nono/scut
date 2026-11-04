@@ -31,6 +31,14 @@ func TestParseTokenBad(t *testing.T) {
 			t.Errorf("%q: want error", s)
 		}
 	}
+	// The slug names the cache dir: it must not escape it.
+	for _, slug := range []string{"..", ".", "a/b", "A", "-a", "a b", `a\b`} {
+		_, _, err := config.ParseToken("sct_rw_" + slug + "_x")
+		var xe *exit.Error
+		if !errors.As(err, &xe) || xe.Code != exit.Auth || !strings.Contains(xe.Msg, "malformed token") {
+			t.Errorf("slug %q: got %v", slug, err)
+		}
+	}
 	sc, ws, err := config.ParseToken("sct_rw_my-ws_a_b")
 	if err != nil || sc != "rw" || ws != "my-ws" {
 		t.Errorf("got %q %q %v", sc, ws, err)

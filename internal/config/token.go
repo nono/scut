@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"regexp"
 	"strings"
 
 	"github.com/nono/scut/internal/exit"
@@ -34,11 +35,19 @@ func (OSKeyring) Set(service, user, secret string) error {
 	return keyring.Set(service, user, secret)
 }
 
-// ParseToken splits sct_{scopes}_{workspace}_{secret}.
+var slugRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+
+// ValidSlug tells if s is a workspace slug. The slug names the cache dir, so
+// it must not hold a path element such as "..".
+func ValidSlug(s string) bool { return slugRe.MatchString(s) }
+
+// ParseToken splits sct_{scopes}_{workspace}_{secret}. A bad token is an
+// auth error (exit 4).
 func ParseToken(s string) (scopes, workspace string, err error) {
 	p := strings.SplitN(strings.TrimSpace(s), "_", 4)
-	if len(p) != 4 || p[0] != "sct" || p[1] == "" || p[2] == "" || p[3] == "" {
-		return "", "", exit.Usagef("token does not have the form sct_<scopes>_<workspace>_<secret>")
+	if len(p) != 4 || p[0] != "sct" || p[1] == "" || p[3] == "" || !ValidSlug(p[2]) {
+		return "", "", &exit.Error{Code: exit.Auth,
+			Msg: "malformed token: the form is sct_<scopes>_<workspace>_<secret>, and the workspace has only a-z, 0-9 and -"}
 	}
 	return p[1], p[2], nil
 }
