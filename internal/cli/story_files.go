@@ -187,13 +187,26 @@ func uniqueName(name string, id int64, used map[string]bool) string {
 	return name
 }
 
+// link is os.Link; tests replace it.
+var link = os.Link
+
 // place links tmp to a free name in dir, from name on (see altName), then
 // removes tmp. A link never replaces a file, so two runs cannot replace each
-// other's file either. It returns the path.
+// other's file either. If the file system has no hard links, it copies tmp
+// to a new file in place of the link, which never replaces a file either. It
+// returns the path.
 func place(tmp, dir, name string, id int64) (string, error) {
+	copying := false
 	for n := 0; ; n++ {
 		dest := filepath.Join(dir, altName(name, id, n))
-		err := os.Link(tmp, dest)
+		var err error
+		if !copying {
+			err = link(tmp, dest)
+			copying = err != nil && !errors.Is(err, fs.ErrExist)
+		}
+		if copying {
+			err = copyNew(tmp, dest)
+		}
 		if errors.Is(err, fs.ErrExist) {
 			continue
 		}
@@ -203,6 +216,35 @@ func place(tmp, dir, name string, id int64) (string, error) {
 		_ = os.Remove(tmp)
 		return dest, nil
 	}
+}
+
+// copyNew copies src to dest, a new file with mode 0644, and syncs it. It
+// fails with fs.ErrExist if dest exists.
+func copyNew(src, dest string) (err error) {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = in.Close() }()
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cerr := out.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			_ = os.Remove(dest)
+		}
+	}()
+	if _, err = io.Copy(out, in); err != nil {
+		return err
+	}
+	if err = out.Chmod(0o644); err != nil { // the umask can remove bits
+		return err
+	}
+	return out.Sync()
 }
 
 // downloadRetry runs download with transport.Retry: after a 429, a 502, a
