@@ -113,7 +113,7 @@ func newEpicView(env Env) *cobra.Command {
 	return &cobra.Command{
 		Use:         "view <epic>",
 		Short:       "Show an epic, by ID or exact name",
-		Args:        oneArg,
+		Args:        cobra.ExactArgs(1),
 		Annotations: map[string]string{opsAnnotation: "getEpic,searchEpics"},
 		RunE: withDeps(env, func(cmd *cobra.Command, args []string, d *deps) error {
 			id, err := d.Resolver.Epic(args[0])
@@ -138,7 +138,7 @@ func newEpicSearch(env Env) *cobra.Command {
 		Use:         "search <query>",
 		Short:       "Search epics",
 		Long:        "Search epics with a Shortcut search query, sent as is.\n\nThe search index is eventually consistent: search can lag; use epic view for current data.",
-		Args:        oneArg,
+		Args:        cobra.ExactArgs(1),
 		Annotations: map[string]string{opsAnnotation: "searchEpics"},
 	}
 	limitFlag := cmd.Flags().String("limit", strconv.Itoa(defaultLimit), "maximum number of epics, or all")
@@ -167,7 +167,7 @@ func newEpicStories(env Env) *cobra.Command {
 		Use:         "stories <epic>",
 		Short:       "List the stories of an epic, in position order",
 		Long:        "List the stories of an epic, in position order. The epic is an ID or an exact name.\nThe API default applies: archived stories are left out.",
-		Args:        oneArg,
+		Args:        cobra.ExactArgs(1),
 		Annotations: map[string]string{opsAnnotation: "listEpicStories,searchEpics"},
 	}
 	limitFlag := cmd.Flags().String("limit", strconv.Itoa(defaultLimit), "maximum number of stories, or all")
@@ -206,7 +206,7 @@ func newEpicComment(env Env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:         "comment <epic>",
 		Short:       "Add a comment to an epic",
-		Args:        oneArg,
+		Args:        cobra.ExactArgs(1),
 		Annotations: map[string]string{opsAnnotation: "createEpicComment,searchEpics"},
 	}
 	bodyFile := cmd.Flags().String("body-file", "", "read the comment text from this file; - is stdin")
@@ -231,6 +231,9 @@ func newEpicComment(env Env) *cobra.Command {
 			cs, err := shapeComments([]json.RawMessage{raw}, d.Resolver)
 			if err != nil {
 				return err
+			}
+			if len(cs) == 0 {
+				return &exit.Error{Code: exit.Other, Msg: "no comment in the reply"}
 			}
 			return d.Out(cs[0])
 		})(cmd, args)

@@ -172,13 +172,8 @@ func fetchComments(ctx context.Context, d *deps, id int64, n int) ([]CommentOut,
 	if n > 0 && n < size {
 		size = n
 	}
-	raw, err := transport.Page(ctx, func(cursor string) ([]json.RawMessage, string, error) {
-		q := url.Values{"order_dir": {"desc"}, "limit": {strconv.Itoa(size)}}
-		if cursor != "" {
-			q.Set("cursor", cursor)
-		}
-		return d.Doer.List(ctx, path, q)
-	}, n)
+	q := url.Values{"order_dir": {"desc"}, "limit": {strconv.Itoa(size)}}
+	raw, err := transport.PageQuery(ctx, d.Doer, path, q, n)
 	if err != nil {
 		return nil, err
 	}
@@ -196,14 +191,9 @@ func viewMany(ctx context.Context, d *deps, ids []int64, fields []string) error 
 			strs = append(strs, strconv.FormatInt(id, 10))
 		}
 	}
-	raw, err := transport.Page(ctx, func(cursor string) ([]json.RawMessage, string, error) {
-		q := url.Values{"ids": {strings.Join(strs, ",")}, "filter": {"include_archived"}}
-		fieldsQuery(q, fields)
-		if cursor != "" {
-			q.Set("cursor", cursor)
-		}
-		return d.Doer.List(ctx, "stories", q)
-	}, -1)
+	q := url.Values{"ids": {strings.Join(strs, ",")}, "filter": {"include_archived"}}
+	fieldsQuery(q, fields)
+	raw, err := transport.PageQuery(ctx, d.Doer, "stories", q, -1)
 	if err != nil {
 		return err
 	}

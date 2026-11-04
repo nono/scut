@@ -94,6 +94,11 @@ func TestSearchFieldsGiven(t *testing.T) {
 // pagedHandler serves pages of 25 stories; page n links to page n+1 until last.
 func pagedHandler(t *testing.T, c *calls, pages int) http.HandlerFunc {
 	return c.wrap(func(w http.ResponseWriter, r *http.Request) {
+		if q := r.URL.Query(); q.Has("cursor") && len(q) > 1 {
+			w.WriteHeader(422)
+			_, _ = fmt.Fprint(w, `{"message":"Other parameters can't be used with cursor."}`)
+			return
+		}
 		page := 1
 		if cur := r.URL.Query().Get("cursor"); cur != "" {
 			_, _ = fmt.Sscanf(cur, "p%d", &page)
@@ -129,7 +134,7 @@ func TestSearchLimitAll(t *testing.T) {
 	if got := c.count(searchPath); got != 3 {
 		t.Errorf("%d calls", got)
 	}
-	if got := c.param(searchPath, "limit"); got != "100" {
+	if got := c.firstParam(searchPath, "limit"); got != "100" {
 		t.Errorf("limit %q", got)
 	}
 }
@@ -149,6 +154,22 @@ func TestSearchLimitStops(t *testing.T) {
 	}
 	if got := c.count(searchPath); got != 2 {
 		t.Errorf("%d calls, want 2", got)
+	}
+}
+
+func TestCommentsPaging(t *testing.T) {
+	var c calls
+	p := "/api/v4/acme/stories/5818/comments"
+	h := newHarness(t, map[string]http.HandlerFunc{
+		"GET " + p:                 pagedHandler(t, &c, 3),
+		"GET /api/v4/acme/members": membersRoute(),
+	}, "", searchEnv)
+	code, out, errs := h.run("story", "comments", "5818", "--limit", "all")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if n := len(decodeList(t, out)); n != 75 {
+		t.Errorf("%d items, want 75", n)
 	}
 }
 

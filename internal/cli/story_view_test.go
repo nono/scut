@@ -47,6 +47,7 @@ type calls struct {
 	mu    sync.Mutex
 	paths []string
 	query map[string]string
+	first map[string]string
 }
 
 func (c *calls) count(path string) int {
@@ -75,6 +76,12 @@ func (c *calls) wrap(h http.HandlerFunc) http.HandlerFunc {
 			c.query = map[string]string{}
 		}
 		c.query[r.URL.Path] = r.URL.RawQuery
+		if c.first == nil {
+			c.first = map[string]string{}
+		}
+		if _, ok := c.first[r.URL.Path]; !ok {
+			c.first[r.URL.Path] = r.URL.RawQuery
+		}
 		c.mu.Unlock()
 		h(w, r)
 	}
@@ -84,6 +91,13 @@ func (c *calls) param(path, key string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return strings.Join(mustQuery(c.query[path])[key], ",")
+}
+
+// firstParam is param for the first call to path.
+func (c *calls) firstParam(path, key string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return strings.Join(mustQuery(c.first[path])[key], ",")
 }
 
 func mustQuery(raw string) url.Values {

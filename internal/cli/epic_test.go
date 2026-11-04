@@ -126,7 +126,7 @@ func TestEpicStoriesFieldsAndAll(t *testing.T) {
 	if n := len(decodeList(t, out)); n != 50 {
 		t.Errorf("%d items", n)
 	}
-	if got := c.param(p, "fields"); got != "id,name" {
+	if got := c.firstParam(p, "fields"); got != "id,name" {
 		t.Errorf("fields %q", got)
 	}
 }
@@ -161,6 +161,22 @@ func TestEpicCommentEmpty(t *testing.T) {
 	}
 	if code, _, _ := h.run("epic", "comment", "5387"); code != 2 {
 		t.Errorf("no flag: code %d", code)
+	}
+}
+
+func TestEpicNoOwners(t *testing.T) {
+	e := epicFixture()
+	delete(e, "owners")
+	h := newHarness(t, map[string]http.HandlerFunc{
+		"GET /api/v4/acme/epics/5387": jsonHandler(jsonOf(map[string]any{"entity": e})),
+	}, "", searchEnv)
+	code, out, errs := h.run("epic", "view", "5387")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	m := decode(t, out)
+	if _, ok := m["owners"]; ok || m["owners_total"] != nil {
+		t.Errorf("stdout %s", out)
 	}
 }
 

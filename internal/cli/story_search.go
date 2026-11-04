@@ -39,18 +39,8 @@ func pageSize(limit int) int {
 
 // listPages gets up to limit items (all with limit < 0) from a list endpoint.
 func listPages(cmd *cobra.Command, d *deps, path string, q url.Values, limit int) ([]json.RawMessage, error) {
-	ctx := cmd.Context()
 	q.Set("limit", strconv.Itoa(pageSize(limit)))
-	return transport.Page(ctx, func(cursor string) ([]json.RawMessage, string, error) {
-		pq := url.Values{}
-		for k, v := range q {
-			pq[k] = v
-		}
-		if cursor != "" {
-			pq.Set("cursor", cursor)
-		}
-		return d.Doer.List(ctx, path, pq)
-	}, limit)
+	return transport.PageQuery(cmd.Context(), d.Doer, path, q, limit)
 }
 
 // listStoryFields returns the API field names to ask for in a story list. With
@@ -94,7 +84,7 @@ func newStorySearch(env Env) *cobra.Command {
 		Long: "Search stories with a Shortcut search query, sent as is.\n" +
 			"Example: scut story search '!is:done epic:5387'\n\n" +
 			"The search index is eventually consistent: search can lag; use story view for current data.",
-		Args:        oneArg,
+		Args:        cobra.ExactArgs(1),
 		Annotations: map[string]string{opsAnnotation: "searchStories"},
 	}
 	limitFlag := cmd.Flags().String("limit", strconv.Itoa(defaultLimit), "maximum number of stories, or all")

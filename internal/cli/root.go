@@ -76,7 +76,26 @@ func NewRoot(env Env) *cobra.Command {
 	root.AddCommand(newUsage(true), newAuth(env), newWhoami(env), newAPI(env),
 		newTeamGroup(env), newMemberGroup(env), newWorkflowGroup(env), newFieldGroup(env), newCacheGroup(env),
 		storyCmd(env), newEpicGroup(env))
+	usageArgs(root)
 	return root
+}
+
+// usageArgs wraps the Args check of each command: a positional-argument error
+// exits 2. An *exit.Error keeps its code.
+func usageArgs(c *cobra.Command) {
+	if old := c.Args; old != nil {
+		c.Args = func(cmd *cobra.Command, args []string) error {
+			err := old(cmd, args)
+			var ee *exit.Error
+			if err == nil || errors.As(err, &ee) {
+				return err
+			}
+			return exit.Usagef("%s", err)
+		}
+	}
+	for _, sub := range c.Commands() {
+		usageArgs(sub)
+	}
 }
 
 // Execute runs scut with args and returns the exit code.

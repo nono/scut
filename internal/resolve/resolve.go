@@ -83,13 +83,7 @@ func idInt(raw json.RawMessage) (int64, error) {
 
 // pageAll reads every page of a list endpoint.
 func (r *R) pageAll(path string, q url.Values) ([]json.RawMessage, error) {
-	return transport.Page(r.ctx, func(cursor string) ([]json.RawMessage, string, error) {
-		qq := q
-		if cursor != "" { // the API wants the cursor alone
-			qq = url.Values{"cursor": {cursor}}
-		}
-		return r.d.List(r.ctx, path, qq)
-	}, -1)
+	return transport.PageQuery(r.ctx, r.d, path, q, -1)
 }
 
 // fetch gets the whole list of kind and stores it in the cache.

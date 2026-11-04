@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"encoding/json"
+	"net/url"
 )
 
 const maxPages = 100
@@ -35,4 +36,17 @@ func Page(ctx context.Context, fetch func(cursor string) ([]json.RawMessage, str
 		out = out[:limit]
 	}
 	return out, nil
+}
+
+// PageQuery reads a list endpoint, up to limit items (all with limit < 0).
+// Page 1 sends query. Each later page sends only the cursor: the API refuses
+// other parameters with a cursor.
+func PageQuery(ctx context.Context, d *Doer, path string, query url.Values, limit int) ([]json.RawMessage, error) {
+	return Page(ctx, func(cursor string) ([]json.RawMessage, string, error) {
+		q := query
+		if cursor != "" {
+			q = url.Values{"cursor": {cursor}}
+		}
+		return d.List(ctx, path, q)
+	}, limit)
 }

@@ -71,3 +71,12 @@ func TestCancelledIs130(t *testing.T) {
 		t.Fatalf("code %d, want 130", code)
 	}
 }
+
+func TestArgCountIs2(t *testing.T) {
+	h := newHarness(t, nil, "", map[string]string{"SCUT_TOKEN": "sct_rw_acme_s3cret"})
+	for _, args := range [][]string{{"field", "values"}, {"api"}, {"story", "search"}, {"field", "values", "a", "b"}} {
+		if code, _, errs := h.run(args...); code != 2 {
+			t.Errorf("%v: code %d, stderr %s", args, code, errs)
+		}
+	}
+}

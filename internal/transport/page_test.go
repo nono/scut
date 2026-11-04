@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"testing"
 
+	"github.com/nono/scut/internal/testapi"
 	"github.com/nono/scut/internal/transport"
 )
 
@@ -58,5 +62,28 @@ func TestPagerStopsOnEmptyCursor(t *testing.T) {
 	}, -1)
 	if calls != 1 || len(got) != 3 {
 		t.Errorf("calls %d, items %d", calls, len(got))
+	}
+}
+
+func TestPageQueryCursorAlone(t *testing.T) {
+	base := testapi.Fake(t, map[string]http.HandlerFunc{"GET /api/v4/acme/things": func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		if q.Has("cursor") && len(q) > 1 {
+			w.WriteHeader(422)
+			_, _ = io.WriteString(w, `{"message":"Other parameters can't be used with cursor."}`)
+			return
+		}
+		next := map[string]string{"": "c2", "c2": "c3", "c3": ""}[q.Get("cursor")]
+		body := `{"entities":[{}]`
+		if next != "" {
+			body += `,"next_page_url":"/api/v4/acme/things?cursor=` + next + `"`
+		}
+		_, _ = io.WriteString(w, body+"}")
+	}})
+	d := transport.New(settings, transport.WithBaseURL(base))
+	got, err := transport.PageQuery(context.Background(), d, "things", url.Values{"query": {"x"}, "limit": {"1"}}, -1)
+	if err != nil || len(got) != 3 {
+		t.Errorf("items %d, err %v", len(got), err)
 	}
 }
