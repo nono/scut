@@ -110,6 +110,9 @@ func viewHarness(t *testing.T, c *calls, story map[string]any, comments []any) *
 	routes := map[string]http.HandlerFunc{
 		"GET /api/v4/acme/stories/5818":          c.wrap(jsonHandler(jsonOf(map[string]any{"entity": story}))),
 		"GET /api/v4/acme/stories/5818/comments": c.wrap(jsonHandler(listBody(comments...))),
+		"GET /api/v4/acme/stories/5818/checklist-items": c.wrap(jsonHandler(listBody(
+			map[string]any{"id": 3, "description": "do it", "completed": true, "entity_type": "story-checklist-item"},
+			map[string]any{"id": 4, "description": "then this", "completed": false, "entity_type": "story-checklist-item"}))),
 		"GET /api/v4/acme/members": jsonHandler(listBody(
 			map[string]any{"id": testMember, "name": "Test User", "mention_name": "testuser"})),
 	}
@@ -318,7 +321,7 @@ func TestViewTotal(t *testing.T) {
 		map[string]any{"id": 2, "verb": "relates to", "subject": map[string]any{"id": 5818}, "object": map[string]any{"id": 10}},
 	}}
 	story["owners"] = map[string]any{"current_items": 1, "total_items": 3, "entities": []any{map[string]any{"id": testMember}}}
-	story["checklist_items"] = map[string]any{"current_items": 1, "total_items": 4, "entities": []any{map[string]any{"id": 3, "description": "do it", "completed": true}}}
+	story["checklist_items"] = map[string]any{"current_items": 1, "total_items": 2, "entities": []any{slimTask(3, "do it")}}
 	story["branches"] = nestedList(map[string]any{"id": 4, "name": "b1"})
 	story["pull_requests"] = nestedList(map[string]any{"id": 6, "name": "pr1"})
 	story["labels"] = nestedList(map[string]any{"id": 7, "name": "bug"})
@@ -329,7 +332,7 @@ func TestViewTotal(t *testing.T) {
 		t.Fatalf("code %d, stderr %s", code, errs)
 	}
 	m := decode(t, out)
-	if m["owners_total"] != float64(3) || m["tasks_total"] != float64(4) {
+	if _, ok := m["tasks_total"]; m["owners_total"] != float64(3) || ok {
 		t.Errorf("owners/tasks total: %s", out)
 	}
 	if m["links_total"] != float64(5) {
@@ -340,8 +343,12 @@ func TestViewTotal(t *testing.T) {
 	if len(links) != 2 || l0["verb"] != "blocks" || l0["subject"] != float64(5818) || l0["object"] != float64(9) {
 		t.Errorf("links: %v", links)
 	}
-	if got := jsonOf(m["tasks"]); got != `[{"complete":true,"description":"do it","id":3}]` {
+	// The slim nested items have no completed: the full list gives it.
+	if got := jsonOf(m["tasks"]); got != `[{"complete":true,"description":"do it","id":3},{"complete":false,"description":"then this","id":4}]` {
 		t.Errorf("tasks: %s", got)
+	}
+	if got := c.param("/api/v4/acme/stories/5818/checklist-items", "limit"); got != "100" {
+		t.Errorf("checklist limit %q", got)
 	}
 	if got := jsonOf(m["branches"]); got != `[{"id":4,"name":"b1"}]` {
 		t.Errorf("branches: %s", got)
@@ -354,6 +361,51 @@ func TestViewTotal(t *testing.T) {
 	}
 	if got := jsonOf(m["epic"]); got != `{"id":12,"name":"Epic"}` {
 		t.Errorf("epic: %s", got)
+	}
+}
+
+// slimTask is a ChecklistItemSlim: it has no completed.
+func slimTask(id int, desc string) map[string]any {
+	return map[string]any{"id": id, "description": desc, "entity_type": "story-checklist-item:slim",
+		"uri": "https://api.app.shortcut.com/api/v4/acme/stories/5818/checklist-items/" + jsonOf(id)}
+}
+
+// A list of stories has only the slim tasks: complete is unknown, so it is left out.
+func TestViewManyTasks(t *testing.T) {
+	var c calls
+	s1, s2 := storyFixture(t), storyFixture(t)
+	s1["checklist_items"] = map[string]any{"current_items": 1, "total_items": 2, "entities": []any{slimTask(3, "do it")}}
+	s2["id"] = 5819
+	routes := map[string]http.HandlerFunc{
+		"GET /api/v4/acme/stories": c.wrap(jsonHandler(listBody(s1, s2))),
+		"GET /api/v4/acme/members": jsonHandler(listBody()),
+	}
+	h := newHarness(t, routes, "", map[string]string{"SCUT_TOKEN": "sct_rw_acme_s3cret"})
+	code, out, errs := h.run("story", "view", "5818", "5819")
+	if code != 0 || c.total() != 1 {
+		t.Fatalf("code %d, calls %v, stderr %s", code, c.paths, errs)
+	}
+	l := decodeList(t, out)
+	if got := jsonOf(l[0]["tasks"]); got != `[{"description":"do it","id":3}]` || l[0]["tasks_total"] != float64(2) {
+		t.Errorf("tasks %s, out %s", got, out)
+	}
+}
+
+// A story with no tasks, or a --fields list with no tasks, makes no checklist call.
+func TestViewNoChecklistCall(t *testing.T) {
+	var c calls
+	story := storyFixture(t)
+	story["checklist_items"] = map[string]any{"current_items": 1, "total_items": 1, "entities": []any{slimTask(3, "do it")}}
+	h := viewHarness(t, &c, story, nil)
+	if code, _, errs := h.run("story", "view", "5818", "--fields", "name", "--comments", "0"); code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	h = viewHarness(t, &c, storyFixture(t), nil)
+	if code, _, errs := h.run("story", "view", "5818", "--comments", "0"); code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if n := c.count("/api/v4/acme/stories/5818/checklist-items"); n != 0 {
+		t.Errorf("%d checklist calls, want 0", n)
 	}
 }
 

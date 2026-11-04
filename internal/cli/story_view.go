@@ -81,7 +81,7 @@ func newStoryView(env Env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:         "view [<story>…]",
 		Short:       "Show stories; default story from the git branch",
-		Annotations: map[string]string{OpsAnnotation: "getStory,listStoryComments,listStories,listMembers"},
+		Annotations: map[string]string{OpsAnnotation: "getStory,listStoryComments,listStoryChecklistItems,listStories,listMembers"},
 	}
 	fieldsFlag := cmd.Flags().String("fields", "", "comma-separated fields to show")
 	commentsFlag := cmd.Flags().String("comments", strconv.Itoa(defaultComments), "number of newest comments, or all")
@@ -150,6 +150,18 @@ func viewOne(ctx context.Context, d *deps, id int64, fields []string, nComments 
 	s, err := shapeStory(raw, d.Resolver, shapeOpts{Description: true})
 	if err != nil {
 		return err
+	}
+	// The nested items have no completed: read the full list.
+	if (fields == nil || slices.Contains(fields, "checklist_items")) && hasTasks(raw) {
+		path := "stories/" + strconv.FormatInt(id, 10) + "/checklist-items"
+		items, err := transport.PageQuery(ctx, d.Doer, path, url.Values{"limit": {strconv.Itoa(maxPageSize)}}, -1)
+		if err != nil {
+			return err
+		}
+		if s.Tasks, err = shapeTasks(items); err != nil {
+			return err
+		}
+		s.TasksTotal = 0
 	}
 	if nComments != 0 && (fields == nil || slices.Contains(fields, "comments")) {
 		cs, err := fetchComments(ctx, d, id, nComments)

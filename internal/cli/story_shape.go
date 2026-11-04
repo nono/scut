@@ -16,11 +16,12 @@ type memberOut struct {
 	MentionName *string `json:"mention_name"`
 }
 
-// TaskOut is a checklist item.
+// TaskOut is a checklist item. Complete is nil when it is unknown: the
+// checklist items nested in a story (ChecklistItemSlim) do not have it.
 type TaskOut struct {
 	ID          int64  `json:"id"`
 	Description string `json:"description"`
-	Complete    bool   `json:"complete"`
+	Complete    *bool  `json:"complete,omitempty"`
 }
 
 // LinkOut is a story link. Subject and Object are story IDs.
@@ -145,10 +146,32 @@ type customIn struct {
 	Value any `json:"value"`
 }
 
+// taskIn is a ChecklistItem. Completed is nil in a ChecklistItemSlim.
 type taskIn struct {
 	ID          int64  `json:"id"`
 	Description string `json:"description"`
-	Completed   bool   `json:"completed"`
+	Completed   *bool  `json:"completed"`
+}
+
+// hasTasks tells if the story in raw has checklist items.
+func hasTasks(raw json.RawMessage) bool {
+	var in struct {
+		Tasks *nested[json.RawMessage] `json:"checklist_items"`
+	}
+	return json.Unmarshal(raw, &in) == nil && in.Tasks != nil && in.Tasks.TotalItems > 0
+}
+
+// shapeTasks converts ChecklistItem entities to the compact shape.
+func shapeTasks(raw []json.RawMessage) ([]TaskOut, error) {
+	ts, err := decodeAll[taskIn](raw, "checklist item")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TaskOut, 0, len(ts))
+	for _, t := range ts {
+		out = append(out, TaskOut{t.ID, t.Description, t.Completed})
+	}
+	return out, nil
 }
 
 type linkIn struct {
@@ -275,7 +298,7 @@ func shapeStory(raw json.RawMessage, r *resolve.R, opts shapeOpts) (StoryOut, er
 	if in.Tasks != nil {
 		out.Tasks = []TaskOut{}
 		for _, t := range in.Tasks.Entities {
-			out.Tasks = append(out.Tasks, TaskOut{t.ID, t.Description, t.Completed})
+			out.Tasks = append(out.Tasks, TaskOut{ID: t.ID, Description: t.Description}) // slim: complete unknown
 		}
 	}
 	if in.Links != nil {

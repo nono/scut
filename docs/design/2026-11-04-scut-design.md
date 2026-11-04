@@ -53,7 +53,7 @@ A command that does these things is a failure, even if it works:
 - **Scopes:** `r`, `w`, `s` (story write), `c` (comment write), `a` (admin). A read-only token (`sct_r_`) must work for all read commands.
 - **Rate limit:** 200 requests per minute.
 - **Language and install:** Go, one static binary, install with `mise` from tagged releases.
-- **Start time:** herdr runs `scut` for each action and event. With a warm cache, each read command makes at most 2 API calls, plus 1 call for each more page of `--limit`. Only `story view` of one story with comments makes 2.
+- **Start time:** herdr runs `scut` for each action and event. With a warm cache, each read command makes at most 2 API calls, plus 1 call for each more page of `--limit`. Only `story view` of one story with comments makes 2, plus 1 when the story has tasks.
 - **User rules (CLAUDE.md):** no shell script over 100 lines, no special cases for the inputs of tests. A coverage drop is worse than a failing test.
 
 ## Verified API facts (2026-11-04, spec version 4.0, 173 paths)
@@ -109,6 +109,7 @@ scut cache clear
 **API calls of `story view` (my call):** In v4, the comments in a story are `CommentSlim`: id, text and `deleted`, with no author and no date. Each nested list (comments, links, branches, PRs, files) has `current_items` and `total_items`, so the API can cut a list short. For these reasons:
 
 - `story view <one story>` makes 2 calls: the story, and `GET /stories/{id}/comments?order_dir=desc&limit=10` for author and date. If `--fields` does not ask for comments, it makes 1 call.
+- The tasks nested in a story are `ChecklistItemSlim`, with no `completed`. When the story has tasks, `story view <one story>` also reads `GET /stories/{id}/checklist-items` to show `complete`. A list of stories shows tasks as `{id, description}`, with no `complete`.
 - `story view` with several stories makes 1 call and returns the slim comments.
 - When the API cuts a nested list short, the output has `"<list>_total": N` beside the list. `scut` never shows a short list as complete.
 
