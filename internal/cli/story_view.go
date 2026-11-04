@@ -233,7 +233,10 @@ func viewMany(ctx context.Context, d *deps, ids []int64, fields []string) error 
 			strs = append(strs, strconv.FormatInt(id, 10))
 		}
 	}
-	q := url.Values{"ids": {strings.Join(strs, ",")}, "filter": {"include_archived"}}
+	if len(uniq) > maxPageSize {
+		return exit.Usagef("story view takes at most %d stories, not %d", maxPageSize, len(uniq))
+	}
+	q := url.Values{"ids": {strings.Join(strs, ",")}, "filter": {"include_archived"}, "limit": {strconv.Itoa(len(uniq))}}
 	fieldsQuery(q, fields)
 	raw, err := transport.PageQuery(ctx, d.Doer, "stories", q, -1)
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -310,6 +311,35 @@ func TestViewMany(t *testing.T) {
 	l := decodeList(t, out)
 	if len(l) != 2 || l[1]["id"] != float64(5819) {
 		t.Errorf("out %s", out)
+	}
+}
+
+// The API default page is 10: send the number of IDs as the limit.
+func TestViewManyLimit(t *testing.T) {
+	var c calls
+	var stories []any
+	args := []string{"story", "view"}
+	for i := range 12 {
+		s := storyFixture(t)
+		s["id"] = 6000 + i
+		stories = append(stories, s)
+		args = append(args, strconv.Itoa(6000+i))
+	}
+	h := newHarness(t, map[string]http.HandlerFunc{
+		"GET /api/v4/acme/stories": c.wrap(jsonHandler(listBody(stories...))),
+		"GET /api/v4/acme/members": jsonHandler(listBody()),
+	}, "", map[string]string{"SCUT_TOKEN": "sct_rw_acme_s3cret"})
+	code, out, errs := h.run(args...)
+	if code != 0 || c.total() != 1 || c.param("/api/v4/acme/stories", "limit") != "12" || len(decodeList(t, out)) != 12 {
+		t.Errorf("code %d, calls %v, limit %q, stderr %s", code, c.paths, c.param("/api/v4/acme/stories", "limit"), errs)
+	}
+	args = []string{"story", "view"}
+	for i := range 101 {
+		args = append(args, strconv.Itoa(6000+i))
+	}
+	code, _, errs = h.run(args...)
+	if code != 2 || !strings.Contains(errs, "at most 100 stories") || c.total() != 1 {
+		t.Errorf("101 IDs: code %d, stderr %s", code, errs)
 	}
 }
 
