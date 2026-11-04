@@ -258,6 +258,14 @@ func TestNoFieldDrop(t *testing.T) {
 	}
 }
 
+func TestMembersDeduped(t *testing.T) {
+	e := newEnv(t, nil)
+	got, err := e.r.Members([]string{"alice", "@me", "testuser", "alice"})
+	if err != nil || !slices.Equal(got, []string{"u2", me}) {
+		t.Fatalf("got %v, %v", got, err)
+	}
+}
+
 func TestShortNestedList(t *testing.T) {
 	e := newEnv(t, func(a *api) {
 		a.json("GET /api/v4/acme/workflows", list(map[string]any{

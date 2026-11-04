@@ -153,7 +153,7 @@ func TestCreateOneCall(t *testing.T) {
 		}
 	}
 	owners, _ := b["owner_ids"].([]any)
-	if len(owners) != 2 || owners[0] != "u1" {
+	if len(owners) != 1 || owners[0] != "u1" {
 		t.Errorf("owner_ids %v", b["owner_ids"])
 	}
 	if id, _ := b["external_id"].(string); !regexp.MustCompile(uuidV4).MatchString(id) {
@@ -162,6 +162,25 @@ func TestCreateOneCall(t *testing.T) {
 	m := decode(t, out)
 	if m["id"] != float64(5818) || m["description"] == nil {
 		t.Errorf("out %s", out)
+	}
+}
+
+func TestCreateDedupesIDs(t *testing.T) {
+	var c calls
+	f := &createFake{}
+	h := createHarness(t, f, &c, nil)
+	code, _, errs := h.run("story", "create", "--name", "x", "--state", "To Do",
+		"--owner", "@me", "--owner", "bruno", "--owner", "@me",
+		"--label", "bug-hunt", "--label", "bug-hunt")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	b := f.bodies[0]
+	if got := jsonOf(b["owner_ids"]); got != `["u1"]` {
+		t.Errorf("owner_ids %s, want [\"u1\"]", got)
+	}
+	if got := jsonOf(b["label_ids"]); got != `[31]` {
+		t.Errorf("label_ids %s, want [31]", got)
 	}
 }
 

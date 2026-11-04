@@ -244,7 +244,8 @@ func (r *R) Member(name string) (string, error) {
 	})
 }
 
-// Members resolves each name. It fails on the first name that does not resolve.
+// Members resolves each name. It fails on the first name that does not
+// resolve. Each ID appears once, in order of first use.
 func (r *R) Members(names []string) ([]string, error) {
 	out := make([]string, 0, len(names))
 	for _, n := range names {
@@ -252,7 +253,9 @@ func (r *R) Members(names []string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, id)
+		if !slices.Contains(out, id) {
+			out = append(out, id)
+		}
 	}
 	return out, nil
 }

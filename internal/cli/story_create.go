@@ -176,7 +176,9 @@ func newStoryCreate(env Env) *cobra.Command {
 					if err != nil {
 						return err
 					}
-					ids = append(ids, id)
+					if !slices.Contains(ids, id) {
+						ids = append(ids, id)
+					}
 				}
 				body["label_ids"] = ids
 			}
