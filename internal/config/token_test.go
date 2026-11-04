@@ -124,8 +124,33 @@ func TestBadTokenInFile(t *testing.T) {
 	e.env["SCUT_TOKEN"] = "abc"
 	_, err := config.Load(e.opts(nil))
 	var xe *exit.Error
-	if !errors.As(err, &xe) || xe.Code != exit.Usage || strings.Contains(xe.Msg, "abc") {
-		t.Fatalf("got %v", err)
+	if !errors.As(err, &xe) || xe.Code != exit.Auth || strings.Contains(xe.Msg, "abc") {
+		t.Fatalf("got %v, want code 4", err)
+	}
+}
+
+// A token source that is given but empty must not fall through to the
+// keyring: that token can be for another workspace.
+func TestEmptyTokenSource(t *testing.T) {
+	e := newEnv(t)
+	e.kr.m["scut/default"] = "sct_rw_other_secret"
+	f := filepath.Join(e.root, "empty")
+	write(t, f, " \n")
+	var xe *exit.Error
+	_, err := config.Load(e.opts(map[string]string{"token-file": f}))
+	if !errors.As(err, &xe) || xe.Code != exit.Auth || xe.Msg != "token file "+f+" is empty" {
+		t.Errorf("--token-file: got %v", err)
+	}
+	e.env["SCUT_TOKEN"] = "  "
+	_, err = config.Load(e.opts(nil))
+	if !errors.As(err, &xe) || xe.Code != exit.Auth {
+		t.Errorf("blank SCUT_TOKEN: got %v", err)
+	}
+	delete(e.env, "SCUT_TOKEN")
+	write(t, e.userFile, `token_file = "`+f+`"`)
+	_, err = config.Load(e.opts(nil))
+	if !errors.As(err, &xe) || xe.Code != exit.Auth || xe.Msg != "token file "+f+" is empty" {
+		t.Errorf("token_file: got %v", err)
 	}
 }
 

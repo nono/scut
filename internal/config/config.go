@@ -146,21 +146,28 @@ func resolveToken(s *Settings, o Options, getenv func(string) string, tokenFile,
 	}
 	var err error
 	if s.Scopes, s.Workspace, err = ParseToken(raw); err != nil {
-		return fmt.Errorf("token from %s: %w", s.TokenSource, err)
+		return &exit.Error{Code: exit.Auth, Msg: fmt.Sprintf("token from %s: %v", s.TokenSource, err)}
 	}
 	s.Token = raw
 	return nil
 }
 
+// readTokenFile returns the trimmed token in file p. An empty file is an auth
+// error, so the keyring token is not used in its place.
 func readTokenFile(p, home string) (string, error) {
+	full := p
 	if p == "~" || strings.HasPrefix(p, "~/") {
-		p = filepath.Join(home, p[1:])
+		full = filepath.Join(home, p[1:])
 	}
-	b, err := os.ReadFile(p)
+	b, err := os.ReadFile(full)
 	if err != nil {
 		return "", exit.Usagef("cannot read token file: %v", err)
 	}
-	return strings.TrimSpace(string(b)), nil
+	t := strings.TrimSpace(string(b))
+	if t == "" {
+		return "", &exit.Error{Code: exit.Auth, Msg: "token file " + p + " is empty"}
+	}
+	return t, nil
 }
 
 // readLayer reads one file. A missing file gives an empty layer.
