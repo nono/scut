@@ -192,10 +192,12 @@ func miss(valid []string, format string, args ...any) *exit.Error {
 	return &exit.Error{Code: exit.NotFound, Msg: fmt.Sprintf(format, args...), Valid: slices.Compact(valid)}
 }
 
-// Me returns the ID of the member that owns the token.
+// Me returns the ID of the member that owns the token. The cache key is per
+// token, so another token in the same workspace gets its own member.
 func (r *R) Me() (string, error) {
+	key := "whoami-" + r.d.TokenID()
 	var id string
-	if fresh, err := r.c.Get("whoami", &id); err != nil {
+	if fresh, err := r.c.Get(key, &id); err != nil {
 		return "", err
 	} else if fresh && id != "" {
 		return id, nil
@@ -212,7 +214,7 @@ func (r *R) Me() (string, error) {
 	if json.Unmarshal(b, &w) != nil || w.Member.ID == "" {
 		return "", &exit.Error{Code: exit.Other, Msg: "whoami has no member"}
 	}
-	_ = r.c.Put("whoami", w.Member.ID) // see fetch
+	_ = r.c.Put(key, w.Member.ID) // see fetch
 	return w.Member.ID, nil
 }
 

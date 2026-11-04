@@ -5,8 +5,10 @@ package transport
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -73,6 +75,13 @@ func New(s config.Settings, opts ...Option) *Doer {
 
 // Slug returns the workspace slug.
 func (d *Doer) Slug() string { return d.s.Workspace }
+
+// TokenID returns the first 16 hex digits of the SHA-256 of the token. It
+// tells tokens apart, for a cache key, and does not show the token.
+func (d *Doer) TokenID() string {
+	sum := sha256.Sum256([]byte(d.s.Token))
+	return hex.EncodeToString(sum[:])[:16]
+}
 
 // Do sends req. A non-2xx response comes back as an *exit.Error.
 func (d *Doer) Do(req *http.Request) (*http.Response, error) {

@@ -1,12 +1,15 @@
 package resolve_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -179,9 +182,36 @@ func TestStateAmbiguous(t *testing.T) {
 	}
 }
 
+// The whoami cache is per token: another token is another member.
+func TestMeCachePerToken(t *testing.T) {
+	members := map[string]string{"Bearer sct_rw_acme_a": "member-a", "Bearer sct_rw_acme_b": "member-b"}
+	base := testapi.Fake(t, map[string]http.HandlerFunc{"GET /api/v4/whoami": func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"entity": map[string]any{"member": map[string]any{"id": members[r.Header.Get("Authorization")]}}})
+	}})
+	dir := t.TempDir()
+	c := cache.New(dir, time.Hour, time.Now)
+	for _, tc := range []struct{ token, want string }{{"sct_rw_acme_a", "member-a"}, {"sct_rw_acme_b", "member-b"}, {"sct_rw_acme_a", "member-a"}} {
+		d := transport.New(config.Settings{Token: tc.token, Workspace: "acme"}, transport.WithBaseURL(base))
+		if id, err := resolve.New(d, c).Me(); err != nil || id != tc.want {
+			t.Errorf("%s: %s, %v; want %s", tc.token, id, err, tc.want)
+		}
+	}
+	es, _ := os.ReadDir(dir)
+	for _, e := range es {
+		if b, _ := os.ReadFile(filepath.Join(dir, e.Name())); strings.Contains(e.Name()+string(b), "sct_") {
+			t.Errorf("token in cache file %s", e.Name())
+		}
+	}
+	if len(es) != 2 {
+		t.Errorf("cache files %d, want 2", len(es))
+	}
+}
+
 func TestMemberMe(t *testing.T) {
 	e := newEnv(t, nil)
-	_ = e.c.Put("whoami", me)
+	sum := sha256.Sum256([]byte("sct_rw_acme_s3cret"))
+	_ = e.c.Put("whoami-"+hex.EncodeToString(sum[:])[:16], me)
 	id, err := e.r.Member("@me")
 	if err != nil || id != me || e.n("GET /api/v4/whoami") != 0 {
 		t.Errorf("id %s, err %v, calls %d", id, err, e.n("GET /api/v4/whoami"))
