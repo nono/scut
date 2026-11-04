@@ -147,8 +147,9 @@ type Clock struct {
 // Retry calls try with the try number (from 1) and the time left in the
 // budget, until try returns nil, a failure that is not Retryable, or the
 // failure of try number maxTries. Between tries it waits Backoff, with the
-// Retry-After of the failure. No wait ends after retryBudget from the start:
-// then it returns the last failure. The elapsed time is the larger of the
+// Retry-After of the failure. It does not wait when the next try would then
+// start less than firstTryMin before retryBudget from the start: then it
+// returns the last failure. The elapsed time is the larger of the
 // clock and the sum of the waits, so an injected sleep still counts. If the
 // wait fails, it returns that error after name.
 func Retry(ctx context.Context, c Clock, name string, try func(n int, left time.Duration) error) error {
@@ -170,7 +171,7 @@ func Retry(ctx context.Context, c Clock, name string, try func(n int, left time.
 			after = e.RetryAfter
 		}
 		wait := Backoff(n, after)
-		if elapsed()+wait > retryBudget {
+		if retryBudget-(elapsed()+wait) < firstTryMin { // the next try would have too little time
 			return err
 		}
 		total += wait

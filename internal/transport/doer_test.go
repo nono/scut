@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -487,5 +488,26 @@ func TestScrub(t *testing.T) {
 	}
 	if got := transport.Scrub("abc", ""); got != "abc" {
 		t.Errorf("empty token: got %q", got)
+	}
+}
+
+// A wait that leaves the next try less than 2 s does not start: the 429 comes
+// back at once.
+func TestDoerNoWaitWithoutTimeForATry(t *testing.T) {
+	now := time.Unix(1000, 0)
+	var n int
+	hc := &http.Client{Transport: rtFunc(func(r *http.Request) (*http.Response, error) {
+		n++
+		now = now.Add(900 * time.Millisecond) // the try takes 0.9 s
+		return &http.Response{StatusCode: 429, Status: "429 Too Many Requests", Request: r,
+			Header: http.Header{"Retry-After": {"19"}, "Content-Type": {"application/json"}},
+			Body:   io.NopCloser(strings.NewReader(`{"message":"slow down"}`))}, nil
+	})}
+	w := &waits{}
+	d := transport.New(settings, transport.WithBaseURL("http://x"), transport.WithHTTPClient(hc),
+		transport.WithSleep(func(x time.Duration) { w.sleep(x); now = now.Add(x) }), transport.WithClock(func() time.Time { return now }))
+	e := asExit(t, raw(d, "GET"))
+	if n != 1 || len(w.d) != 0 || e.Status != 429 || string(e.API) != `{"message":"slow down"}` {
+		t.Errorf("tries %d, waits %v, error %+v", n, w.d, e)
 	}
 }
