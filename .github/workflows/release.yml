@@ -1,0 +1,39 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          install_args: go
+      - name: Build
+        env:
+          TAG: ${{ github.ref_name }}
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          set -eu
+          mkdir -p dist/pkg
+          go build -trimpath -ldflags "-s -w -X main.version=${TAG}" -o dist/pkg/scut ./cmd/scut
+          cp README.md dist/pkg/
+          if [ -f LICENSE ]; then cp LICENSE dist/pkg/; fi
+          name="scut_${TAG}_linux_amd64.tar.gz"
+          tar -C dist/pkg -czf "dist/${name}" .
+          (cd dist && sha256sum "${name}" > checksums.txt)
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "${TAG}" --title "${TAG}" --generate-notes \
+            "dist/scut_${TAG}_linux_amd64.tar.gz" dist/checksums.txt

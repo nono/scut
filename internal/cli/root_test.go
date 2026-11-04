@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/nono/scut/internal/cli"
+	"github.com/nono/scut/internal/transport"
 )
 
 func emptyEnv() cli.Env {
@@ -78,5 +79,18 @@ func TestArgCountIs2(t *testing.T) {
 		if code, _, errs := h.run(args...); code != 2 {
 			t.Errorf("%v: code %d, stderr %s", args, code, errs)
 		}
+	}
+}
+
+func TestVersionNeedsNoToken(t *testing.T) {
+	old := transport.Version
+	transport.Version = "v1.2.3"
+	defer func() { transport.Version = old }()
+	var out, errb bytes.Buffer
+	if code := cli.Execute([]string{"--version"}, &out, &errb, emptyEnv()); code != 0 {
+		t.Fatalf("code %d, want 0; stderr %q", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "v1.2.3") {
+		t.Errorf("stdout: %q", out.String())
 	}
 }

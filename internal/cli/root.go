@@ -14,6 +14,7 @@ import (
 
 	"github.com/nono/scut/internal/config"
 	"github.com/nono/scut/internal/exit"
+	"github.com/nono/scut/internal/transport"
 )
 
 // Env holds the process inputs that commands read, so tests can replace them.
@@ -66,6 +67,7 @@ func NewRoot(env Env) *cobra.Command {
 		Short:         "Command line client for the Shortcut REST API v4",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Version:       transport.Version,
 		Args:          noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return cmd.Help()

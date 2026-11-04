@@ -18,6 +18,7 @@ description: Use when a task reads or changes Shortcut stories, epics, comments,
 - A story is an ID (`1234`, `sc-1234`), a URL, or a branch name.
 - `story search` takes the Shortcut query syntax unchanged. It can lag. Use `story view` for current data.
 - Lists give 25 items. Use `--limit N` or `--limit all`.
+- Global flags: `--profile <name>` picks a workspace profile, `--token-file <path>` reads the token from a file, `--human` prints text.
 - If a feature is missing, say so. Do not work around it with `scut api`, unless the user asks.
 
 ## Not supported

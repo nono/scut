@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      CI: "true"
+      HAS_LIVE_TOKEN: ${{ secrets.SCUT_LIVE_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Lint
+        run: make lint
+      - name: Test
+        run: make test
+      - name: Generated client is up to date
+        run: go generate ./internal/v4 && git diff --exit-code
+      - name: Live smoke test
+        if: env.HAS_LIVE_TOKEN == 'true'
+        run: make live
+        env:
+          SCUT_TOKEN: ${{ secrets.SCUT_LIVE_TOKEN }}
+
+  spec-drift:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Diff the published spec against api/shortcut.openapi.json
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/spec.json" https://developer.shortcut.com/api/rest/v4/shortcut.openapi.json
+          diff "$RUNNER_TEMP/spec.json" api/shortcut.openapi.json

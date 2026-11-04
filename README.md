@@ -1,0 +1,114 @@
+# scut
+
+`scut` is a command line client for the Shortcut REST API v4.
+It prints JSON by default. It is made for scripts and coding agents.
+
+## Install
+
+```sh
+mise use github:nono/scut
+```
+
+Releases are for Linux amd64 only. You can also build it with `make build`.
+
+## Log in
+
+Create a v4 token at https://app.shortcut.com/settings/account/api-tokens.
+A read-only token starts with `sct_r_`.
+
+```sh
+scut auth login < token.txt
+```
+
+The token comes from stdin. `scut` keeps it in the OS keyring.
+The token holds the workspace name, so you do not set it.
+
+Other ways to give the token, in order of priority:
+
+1. `--token-file <path>`
+2. the `SCUT_TOKEN` environment variable
+3. `token_file` in the user config file
+4. the OS keyring
+
+Check it with `scut whoami`.
+
+## Config
+
+The user file is `~/.config/scut/config.toml` (or `$XDG_CONFIG_HOME/scut/config.toml`).
+It holds your defaults:
+
+```toml
+team = "Software Dev"
+state = "To Do"
+owner = "@me"
+requester = "@me"
+
+[fields]
+"Technical Area" = "Back end"
+```
+
+Other keys: `workflow`, `output` (`json` or `human`), `token_file`.
+A `[profile.<name>]` table holds the same keys for a second workspace.
+Pick it with `--profile <name>` or `SCUT_PROFILE`.
+
+The repo file `.scut.toml` has the same keys, except `token` and `token_file`.
+`scut` looks for it from the current directory up to the git root.
+A token in a repo file is an error.
+
+Precedence: flag, then `SCUT_*` environment variable, then repo file,
+then user file, then built-in default.
+
+## Use
+
+```sh
+scut usage                 # all commands
+scut story usage           # the commands of one noun
+scut story view 1234
+scut story search 'owner:me state:"To Do"'
+scut story create --name "Fix the login" --type bug
+```
+
+Use names, not IDs. A wrong name exits 3 and the error lists the valid names.
+Lists give 25 items. Use `--limit N` or `--limit all`.
+Add `--human` for text output.
+
+## Exit codes
+
+| Code | Meaning |
+| ---- | ------- |
+| 0 | ok |
+| 1 | other error |
+| 2 | usage error |
+| 3 | not found |
+| 4 | auth error |
+| 5 | Shortcut is unavailable (a write may have taken effect) |
+| 130 | cancelled |
+
+An error is one JSON object on stderr: `error`, `status`, `api`, `suggestion`, `valid`.
+
+## Agent skill
+
+```sh
+npx skills add nono/scut
+```
+
+The skill is `skills/scut/SKILL.md`. `make skill` generates it. Do not edit it by hand.
+
+## Not supported
+
+- Unlink a PR, branch or commit from a story (the v4 API has no endpoint).
+- Docs.
+- Story history.
+- Bulk commands.
+- Iterations, objectives and labels as commands.
+- Sub-task commands after `story create`.
+
+## Development
+
+```sh
+make lint test
+make live   # read-only smoke test on a real workspace
+```
+
+`make live` needs `SCUT_TOKEN` or `~/.config/shortcut-v4-token`. It skips without one.
+The Prism contract tests need Node 22 or later. With `CI=true` they fail instead of skipping.
