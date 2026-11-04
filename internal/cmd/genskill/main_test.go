@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -174,6 +175,22 @@ func TestCheck(t *testing.T) {
 	}
 	if got := errb.String(); !strings.Contains(got, coveragePath) || strings.Contains(got, skillPath) || strings.Count(got, "\n") != 1 {
 		t.Errorf("message %q", got)
+	}
+}
+
+func TestStoryFieldsText(t *testing.T) {
+	spec, err := readSpec(filepath.Join(repoRoot, specPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := storyFieldsText(spec)
+	for _, want := range []string{"DO NOT EDIT", "package cli\n", "\t\"estimate\",\n", "\t\"workflow_state\",\n"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no %q in %s", want, got)
+		}
+	}
+	if !slices.IsSorted(spec.storyFields) {
+		t.Errorf("not sorted: %v", spec.storyFields)
 	}
 }
 

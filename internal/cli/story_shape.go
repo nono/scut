@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/nono/scut/internal/exit"
@@ -70,6 +72,33 @@ type StoryOut struct {
 	Comments      []CommentOut        `json:"comments,omitzero"`
 	CommentsTotal int                 `json:"comments_total,omitempty"`
 	AppURL        string              `json:"app_url,omitempty"`
+	// Extra holds the API fields that --fields asked for and that StoryOut
+	// does not model, as the API sent them. They are merged into the object.
+	Extra map[string]json.RawMessage `json:"-"`
+}
+
+// MarshalJSON prints the fields of s, then the keys of Extra in order.
+func (s StoryOut) MarshalJSON() ([]byte, error) {
+	type plain StoryOut
+	b, err := json.Marshal(plain(s))
+	if err != nil || len(s.Extra) == 0 {
+		return b, err
+	}
+	keys := make([]string, 0, len(s.Extra))
+	for k := range s.Extra {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	buf := bytes.NewBuffer(b[:len(b)-1]) // b is an object: drop the "}"
+	for _, k := range keys {
+		kb, _ := json.Marshal(k)
+		buf.WriteByte(',')
+		buf.Write(kb)
+		buf.WriteByte(':')
+		buf.Write(s.Extra[k])
+	}
+	buf.WriteByte('}')
+	return buf.Bytes(), nil
 }
 
 // fieldIDs holds the IDs of a custom field value, as the API takes them.
@@ -78,8 +107,12 @@ type fieldIDs struct {
 	ValueID string `json:"value_id"`
 }
 
-// shapeOpts selects the heavy parts of a story.
-type shapeOpts struct{ Description, Comments bool }
+// shapeOpts selects the heavy parts of a story, and the API fields to print
+// as they are (see StoryOut.Extra).
+type shapeOpts struct {
+	Description, Comments bool
+	Extra                 []string
+}
 
 type nested[T any] struct {
 	CurrentItems int `json:"current_items"`
@@ -309,6 +342,20 @@ func shapeStory(raw json.RawMessage, r *resolve.R, opts shapeOpts) (StoryOut, er
 	}
 	out.Branches = in.Branches.items()
 	out.PullRequests = in.PullRequests.items()
+	if len(opts.Extra) > 0 {
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return StoryOut{}, &exit.Error{Code: exit.Other, Msg: fmt.Sprintf("bad story data: %v", err)}
+		}
+		for _, f := range opts.Extra {
+			if v, ok := m[f]; ok {
+				if out.Extra == nil {
+					out.Extra = map[string]json.RawMessage{}
+				}
+				out.Extra[f] = v
+			}
+		}
+	}
 	if opts.Comments && in.Comments != nil {
 		out.CommentsTotal = in.Comments.total()
 		out.Comments = []CommentOut{}

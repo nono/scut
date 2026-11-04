@@ -174,7 +174,7 @@ func newEpicStories(env Env) *cobra.Command {
 		Annotations: map[string]string{OpsAnnotation: "listEpicStories,searchEpics,listMembers"},
 	}
 	limitFlag := cmd.Flags().String("limit", strconv.Itoa(defaultLimit), "maximum number of stories, or all")
-	fieldsFlag := cmd.Flags().String("fields", "", "comma-separated fields to show")
+	fieldsFlag := cmd.Flags().String("fields", "", fieldsUsage)
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		limit, err := parseLimit(*limitFlag)
 		if err != nil {

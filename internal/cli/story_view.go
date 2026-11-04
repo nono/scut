@@ -40,8 +40,38 @@ var apiFieldNames = map[string]string{
 var storyFieldNames = []string{"app_url", "branches", "comments", "description", "epic", "field_ids", "fields", "id", "labels",
 	"links", "name", "owners", "pull_requests", "requester", "state", "tasks", "type"}
 
-// apiFields maps a --fields list to the API names and keeps id. An unknown
-// name is a usage error.
+const fieldsUsage = "comma-separated fields to show: output names or API Story field names (estimate, deadline, …)"
+
+// apiName returns the API field name of a --fields name.
+func apiName(f string) string {
+	if a, ok := apiFieldNames[f]; ok {
+		return a
+	}
+	return f
+}
+
+// validFields returns the names that --fields takes: the CLI names and the
+// properties of the Story schema.
+func validFields() []string {
+	v := append(slices.Clone(storyFieldNames), apiStoryFields...)
+	slices.Sort(v)
+	return slices.Compact(v)
+}
+
+// extraFields returns the API fields that StoryOut does not model. The
+// output prints them as the API sent them.
+func extraFields(fields []string) []string {
+	var out []string
+	for _, f := range fields {
+		if !slices.ContainsFunc(storyFieldNames, func(n string) bool { return apiName(n) == f }) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// apiFields maps a --fields list to the API names and keeps id. It takes the
+// CLI names and the API names. An unknown name is a usage error.
 func apiFields(list string) ([]string, error) {
 	var out []string
 	for _, f := range strings.Split(list, ",") {
@@ -49,12 +79,10 @@ func apiFields(list string) ([]string, error) {
 		if f == "" {
 			continue
 		}
-		if !slices.Contains(storyFieldNames, f) {
-			return nil, &exit.Error{Code: exit.Usage, Msg: fmt.Sprintf("unknown field %q", f), Valid: storyFieldNames}
+		if !slices.Contains(storyFieldNames, f) && !slices.Contains(apiStoryFields, f) {
+			return nil, &exit.Error{Code: exit.Usage, Msg: fmt.Sprintf("unknown field %q", f), Valid: validFields()}
 		}
-		if a, ok := apiFieldNames[f]; ok {
-			f = a
-		}
+		f = apiName(f)
 		if !slices.Contains(out, f) {
 			out = append(out, f)
 		}
@@ -83,7 +111,7 @@ func newStoryView(env Env) *cobra.Command {
 		Short:       "Show stories; default story from the git branch",
 		Annotations: map[string]string{OpsAnnotation: "getStory,listStoryComments,listStoryChecklistItems,listStories,listMembers"},
 	}
-	fieldsFlag := cmd.Flags().String("fields", "", "comma-separated fields to show")
+	fieldsFlag := cmd.Flags().String("fields", "", fieldsUsage)
 	commentsFlag := cmd.Flags().String("comments", strconv.Itoa(defaultComments), "number of newest comments, or all")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		nComments, err := parseCommentCount(*commentsFlag)
@@ -147,7 +175,7 @@ func viewOne(ctx context.Context, d *deps, id int64, fields []string, nComments 
 	if err != nil {
 		return err
 	}
-	s, err := shapeStory(raw, d.Resolver, shapeOpts{Description: true})
+	s, err := shapeStory(raw, d.Resolver, shapeOpts{Description: true, Extra: extraFields(fields)})
 	if err != nil {
 		return err
 	}
@@ -213,7 +241,7 @@ func viewMany(ctx context.Context, d *deps, ids []int64, fields []string) error 
 	}
 	byID := map[int64]StoryOut{}
 	for _, r := range raw {
-		s, err := shapeStory(r, d.Resolver, shapeOpts{Description: true, Comments: true})
+		s, err := shapeStory(r, d.Resolver, shapeOpts{Description: true, Comments: true, Extra: extraFields(fields)})
 		if err != nil {
 			return err
 		}

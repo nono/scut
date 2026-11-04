@@ -121,7 +121,7 @@ Writes need the story-write or comment-write scope, or `w`. `story unlink` and `
 
 - JSON on stdout by default, on a terminal and in a pipe. A list is an array. A view is an object. A write prints the entity that the API returns.
 - `--human` or `SCUT_OUTPUT=human` prints text. Only `--human` on a terminal can open `$EDITOR` or prompt.
-- Default fields are compact. `story view` returns: id, name, type, state name, owners and requester as mention names, epic id and name, labels, custom fields as `{name: value}`, the description, tasks, links, branches, PRs, and the last 10 comments. `search` and `epic stories` leave out the description and comments. `--fields` takes API field names and passes them to the API `fields` parameter.
+- Default fields are compact. `story view` returns: id, name, type, state name, owners and requester as mention names, epic id and name, labels, custom fields as `{name: value}`, the description, tasks, links, branches, PRs, and the last 10 comments. `search` and `epic stories` leave out the description and comments. `--fields` takes API field names and passes them to the API `fields` parameter. It also takes the output names (`state`, `type`, `tasks`, …) as aliases. An API field that the compact shape does not model is printed as the API sent it, under its API name. `genskill` writes the Story field names from the committed spec to `internal/cli/storyfields_gen.go`, and `make check-skill` fails when that file drifts.
 - Names in output (state, member, field) come from the cache. The design must keep the IDs as well, so a script can use them.
 - Deleted comments (`text: null`) show as `{"deleted": true}`.
 

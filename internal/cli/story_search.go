@@ -54,9 +54,7 @@ func listStoryFields(list string) ([]string, error) {
 		if f == "description" || f == "comments" {
 			continue
 		}
-		if a, ok := apiFieldNames[f]; ok {
-			f = a
-		}
+		f = apiName(f)
 		if !slices.Contains(out, f) {
 			out = append(out, f)
 		}
@@ -71,7 +69,8 @@ func listShapeOpts(list string, fields []string) shapeOpts {
 	if list == "" {
 		return shapeOpts{}
 	}
-	return shapeOpts{Description: slices.Contains(fields, "description"), Comments: slices.Contains(fields, "comments")}
+	return shapeOpts{Description: slices.Contains(fields, "description"), Comments: slices.Contains(fields, "comments"),
+		Extra: extraFields(fields)}
 }
 
 // shapeStories shapes a list of Story entities.
@@ -98,7 +97,7 @@ func newStorySearch(env Env) *cobra.Command {
 		Annotations: map[string]string{OpsAnnotation: "searchStories,listMembers"},
 	}
 	limitFlag := cmd.Flags().String("limit", strconv.Itoa(defaultLimit), "maximum number of stories, or all")
-	fieldsFlag := cmd.Flags().String("fields", "", "comma-separated fields to show")
+	fieldsFlag := cmd.Flags().String("fields", "", fieldsUsage)
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		limit, err := parseLimit(*limitFlag)
 		if err != nil {

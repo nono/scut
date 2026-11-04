@@ -616,6 +616,52 @@ func TestViewHumanTotals(t *testing.T) {
 	}
 }
 
+// --fields takes API field names too. A field that the compact shape does
+// not model is printed as the API sent it, under its API name.
+func TestViewFieldsAPINames(t *testing.T) {
+	var c calls
+	story := storyFixture(t)
+	story["estimate"] = 3
+	story["deadline"] = nil
+	h := viewHarness(t, &c, story, nil)
+	code, out, errs := h.run("story", "view", "5818", "--fields", "estimate,workflow_state,name,deadline,story_type", "--comments", "0")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if got := c.param("/api/v4/acme/stories/5818", "fields"); got != "id,estimate,workflow_state,name,deadline,story_type" {
+		t.Errorf("fields %q", got)
+	}
+	m := decode(t, out)
+	if m["estimate"] != float64(3) || m["state"] == nil || m["type"] != "chore" || m["name"] == nil {
+		t.Errorf("out %s", out)
+	}
+	if v, ok := m["deadline"]; !ok || v != nil {
+		t.Errorf("deadline: out %s", out)
+	}
+	if _, ok := m["archived"]; ok {
+		t.Errorf("archived not asked: out %s", out)
+	}
+}
+
+func TestListFieldsAPINames(t *testing.T) {
+	story := storyFixture(t)
+	story["estimate"] = 5
+	for _, args := range [][]string{{"story", "search", "x"}, {"epic", "stories", "5387"}} {
+		h := newHarness(t, map[string]http.HandlerFunc{
+			"GET " + searchPath:                   jsonHandler(listBody(story)),
+			"GET /api/v4/acme/epics/5387/stories": jsonHandler(listBody(story)),
+			"GET /api/v4/acme/members":            membersRoute(),
+		}, "", searchEnv)
+		code, out, errs := h.run(append(args, "--fields", "estimate,name")...)
+		if code != 0 {
+			t.Fatalf("%v: code %d, stderr %s", args, code, errs)
+		}
+		if l := decodeList(t, out); l[0]["estimate"] != float64(5) {
+			t.Errorf("%v: out %s", args, out)
+		}
+	}
+}
+
 func TestViewUnknownField(t *testing.T) {
 	var c calls
 	h := viewHarness(t, &c, storyFixture(t), nil)
@@ -625,7 +671,7 @@ func TestViewUnknownField(t *testing.T) {
 	}
 	e := decode(t, errs)
 	valid, _ := e["valid"].([]any)
-	if len(valid) < 10 || valid[0] != "app_url" {
+	if len(valid) < 10 || valid[0] != "app_url" || !strings.Contains(jsonOf(valid), `"estimate"`) || !strings.Contains(jsonOf(valid), `"state"`) {
 		t.Errorf("stderr %s", errs)
 	}
 }
