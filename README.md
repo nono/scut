@@ -73,7 +73,7 @@ scut story create --name "Fix the login" --type bug
 ```
 
 Use names, not IDs. A wrong name exits 3 and the error lists the valid names.
-Lists give 25 items. Use `--limit N` or `--limit all`.
+Searches and comment lists give 25 items. Use `--limit N` or `--limit all`. Lookup lists give all items.
 Add `--human` for text output.
 
 ## Exit codes
