@@ -25,7 +25,7 @@ func newAuthLogin(env Env) *cobra.Command {
 		Use:         "login",
 		Short:       "Read a token from stdin and store it in the keyring",
 		Args:        noArgs,
-		Annotations: map[string]string{opsAnnotation: "getWhoami"},
+		Annotations: map[string]string{OpsAnnotation: "getWhoami"},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if env.Stdin == nil {
 				return exit.Usagef("no token on stdin")
@@ -73,7 +73,7 @@ func newAuthStatus(env Env) *cobra.Command {
 		Use:         "status",
 		Short:       "Show the workspace, scopes and source of the token",
 		Args:        noArgs,
-		Annotations: map[string]string{opsAnnotation: "getWhoami"},
+		Annotations: map[string]string{OpsAnnotation: "getWhoami"},
 		RunE: withDeps(env, func(cmd *cobra.Command, _ []string, d *deps) error {
 			w, err := getWhoami(cmd.Context(), d.Doer)
 			if err != nil {

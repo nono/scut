@@ -16,7 +16,7 @@ func newStoryBranch(env Env) *cobra.Command {
 		Use:         "branch [<story>]",
 		Short:       "Print the suggested git branch name of a story",
 		Args:        cobra.MaximumNArgs(1),
-		Annotations: map[string]string{opsAnnotation: "getStory"},
+		Annotations: map[string]string{OpsAnnotation: "getStory"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ids, err := storyIDs(env, args)
 			if err != nil {

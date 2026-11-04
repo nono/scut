@@ -85,7 +85,7 @@ func newStoryLink(env Env) *cobra.Command {
 			}
 			return nil
 		},
-		Annotations: map[string]string{opsAnnotation: "createStoryLink"},
+		Annotations: map[string]string{OpsAnnotation: "createStoryLink"},
 	}
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		a, err := ref.Story(args[0])
@@ -192,7 +192,7 @@ func newStoryUnlink(env Env) *cobra.Command {
 		Use:         "unlink <story> <verb> <story>",
 		Short:       "Remove a link between stories",
 		Args:        cobra.ExactArgs(3),
-		Annotations: map[string]string{opsAnnotation: "listStoryStoryLinks,deleteStoryLink"},
+		Annotations: map[string]string{OpsAnnotation: "listStoryStoryLinks,deleteStoryLink"},
 	}
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		a, err := ref.Story(args[0])
@@ -230,7 +230,7 @@ func newStoryRelink(env Env) *cobra.Command {
 		Use:         "relink <story> <old-verb> <story> <new-verb>",
 		Short:       "Change the verb of a link",
 		Args:        cobra.ExactArgs(4),
-		Annotations: map[string]string{opsAnnotation: "listStoryStoryLinks,updateStoryLink"},
+		Annotations: map[string]string{OpsAnnotation: "listStoryStoryLinks,updateStoryLink"},
 	}
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		a, err := ref.Story(args[0])

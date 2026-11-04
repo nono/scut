@@ -32,7 +32,7 @@ func newStoryUpdate(env Env) *cobra.Command {
 		Use:         "update <story>",
 		Short:       "Change a story",
 		Args:        cobra.ExactArgs(1),
-		Annotations: map[string]string{opsAnnotation: "updateStory,getStory"},
+		Annotations: map[string]string{OpsAnnotation: "updateStory,getStory"},
 	}
 	f := cmd.Flags()
 	name := f.String("name", "", "new name")

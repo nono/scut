@@ -10,7 +10,8 @@ import (
 	"github.com/nono/scut/internal/transport"
 )
 
-const opsAnnotation = "scut/ops"
+// OpsAnnotation is the cobra annotation key that lists the operationIds a command calls.
+const OpsAnnotation = "scut/ops"
 
 type idName struct {
 	ID   int64  `json:"id"`
@@ -60,7 +61,7 @@ func newWhoami(env Env) *cobra.Command {
 		Use:         "whoami",
 		Short:       "Show the member and workspace of the token",
 		Args:        noArgs,
-		Annotations: map[string]string{opsAnnotation: "getWhoami"},
+		Annotations: map[string]string{OpsAnnotation: "getWhoami"},
 		RunE: withDeps(env, func(cmd *cobra.Command, _ []string, d *deps) error {
 			w, err := getWhoami(cmd.Context(), d.Doer)
 			if err != nil {

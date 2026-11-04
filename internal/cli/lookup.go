@@ -31,7 +31,7 @@ func listCmd(env Env, short, op string, run func(d *deps) (any, error)) *cobra.C
 		Use:         "list",
 		Short:       short,
 		Args:        noArgs,
-		Annotations: map[string]string{opsAnnotation: op},
+		Annotations: map[string]string{OpsAnnotation: op},
 		RunE: withDeps(env, func(_ *cobra.Command, _ []string, d *deps) error {
 			v, err := run(d)
 			if err != nil {
@@ -142,7 +142,7 @@ func newWorkflowGroup(env Env) *cobra.Command {
 		Use:         "states [<workflow>]",
 		Short:       "List the states of a workflow, or of all",
 		Args:        cobra.MaximumNArgs(1),
-		Annotations: map[string]string{opsAnnotation: "listWorkflows"},
+		Annotations: map[string]string{OpsAnnotation: "listWorkflows"},
 		RunE: withDeps(env, func(_ *cobra.Command, args []string, d *deps) error {
 			if len(args) == 1 { // resolves the name: refresh once, then exit 3 with valid
 				if _, err := d.Resolver.Workflow(args[0]); err != nil {
@@ -209,7 +209,7 @@ func newFieldGroup(env Env) *cobra.Command {
 		Use:         "values <field>",
 		Short:       "List the values of a custom field",
 		Args:        cobra.ExactArgs(1),
-		Annotations: map[string]string{opsAnnotation: "listCustomFields"},
+		Annotations: map[string]string{OpsAnnotation: "listCustomFields"},
 		RunE: withDeps(env, func(_ *cobra.Command, args []string, d *deps) error {
 			vs, err := d.Resolver.FieldValues(args[0])
 			if err != nil {

@@ -14,7 +14,7 @@ func newStoryComments(env Env) *cobra.Command {
 		Use:         "comments <story>",
 		Short:       "List the comments of a story, oldest first",
 		Args:        cobra.ExactArgs(1),
-		Annotations: map[string]string{opsAnnotation: "listStoryComments"},
+		Annotations: map[string]string{OpsAnnotation: "listStoryComments"},
 	}
 	limitFlag := cmd.Flags().String("limit", strconv.Itoa(defaultLimit), "maximum number of comments, or all")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {

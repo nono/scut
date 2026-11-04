@@ -1,4 +1,4 @@
-.PHONY: generate build test lint
+.PHONY: generate build test lint skill check-skill
 
 generate:
 	go generate ./internal/v4
@@ -9,7 +9,13 @@ build:
 test:
 	go test ./...
 
-lint:
+skill:
+	go run ./internal/cmd/genskill
+
+check-skill:
+	go run ./internal/cmd/genskill -check
+
+lint: check-skill
 	@test -z "$$(gofmt -l .)" || { gofmt -l .; echo "gofmt: files above need formatting"; exit 1; }
 	go vet ./...
 	golangci-lint run

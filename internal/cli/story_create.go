@@ -46,7 +46,7 @@ func newStoryCreate(env Env) *cobra.Command {
 		Use:         "create",
 		Short:       "Create a story",
 		Args:        cobra.NoArgs,
-		Annotations: map[string]string{opsAnnotation: "createStory,listStories,getStory"},
+		Annotations: map[string]string{OpsAnnotation: "createStory,listStories,getStory"},
 	}
 	f := cmd.Flags()
 	name := f.String("name", "", "story name (required)")

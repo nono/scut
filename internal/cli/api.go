@@ -37,7 +37,7 @@ func newAPI(env Env) *cobra.Command {
 			"any other path is relative to /api/v4/<workspace>.\n" +
 			"The output is the entity or the array of entities of the response.",
 		Args:        cobra.ExactArgs(1),
-		Annotations: map[string]string{opsAnnotation: "*"},
+		Annotations: map[string]string{OpsAnnotation: "*"},
 		RunE: withDeps(env, func(cmd *cobra.Command, args []string, d *deps) error {
 			var body any
 			switch {
