@@ -118,12 +118,14 @@ func newStoryLink(env Env) *cobra.Command {
 				raw, err := d.Doer.Raw(cmd.Context(), "POST", "story-links", nil, map[string]any{
 					"subject_story_id": p.subject, "verb": p.api, "object_story_id": p.object,
 				})
+				var l apiLink
+				if err == nil {
+					if derr := json.Unmarshal(raw, &l); derr != nil {
+						err = &exit.Error{Code: exit.Other, Msg: "decode link: " + derr.Error()} // this link only
+					}
+				}
 				switch {
 				case err == nil:
-					var l apiLink
-					if err := json.Unmarshal(raw, &l); err != nil {
-						return fmt.Errorf("decode link: %w", err)
-					}
 					existed := false
 					r.ID, r.Existed = &l.ID, &existed
 				case isDuplicateLink(err):

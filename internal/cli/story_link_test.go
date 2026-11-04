@@ -161,6 +161,31 @@ func TestLinkPartialFail(t *testing.T) {
 	}
 }
 
+// A 2xx body that does not decode is the error of that link only.
+func TestLinkBadBody(t *testing.T) {
+	n := 0
+	h := newHarness(t, map[string]http.HandlerFunc{
+		"POST " + linksPath: func(w http.ResponseWriter, r *http.Request) {
+			n++
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(201)
+			if n == 1 {
+				_, _ = io.WriteString(w, `{"entity":[1]}`)
+				return
+			}
+			_, _ = io.WriteString(w, jsonOf(map[string]any{"entity": linkEntity(7, 5818, "blocks", 5819)}))
+		},
+	}, "", searchEnv)
+	code, out, errs := h.run("story", "link", "5818", "blocks", "5819", "relates-to", "5820")
+	if code != 1 || n != 2 {
+		t.Fatalf("code %d, posts %d, stderr %s", code, n, errs)
+	}
+	l := decodeLinks(t, out)
+	if len(l) != 2 || l[0]["error"] == nil || l[1]["id"] != float64(7) || l[1]["error"] != nil {
+		t.Errorf("stdout %s", out)
+	}
+}
+
 func listRoute(links ...any) map[string]http.HandlerFunc {
 	return map[string]http.HandlerFunc{
 		"GET /api/v4/acme/stories/5818/story-links": jsonHandler(listBody(links...)),
