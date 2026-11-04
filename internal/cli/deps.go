@@ -77,7 +77,7 @@ func newDeps(cmd *cobra.Command, env Env) (*deps, error) {
 	}, nil
 }
 
-// withDeps wraps a command body so that it gets deps, built on first use.
+// withDeps wraps a command body so that it gets deps, built before the body runs.
 func withDeps(env Env, run func(cmd *cobra.Command, args []string, d *deps) error) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		d, err := newDeps(cmd, env)

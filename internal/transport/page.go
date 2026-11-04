@@ -53,8 +53,8 @@ func Page(ctx context.Context, fetch func(cursor string) ([]json.RawMessage, str
 }
 
 // PageQuery reads a list endpoint, up to limit items (all with limit < 0).
-// Page 1 sends query. Each later page sends only the cursor: the API refuses
-// other parameters with a cursor.
+// Page 1 sends query. Each later page sends only the cursor, which carries the
+// query.
 func PageQuery(ctx context.Context, d *Doer, path string, query url.Values, limit int) ([]json.RawMessage, error) {
 	return Page(ctx, func(cursor string) ([]json.RawMessage, string, error) {
 		q := query

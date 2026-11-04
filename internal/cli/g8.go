@@ -118,9 +118,10 @@ func unavailable(err error) error {
 }
 
 // createStoryRetry sends the createStory request. body must hold external_id.
-// Each failure after the send makes the result uncertain, except a 4xx. Then
-// it looks for the story by external_id, and it never sends a create again
-// while it cannot tell if the last one worked:
+// Each failure after the send makes the result uncertain, except a 4xx other
+// than 429. Then it looks for the story by external_id in the 25 newest
+// stories. It sends a create again only after a failure that shows the server
+// did not take the request:
 //
 //   - After a 429, a 503 or a connect failure, the server did not take the
 //     request: it looks for the story, then sends the create again.

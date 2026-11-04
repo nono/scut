@@ -174,7 +174,7 @@ func Backoff(try int, after time.Duration) time.Duration {
 }
 
 // Retryable tells if err is a failure that a retry can heal: 429, 502, 503,
-// 504 or a connect failure.
+// 504, a connect failure or a body cut short (status 0 with exit code 5).
 func Retryable(err error) bool {
 	var e *exit.Error
 	if !errors.As(err, &e) {

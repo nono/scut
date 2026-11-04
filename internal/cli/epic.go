@@ -34,7 +34,7 @@ type epicIn struct {
 	AppURL      string            `json:"app_url"`
 }
 
-// Human is the text form: name, state, URL, description.
+// Human is the text form: name, state, owners, URL, description.
 func (e EpicOut) Human() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s (epic %d)\n", e.Name, e.ID)

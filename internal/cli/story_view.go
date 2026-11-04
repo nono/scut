@@ -18,7 +18,7 @@ import (
 
 const defaultComments = 10
 
-// storyCmd returns the story group. Later tasks add subcommands to it.
+// storyCmd returns the story group with its subcommands.
 func storyCmd(env Env) *cobra.Command {
 	g := Group("story", "View, search and change stories")
 	g.AddCommand(newStoryView(env), newStorySearch(env), newStoryComments(env), newStoryComment(env), newStoryUpdate(env), newStoryCreate(env), newStoryLink(env), newStoryUnlink(env), newStoryRelink(env), newStoryBranch(env), newStoryFiles(env))
