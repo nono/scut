@@ -239,8 +239,9 @@ func viewMany(ctx context.Context, d *deps, ids []int64, fields []string) error 
 		return err
 	}
 	byID := map[int64]StoryOut{}
+	opts := shapeOpts{Description: true, Comments: true, Extra: extraFields(fields)}
 	for _, r := range raw {
-		s, err := shapeStory(r, d.Resolver, shapeOpts{Description: true, Comments: true, Extra: extraFields(fields)})
+		s, err := shapeStory(r, d.Resolver, opts)
 		if err != nil {
 			return err
 		}
