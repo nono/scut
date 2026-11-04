@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"fmt"
 	"io"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/nono/scut/internal/config"
 	"github.com/nono/scut/internal/exit"
@@ -27,10 +29,7 @@ func newAuthLogin(env Env) *cobra.Command {
 		Args:        noArgs,
 		Annotations: map[string]string{OpsAnnotation: "getWhoami"},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if env.Stdin == nil {
-				return exit.Usagef("no token on stdin")
-			}
-			b, err := io.ReadAll(env.Stdin)
+			b, err := readToken(env, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -66,6 +65,28 @@ func newAuthLogin(env Env) *cobra.Command {
 			}, false)
 		},
 	}
+}
+
+// readToken reads the token from stdin. On a terminal it prompts on stderr and
+// turns off the echo.
+func readToken(env Env, stderr io.Writer) ([]byte, error) {
+	if env.StdinIsTTY {
+		read := env.ReadPassword
+		if read == nil {
+			read = term.ReadPassword
+		}
+		_, _ = fmt.Fprint(stderr, "Token: ")
+		b, err := read(env.StdinFd)
+		_, _ = fmt.Fprintln(stderr)
+		if err != nil {
+			return nil, &exit.Error{Code: exit.Other, Msg: "cannot read the token: " + err.Error()}
+		}
+		return b, nil
+	}
+	if env.Stdin == nil {
+		return nil, exit.Usagef("no token on stdin")
+	}
+	return io.ReadAll(env.Stdin)
 }
 
 func newAuthStatus(env Env) *cobra.Command {

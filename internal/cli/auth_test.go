@@ -33,6 +33,33 @@ func TestAuthLogin(t *testing.T) {
 	}
 }
 
+func TestAuthLoginNoPromptOffTTY(t *testing.T) {
+	h := newHarness(t, map[string]http.HandlerFunc{"GET /api/v4/whoami": jsonHandler(whoamiBody)}, token, nil)
+	h.env.ReadPassword = func(int) ([]byte, error) { t.Error("ReadPassword called off a terminal"); return nil, nil }
+	code, _, errs := h.run("auth", "login")
+	if code != 0 || errs != "" {
+		t.Fatalf("code %d, stderr %q", code, errs)
+	}
+}
+
+func TestAuthLoginTTY(t *testing.T) {
+	h := newHarness(t, map[string]http.HandlerFunc{"GET /api/v4/whoami": jsonHandler(whoamiBody)}, "not this", nil)
+	h.env.StdinIsTTY = true
+	h.env.StdinFd = 7
+	var gotFd int
+	h.env.ReadPassword = func(fd int) ([]byte, error) { gotFd = fd; return []byte(token + "\n"), nil }
+	code, _, errs := h.run("auth", "login")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if gotFd != 7 || !strings.HasPrefix(errs, "Token: ") || strings.Contains(errs, "s3cret") {
+		t.Errorf("fd %d, stderr %q", gotFd, errs)
+	}
+	if h.kr.m["scut/default"] != token {
+		t.Errorf("keyring %v", h.kr.m)
+	}
+}
+
 func TestAuthLoginProfile(t *testing.T) {
 	h := newHarness(t, map[string]http.HandlerFunc{"GET /api/v4/whoami": jsonHandler(whoamiBody)}, token, nil)
 	if code, _, errs := h.run("--profile", "work", "auth", "login"); code != 0 {

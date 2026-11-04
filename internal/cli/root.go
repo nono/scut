@@ -19,16 +19,18 @@ import (
 
 // Env holds the process inputs that commands read, so tests can replace them.
 type Env struct {
-	Getenv     func(string) string
-	Dir        string
-	Stdin      io.Reader
-	StdinIsTTY bool
-	Keyring    config.Keyring      // nil: no keyring
-	APIBase    string              // empty: the real API
-	Sleep      func(time.Duration) // nil: wait on a timer; tests set a no-op
-	Now        func() time.Time    // nil: time.Now
-	FileClient *http.Client        // nil: a new client for the file host
-	FileHosts  []string            // hosts that get the file token; nil: the Shortcut hosts
+	Getenv       func(string) string
+	Dir          string
+	Stdin        io.Reader
+	StdinIsTTY   bool
+	StdinFd      int                          // file descriptor of Stdin, for ReadPassword
+	ReadPassword func(fd int) ([]byte, error) // nil: term.ReadPassword
+	Keyring      config.Keyring               // nil: no keyring
+	APIBase      string                       // empty: the real API
+	Sleep        func(time.Duration)          // nil: wait on a timer; tests set a no-op
+	Now          func() time.Time             // nil: time.Now
+	FileClient   *http.Client                 // nil: a new client for the file host
+	FileHosts    []string                     // hosts that get the file token; nil: the Shortcut hosts
 }
 
 // OSEnv returns the Env of the running process.
@@ -36,7 +38,7 @@ func OSEnv() Env {
 	dir, _ := os.Getwd()
 	fi, err := os.Stdin.Stat()
 	tty := err == nil && fi.Mode()&os.ModeCharDevice != 0
-	return Env{Getenv: os.Getenv, Dir: dir, Stdin: os.Stdin, StdinIsTTY: tty, Keyring: config.OSKeyring{}}
+	return Env{Getenv: os.Getenv, Dir: dir, Stdin: os.Stdin, StdinIsTTY: tty, StdinFd: int(os.Stdin.Fd()), Keyring: config.OSKeyring{}}
 }
 
 // Group returns a command that only holds subcommands. Running it alone is a usage error.
