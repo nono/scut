@@ -251,8 +251,11 @@ func copyNew(src, dest string) (err error) {
 }
 
 // downloadRetry runs download with transport.Retry: after a 429, a 502, a
-// 503, a 504 or a lost connection it tries again. Each try writes a new temp
-// file.
+// 503, a 504 or a lost connection it tries again, with the same backoff and
+// try limit as a call. No new try starts after 20 s from the first, but each
+// try has the 60 s limit of the file client (fileTimeout), not the time left
+// in the 20 s: a large file needs more than 20 s for one try. Each try writes
+// a new temp file.
 func downloadRetry(ctx context.Context, d *deps, c *http.Client, hosts []string, f apiFile, dir, name string) (string, error) {
 	var p string
 	err := transport.Retry(ctx, d.Clock, fmt.Sprintf("download file %d", f.ID), func(int, time.Duration) error {
