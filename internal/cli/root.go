@@ -75,7 +75,7 @@ func NewRoot(env Env) *cobra.Command {
 	pf.String("profile", "", "settings and token profile (default \"default\")")
 	root.AddCommand(newUsage(true), newAuth(env), newWhoami(env), newAPI(env),
 		newTeamGroup(env), newMemberGroup(env), newWorkflowGroup(env), newFieldGroup(env), newCacheGroup(env),
-		storyCmd(env))
+		storyCmd(env), newEpicGroup(env))
 	return root
 }
 
