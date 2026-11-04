@@ -94,6 +94,9 @@ func decode(t *testing.T, s string) map[string]any {
 // storyRoot returns a root with a story group, to test the group helpers.
 func storyRoot(env cli.Env) *cobra.Command {
 	root := cli.NewRoot(env)
+	if old, _, err := root.Find([]string{"story"}); err == nil && old != root {
+		root.RemoveCommand(old)
+	}
 	story := cli.Group("story", "Work with stories")
 	create := &cobra.Command{Use: "create", Short: "Create a story", Run: func(*cobra.Command, []string) {}}
 	create.Flags().String("name", "", "story name")

@@ -1,0 +1,187 @@
+{
+  "$schema": "https://api.app.shortcut.com/api/v4/schemas/get-story",
+  "entity": {
+    "app_url": "https://app.shortcut.com/acme/story/5818",
+    "description": "Test story for the scut CLI design. Archive or delete.",
+    "archived": true,
+    "started": false,
+    "story_links": {
+      "current_items": 0,
+      "entities": [],
+      "list_url": "https://api.app.shortcut.com/api/v4/acme/stories/5818/story-links",
+      "total_items": 0
+    },
+    "entity_type": "story",
+    "labels": {
+      "current_items": 0,
+      "entities": [],
+      "list_url": "https://api.app.shortcut.com/api/v4/acme/stories/5818/labels",
+      "total_items": 0
+    },
+    "owners": {
+      "current_items": 1,
+      "entities": [
+        {
+          "entity_type": "member:slim",
+          "id": "00000000-0000-4000-8000-000000000001",
+          "name": "Test User",
+          "uri": "https://api.app.shortcut.com/api/v4/acme/members/00000000-0000-4000-8000-000000000001"
+        }
+      ],
+      "list_url": "https://api.app.shortcut.com/api/v4/acme/stories/5818/owners",
+      "total_items": 1
+    },
+    "story_type": "chore",
+    "linked_files": {
+      "current_items": 0,
+      "entities": [],
+      "list_url": "https://api.app.shortcut.com/api/v4/acme/stories/5818/linked-files",
+      "total_items": 0
+    },
+    "completed_at_override": null,
+    "started_at": null,
+    "completed_at": null,
+    "mentioned_teams": {
+      "current_items": 0,
+      "entities": [],
+      "list_url": "https://api.app.shortcut.com/api/v4/acme/stories/5818/mentioned-teams",
+      "total_items": 0
+    },
+    "name": "scut API test 1 (delete me)",
+    "completed": false,
+    "comments": {
+      "current_items": 0,
+      "entities": [],
+      "list_url": "https://api.app.shortcut.com/api/v4/acme/stories/5818/comments",
+      "total_items": 0
+    },
+    "blocker": false,
+    "sub_task_stories": {
+      "current_items": 0,
+      "entities": [],
+      "list_url": "https://api.app.shortcut.com/api/v4/acme/stories/5818/sub-task-stories",
+      "total_items": 0
+    },
+    "branches": {
+      "current_items": 0,
+      "entities": [],
+      "list_url": "https://api.app.shortcut.com/api/v4/acme/stories/5818/branches",
+      "total_items": 0
+    },
+    "story_template": null,
+    "external_links": {
+      "current_items": 0,
+      "entities": [],
+      "list_url": "https://api.app.shortcut.com/api/v4/acme/stories/5818/external-links",
+      "total_items": 0
+    },
+    "formatted_vcs_branch_name": "chore/sc-5818/scut-api-test-1-delete-me",
+    "started_at_override": null,
+    "custom_field_values": {
+      "current_items": 1,
+      "entities": [
+        {
+          "entity_type": "custom-field-value:slim",
+          "field": {
+            "entity_type": "custom-field:slim",
+            "id": "0f0f0f0f-08b2-4eb1-b29f-703a73481c90",
+            "name": "Technical Area",
+            "uri": "https://api.app.shortcut.com/api/v4/acme/custom-fields/0f0f0f0f-08b2-4eb1-b29f-703a73481c90"
+          },
+          "id": "0f0f0f0f-044e-4240-8de7-9a49d9f3048b",
+          "value": "API"
+        }
+      ],
+      "list_url": "https://api.app.shortcut.com/api/v4/acme/stories/5818/custom-field-values",
+      "total_items": 1
+    },
+    "updated_at": "2026-11-04T10:13:36.784Z",
+    "pull_requests": {
+      "current_items": 0,
+      "entities": [],
+      "list_url": "https://api.app.shortcut.com/api/v4/acme/stories/5818/pull-requests",
+      "total_items": 0
+    },
+    "workflow": {
+      "entity_type": "workflow:slim",
+      "id": 500000005,
+      "name": "Standard",
+      "uri": "https://api.app.shortcut.com/api/v4/acme/workflows/500000005"
+    },
+    "requester": {
+      "entity_type": "member:slim",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "name": "Test User",
+      "uri": "https://api.app.shortcut.com/api/v4/acme/members/00000000-0000-4000-8000-000000000001"
+    },
+    "parent_story": null,
+    "team": {
+      "app_url": "https://app.shortcut.com/acme/team/0f0f0f0f-8dfb-475d-b664-5068e9d1d778",
+      "entity_type": "team:slim",
+      "id": "0f0f0f0f-8dfb-475d-b664-5068e9d1d778",
+      "name": "Software Dev",
+      "uri": "https://api.app.shortcut.com/api/v4/acme/teams/0f0f0f0f-8dfb-475d-b664-5068e9d1d778"
+    },
+    "project": null,
+    "external_id": "f4abad97-8e6c-4eb3-b1b7-a4ec154c7a47",
+    "id": 5818,
+    "epic": null,
+    "estimate": null,
+    "commits": {
+      "current_items": 0,
+      "entities": [],
+      "list_url": "https://api.app.shortcut.com/api/v4/acme/stories/5818/commits",
+      "total_items": 0
+    },
+    "iterations": {
+      "current_items": 0,
+      "entities": [],
+      "list_url": "https://api.app.shortcut.com/api/v4/acme/stories/5818/iterations",
+      "total_items": 0
+    },
+    "checklist_items": {
+      "current_items": 0,
+      "entities": [],
+      "list_url": "https://api.app.shortcut.com/api/v4/acme/stories/5818/checklist-items",
+      "total_items": 0
+    },
+    "workflow_state": {
+      "entity_type": "workflow-state:slim",
+      "id": 500000007,
+      "name": "To Do",
+      "uri": "https://api.app.shortcut.com/api/v4/acme/workflow-states/500000007",
+      "workflow_name": "Standard"
+    },
+    "files": {
+      "current_items": 0,
+      "entities": [],
+      "list_url": "https://api.app.shortcut.com/api/v4/acme/stories/5818/files",
+      "total_items": 0
+    },
+    "position": 12258100224,
+    "mentioned_members": {
+      "current_items": 0,
+      "entities": [],
+      "list_url": "https://api.app.shortcut.com/api/v4/acme/stories/5818/mentioned-members",
+      "total_items": 0
+    },
+    "uri": "https://api.app.shortcut.com/api/v4/acme/stories/5818",
+    "blocked": false,
+    "deadline": null,
+    "followers": {
+      "current_items": 1,
+      "entities": [
+        {
+          "entity_type": "member:slim",
+          "id": "00000000-0000-4000-8000-000000000001",
+          "name": "Test User",
+          "uri": "https://api.app.shortcut.com/api/v4/acme/members/00000000-0000-4000-8000-000000000001"
+        }
+      ],
+      "list_url": "https://api.app.shortcut.com/api/v4/acme/stories/5818/followers",
+      "total_items": 1
+    },
+    "created_at": "2026-11-04T10:12:54.311Z",
+    "moved_at": "2026-11-04T10:12:54.311Z"
+  }
+}
