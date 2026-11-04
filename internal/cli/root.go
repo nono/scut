@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -20,8 +21,10 @@ type Env struct {
 	Dir        string
 	Stdin      io.Reader
 	StdinIsTTY bool
-	Keyring    config.Keyring // nil: no keyring
-	APIBase    string         // empty: the real API
+	Keyring    config.Keyring      // nil: no keyring
+	APIBase    string              // empty: the real API
+	Sleep      func(time.Duration) // nil: wait on a timer; tests set a no-op
+	Now        func() time.Time    // nil: time.Now
 }
 
 // OSEnv returns the Env of the running process.
