@@ -198,11 +198,11 @@ func TestViewFieldsNoComments(t *testing.T) {
 func TestViewFieldsMapping(t *testing.T) {
 	var c calls
 	h := viewHarness(t, &c, map[string]any{"id": 5818}, nil)
-	code, _, errs := h.run("story", "view", "5818", "--fields", "id,type,tasks,fields,links,estimate", "--comments", "0")
+	code, _, errs := h.run("story", "view", "5818", "--fields", "id,type,tasks,fields,links,labels", "--comments", "0")
 	if code != 0 {
 		t.Fatalf("code %d, stderr %s", code, errs)
 	}
-	want := "id,story_type,checklist_items,custom_field_values,story_links,estimate"
+	want := "id,story_type,checklist_items,custom_field_values,story_links,labels"
 	if got := c.param("/api/v4/acme/stories/5818", "fields"); got != want {
 		t.Errorf("fields %q, want %q", got, want)
 	}
@@ -299,7 +299,8 @@ func TestViewTotal(t *testing.T) {
 		map[string]any{"id": 1, "verb": "blocks", "subject": map[string]any{"id": 5818, "name": "a"}, "object": map[string]any{"id": 9, "name": "b"}},
 		map[string]any{"id": 2, "verb": "relates to", "subject": map[string]any{"id": 5818}, "object": map[string]any{"id": 10}},
 	}}
-	story["checklist_items"] = nestedList(map[string]any{"id": 3, "description": "do it", "completed": true})
+	story["owners"] = map[string]any{"current_items": 1, "total_items": 3, "entities": []any{map[string]any{"id": testMember}}}
+	story["checklist_items"] = map[string]any{"current_items": 1, "total_items": 4, "entities": []any{map[string]any{"id": 3, "description": "do it", "completed": true}}}
 	story["branches"] = nestedList(map[string]any{"id": 4, "name": "b1"})
 	story["pull_requests"] = nestedList(map[string]any{"id": 6, "name": "pr1"})
 	story["labels"] = nestedList(map[string]any{"id": 7, "name": "bug"})
@@ -310,6 +311,9 @@ func TestViewTotal(t *testing.T) {
 		t.Fatalf("code %d, stderr %s", code, errs)
 	}
 	m := decode(t, out)
+	if m["owners_total"] != float64(3) || m["tasks_total"] != float64(4) {
+		t.Errorf("owners/tasks total: %s", out)
+	}
 	if m["links_total"] != float64(5) {
 		t.Errorf("links_total: %s", out)
 	}
@@ -412,8 +416,129 @@ func TestViewContract(t *testing.T) {
 		t.Errorf("no id: %s", out)
 	}
 	code, out, errs = h.run("story", "view", "5818", "5819")
-	if code != 0 {
+	// The mock returns example IDs, so exit 3 (missing IDs) is fine.
+	if code != 0 && code != 3 {
 		t.Fatalf("many: code %d, stderr %s", code, errs)
 	}
 	decodeList(t, out)
+}
+
+func manyHarness(t *testing.T, c *calls, found ...any) *harness {
+	t.Helper()
+	routes := map[string]http.HandlerFunc{
+		"GET /api/v4/acme/stories": c.wrap(jsonHandler(listBody(found...))),
+		"GET /api/v4/acme/members": jsonHandler(listBody()),
+	}
+	return newHarness(t, routes, "", map[string]string{"SCUT_TOKEN": "sct_rw_acme_s3cret"})
+}
+
+func TestViewManyArchivedAndMissing(t *testing.T) {
+	var c calls
+	s1, s2 := storyFixture(t), storyFixture(t)
+	s1["id"], s2["id"] = 5819, 5818
+	h := manyHarness(t, &c, s1, s2) // API order differs from argument order
+	code, out, errs := h.run("story", "view", "5818", "5819", "99999999")
+	if code != 3 {
+		t.Fatalf("code %d, want 3", code)
+	}
+	if got := c.param("/api/v4/acme/stories", "filter"); got != "include_archived" {
+		t.Errorf("filter %q", got)
+	}
+	if got := c.param("/api/v4/acme/stories", "ids"); got != "5818,5819,99999999" {
+		t.Errorf("ids %q", got)
+	}
+	l := decodeList(t, out)
+	if len(l) != 2 || l[0]["id"] != float64(5818) || l[1]["id"] != float64(5819) {
+		t.Errorf("stdout %s", out)
+	}
+	if e := decode(t, errs); !strings.Contains(e["error"].(string), "99999999") {
+		t.Errorf("stderr %s", errs)
+	}
+}
+
+func TestViewManyDuplicate(t *testing.T) {
+	var c calls
+	h := manyHarness(t, &c, storyFixture(t))
+	code, out, errs := h.run("story", "view", "5818", "5818")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if got := c.param("/api/v4/acme/stories", "ids"); got != "5818" {
+		t.Errorf("ids %q", got)
+	}
+	if l := decodeList(t, out); len(l) != 1 {
+		t.Errorf("stdout %s", out)
+	}
+}
+
+func TestViewManySlimComments(t *testing.T) {
+	var c calls
+	s1 := storyFixture(t)
+	s1["comments"] = map[string]any{"current_items": 2, "total_items": 7, "entities": []any{
+		map[string]any{"id": 1, "text": "hi", "deleted": false},
+		map[string]any{"id": 2, "text": nil, "deleted": true},
+	}}
+	s2 := storyFixture(t)
+	s2["id"] = 5819
+	h := manyHarness(t, &c, s1, s2)
+	code, out, errs := h.run("story", "view", "5818", "5819")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if c.total() != 1 {
+		t.Errorf("calls %v", c.paths)
+	}
+	l := decodeList(t, out)
+	if got := jsonOf(l[0]["comments"]); got != `[{"id":1,"text":"hi"},{"deleted":true,"id":2}]` {
+		t.Errorf("comments %s", got)
+	}
+	if l[0]["comments_total"] != float64(7) {
+		t.Errorf("stdout %s", out)
+	}
+}
+
+func TestViewManyCommentsFlag(t *testing.T) {
+	h := newHarness(t, nil, "", nil)
+	code, _, errs := h.run("story", "view", "5818", "5819", "--comments", "3")
+	if code != 2 || !strings.Contains(errs, "--comments needs a single story") {
+		t.Errorf("code %d, stderr %s", code, errs)
+	}
+}
+
+func TestViewCommentsTotal(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want int
+	}{{nil, 10}, {[]string{"--comments", "3"}, 3}} {
+		var c calls
+		story := storyFixture(t)
+		story["comments"] = map[string]any{"current_items": 0, "total_items": 25, "entities": []any{}}
+		var cs []any
+		for i := range tc.want {
+			cs = append(cs, comment(i+1, "t", false))
+		}
+		h := viewHarness(t, &c, story, cs)
+		code, out, errs := h.run(append([]string{"story", "view", "5818"}, tc.args...)...)
+		if code != 0 {
+			t.Fatalf("code %d, stderr %s", code, errs)
+		}
+		m := decode(t, out)
+		if len(m["comments"].([]any)) != tc.want || m["comments_total"] != float64(25) {
+			t.Errorf("args %v: %s", tc.args, out)
+		}
+	}
+}
+
+func TestViewUnknownField(t *testing.T) {
+	var c calls
+	h := viewHarness(t, &c, storyFixture(t), nil)
+	code, _, errs := h.run("story", "view", "5818", "--fields", "name,nmae")
+	if code != 2 || c.total() != 0 {
+		t.Fatalf("code %d, calls %v", code, c.paths)
+	}
+	e := decode(t, errs)
+	valid, _ := e["valid"].([]any)
+	if len(valid) < 10 || valid[0] != "app_url" {
+		t.Errorf("stderr %s", errs)
+	}
 }

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"slices"
 	"strconv"
@@ -33,13 +34,21 @@ var apiFieldNames = map[string]string{
 	"links":  "story_links",
 }
 
-// apiFields maps a --fields list to the API names and keeps id.
-func apiFields(list string) []string {
+// storyFieldNames are the --fields names that StoryOut can show.
+var storyFieldNames = []string{"app_url", "branches", "comments", "description", "epic", "fields", "id", "labels",
+	"links", "name", "owners", "pull_requests", "requester", "state", "tasks", "type"}
+
+// apiFields maps a --fields list to the API names and keeps id. An unknown
+// name is a usage error.
+func apiFields(list string) ([]string, error) {
 	var out []string
 	for _, f := range strings.Split(list, ",") {
 		f = strings.TrimSpace(f)
 		if f == "" {
 			continue
+		}
+		if !slices.Contains(storyFieldNames, f) {
+			return nil, &exit.Error{Code: exit.Usage, Msg: fmt.Sprintf("unknown field %q", f), Valid: storyFieldNames}
 		}
 		if a, ok := apiFieldNames[f]; ok {
 			f = a
@@ -51,7 +60,7 @@ func apiFields(list string) []string {
 	if !slices.Contains(out, "id") {
 		out = append([]string{"id"}, out...)
 	}
-	return out
+	return out, nil
 }
 
 // parseCommentCount returns the number of comments to fetch, -1 for all.
@@ -79,13 +88,18 @@ func newStoryView(env Env) *cobra.Command {
 		if err != nil {
 			return err
 		}
+		if len(args) > 1 && cmd.Flags().Changed("comments") {
+			return exit.Usagef("--comments needs a single story")
+		}
 		ids, err := storyIDs(env, args)
 		if err != nil {
 			return err
 		}
-		fields := apiFields(*fieldsFlag)
-		if *fieldsFlag == "" {
-			fields = nil
+		var fields []string
+		if *fieldsFlag != "" {
+			if fields, err = apiFields(*fieldsFlag); err != nil {
+				return err
+			}
 		}
 		return withDeps(env, func(cmd *cobra.Command, _ []string, d *deps) error {
 			ctx := cmd.Context()
@@ -141,6 +155,12 @@ func viewOne(ctx context.Context, d *deps, id int64, fields []string, nComments 
 			return err
 		}
 		s.Comments = cs
+		var c struct {
+			Comments *nested[json.RawMessage] `json:"comments"`
+		}
+		if json.Unmarshal(raw, &c) == nil && c.Comments != nil && c.Comments.TotalItems > len(cs) {
+			s.CommentsTotal = c.Comments.TotalItems
+		}
 	}
 	return d.Out(s)
 }
@@ -165,13 +185,19 @@ func fetchComments(ctx context.Context, d *deps, id int64, n int) ([]CommentOut,
 	return shapeComments(raw, d.Resolver)
 }
 
+// viewMany gets several stories in one call. It prints the stories found, in
+// argument order, then fails with exit 3 if some are missing.
 func viewMany(ctx context.Context, d *deps, ids []int64, fields []string) error {
-	strs := make([]string, len(ids))
-	for i, id := range ids {
-		strs[i] = strconv.FormatInt(id, 10)
+	var uniq []int64
+	strs := []string{}
+	for _, id := range ids {
+		if !slices.Contains(uniq, id) {
+			uniq = append(uniq, id)
+			strs = append(strs, strconv.FormatInt(id, 10))
+		}
 	}
 	raw, err := transport.Page(ctx, func(cursor string) ([]json.RawMessage, string, error) {
-		q := url.Values{"ids": {strings.Join(strs, ",")}}
+		q := url.Values{"ids": {strings.Join(strs, ",")}, "filter": {"include_archived"}}
 		fieldsQuery(q, fields)
 		if cursor != "" {
 			q.Set("cursor", cursor)
@@ -181,13 +207,28 @@ func viewMany(ctx context.Context, d *deps, ids []int64, fields []string) error 
 	if err != nil {
 		return err
 	}
-	out := make(storyList, 0, len(raw))
+	byID := map[int64]StoryOut{}
 	for _, r := range raw {
-		s, err := shapeStory(r, d.Resolver, shapeOpts{Description: true})
+		s, err := shapeStory(r, d.Resolver, shapeOpts{Description: true, Comments: true})
 		if err != nil {
 			return err
 		}
-		out = append(out, s)
+		byID[s.ID] = s
 	}
-	return d.Out(out)
+	out := make(storyList, 0, len(uniq))
+	var missing []string
+	for _, id := range uniq {
+		if s, ok := byID[id]; ok {
+			out = append(out, s)
+		} else {
+			missing = append(missing, strconv.FormatInt(id, 10))
+		}
+	}
+	if err := d.Out(out); err != nil {
+		return err
+	}
+	if len(missing) > 0 {
+		return exit.NotFoundf("no story %s", strings.Join(missing, ", "))
+	}
+	return nil
 }
