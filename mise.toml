@@ -1,0 +1,3 @@
+[tools]
+go = "1.27"
+oapi-codegen = "2.8.2"
