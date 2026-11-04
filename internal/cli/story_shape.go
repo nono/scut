@@ -186,13 +186,8 @@ type taskIn struct {
 	Completed   *bool  `json:"completed"`
 }
 
-// hasTasks tells if the story in raw has checklist items.
-func hasTasks(raw json.RawMessage) bool {
-	var in struct {
-		Tasks *nested[json.RawMessage] `json:"checklist_items"`
-	}
-	return json.Unmarshal(raw, &in) == nil && in.Tasks != nil && in.Tasks.TotalItems > 0
-}
+// out returns the compact shape of t.
+func (t taskIn) out() TaskOut { return TaskOut{t.ID, t.Description, t.Completed} }
 
 // shapeTasks converts ChecklistItem entities to the compact shape.
 func shapeTasks(raw []json.RawMessage) ([]TaskOut, error) {
@@ -202,7 +197,7 @@ func shapeTasks(raw []json.RawMessage) ([]TaskOut, error) {
 	}
 	out := make([]TaskOut, 0, len(ts))
 	for _, t := range ts {
-		out = append(out, TaskOut{t.ID, t.Description, t.Completed})
+		out = append(out, t.out())
 	}
 	return out, nil
 }
@@ -331,7 +326,7 @@ func shapeStory(raw json.RawMessage, r *resolve.R, opts shapeOpts) (StoryOut, er
 	if in.Tasks != nil {
 		out.Tasks = []TaskOut{}
 		for _, t := range in.Tasks.Entities {
-			out.Tasks = append(out.Tasks, TaskOut{ID: t.ID, Description: t.Description}) // slim: complete unknown
+			out.Tasks = append(out.Tasks, t.out()) // slim: Completed is nil
 		}
 	}
 	if in.Links != nil {

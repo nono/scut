@@ -180,7 +180,7 @@ func viewOne(ctx context.Context, d *deps, id int64, fields []string, nComments 
 		return err
 	}
 	// The nested items have no completed: read the full list.
-	if (fields == nil || slices.Contains(fields, "checklist_items")) && hasTasks(raw) {
+	if (fields == nil || slices.Contains(fields, "checklist_items")) && (len(s.Tasks) > 0 || s.TasksTotal > 0) {
 		path := "stories/" + strconv.FormatInt(id, 10) + "/checklist-items"
 		items, err := transport.PageQuery(ctx, d.Doer, path, url.Values{"limit": {strconv.Itoa(maxPageSize)}}, -1)
 		if err != nil {
