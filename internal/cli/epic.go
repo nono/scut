@@ -192,7 +192,7 @@ func newEpicStories(env Env) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			out, err := shapeStories(d, raw)
+			out, err := shapeStories(d, raw, listShapeOpts(*fieldsFlag, fields))
 			if err != nil {
 				return err
 			}

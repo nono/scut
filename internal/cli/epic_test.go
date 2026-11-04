@@ -131,6 +131,24 @@ func TestEpicStoriesFieldsAndAll(t *testing.T) {
 	}
 }
 
+func TestEpicStoriesFieldsDescription(t *testing.T) {
+	h := newHarness(t, map[string]http.HandlerFunc{
+		"GET /api/v4/acme/epics/5387/stories": jsonHandler(listBody(storyFixture(t))),
+		"GET /api/v4/acme/members":            membersRoute(),
+	}, "", searchEnv)
+	code, out, errs := h.run("epic", "stories", "5387", "--fields", "name,description,comments")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	l := decodeList(t, out)
+	if _, ok := l[0]["description"].(string); !ok {
+		t.Errorf("no description in %s", out)
+	}
+	if _, ok := l[0]["comments"].([]any); !ok {
+		t.Errorf("no comments in %s", out)
+	}
+}
+
 func TestEpicCommentStdin(t *testing.T) {
 	var body []byte
 	h := newHarness(t, map[string]http.HandlerFunc{

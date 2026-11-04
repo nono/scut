@@ -63,12 +63,20 @@ func listStoryFields(list string) ([]string, error) {
 	return out, nil
 }
 
-// shapeStories shapes a list of Story entities. Description and comments are
-// off, so the list stays small.
-func shapeStories(d *deps, raw []json.RawMessage) (storyList, error) {
+// listShapeOpts turns on description and comments when --fields asks for
+// them. With no --fields they stay off, so the list stays small.
+func listShapeOpts(list string, fields []string) shapeOpts {
+	if list == "" {
+		return shapeOpts{}
+	}
+	return shapeOpts{Description: slices.Contains(fields, "description"), Comments: slices.Contains(fields, "comments")}
+}
+
+// shapeStories shapes a list of Story entities.
+func shapeStories(d *deps, raw []json.RawMessage, opts shapeOpts) (storyList, error) {
 	out := make(storyList, 0, len(raw))
 	for _, r := range raw {
-		s, err := shapeStory(r, d.Resolver, shapeOpts{})
+		s, err := shapeStory(r, d.Resolver, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -105,7 +113,7 @@ func newStorySearch(env Env) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			out, err := shapeStories(d, raw)
+			out, err := shapeStories(d, raw, listShapeOpts(*fieldsFlag, fields))
 			if err != nil {
 				return err
 			}

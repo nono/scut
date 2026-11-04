@@ -91,6 +91,35 @@ func TestSearchFieldsGiven(t *testing.T) {
 	}
 }
 
+func TestSearchFieldsDescriptionComments(t *testing.T) {
+	h := newHarness(t, map[string]http.HandlerFunc{
+		"GET " + searchPath:        jsonHandler(listBody(storyFixture(t))),
+		"GET /api/v4/acme/members": membersRoute(),
+	}, "", searchEnv)
+	code, out, errs := h.run("story", "search", "x", "--fields", "name,description,comments")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	l := decodeList(t, out)
+	if _, ok := l[0]["description"].(string); !ok {
+		t.Errorf("no description in %s", out)
+	}
+	if _, ok := l[0]["comments"].([]any); !ok {
+		t.Errorf("no comments in %s", out)
+	}
+	code, out, errs = h.run("story", "search", "x", "--fields", "name,description")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	l = decodeList(t, out)
+	if _, ok := l[0]["description"].(string); !ok {
+		t.Errorf("no description in %s", out)
+	}
+	if _, ok := l[0]["comments"]; ok {
+		t.Errorf("comments not asked for, in %s", out)
+	}
+}
+
 // pagedHandler serves pages of 25 stories; page n links to page n+1 until last.
 func pagedHandler(t *testing.T, c *calls, pages int) http.HandlerFunc {
 	return c.wrap(func(w http.ResponseWriter, r *http.Request) {
