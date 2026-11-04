@@ -114,7 +114,7 @@ make lint test
 make live   # read-only smoke test on a real workspace
 ```
 
-`make live` needs `SCUT_TOKEN` or `~/.config/shortcut-v4-token`. It skips without one.
+`make live` needs `SCUT_TOKEN` or `~/.config/shortcut-v4-token`, and `SCUT_LIVE_STORY`: the ID of a story with one attachment. It skips without them. The other `SCUT_LIVE_*` variables give the expected values; see `internal/live/live_test.go`. In CI they are repository variables, and the token is the secret `SCUT_LIVE_TOKEN`.
 The Prism contract tests need Node 22 or later. With `CI=true` they fail instead of skipping.
 
 ## License

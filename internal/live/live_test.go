@@ -2,6 +2,18 @@
 
 // Package live holds a read-only smoke test against the real Shortcut API.
 // It builds the real binary and runs it with a temp cache and an empty config.
+//
+// The repository is public, so the workspace, the story and the expected
+// values come from environment variables, never from the code:
+//
+//	SCUT_LIVE_STORY        a story ID (required, else the test skips)
+//	SCUT_LIVE_WORKSPACE    the expected workspace slug
+//	SCUT_LIVE_STORY_NAME   the expected name of the story
+//	SCUT_LIVE_FILE         the name of a file attached to the story
+//	SCUT_LIVE_FILE_SIZE    its size in bytes
+//	SCUT_LIVE_BRANCH       the expected prefix of the branch name
+//
+// A check whose variable is not set is skipped.
 package live
 
 import (
@@ -10,11 +22,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
-
-const storyName = "Example story with one attachment"
 
 func token(t *testing.T) string {
 	t.Helper()
@@ -33,7 +44,22 @@ func token(t *testing.T) string {
 	return ""
 }
 
+// want returns the value of the env variable name, or skips t when it is not set.
+func want(t *testing.T, name string) string {
+	t.Helper()
+	v := strings.TrimSpace(os.Getenv(name))
+	if v == "" {
+		t.Skipf("%s is not set", name)
+	}
+	return v
+}
+
 func TestLive(t *testing.T) {
+	story := want(t, "SCUT_LIVE_STORY")
+	id, err := strconv.ParseInt(story, 10, 64)
+	if err != nil {
+		t.Fatalf("SCUT_LIVE_STORY %q is not a story ID", story)
+	}
 	tok := token(t)
 	bin := filepath.Join(t.TempDir(), "scut")
 	build := exec.Command("go", "build", "-o", bin, "github.com/nono/scut/cmd/scut")
@@ -46,7 +72,7 @@ func TestLive(t *testing.T) {
 		"XDG_CONFIG_HOME="+t.TempDir(),
 		"SCUT_OUTPUT=json",
 	)
-	run := func(args ...string) []byte {
+	run := func(t *testing.T, args ...string) []byte {
 		t.Helper()
 		cmd := exec.Command(bin, args...)
 		cmd.Env = env
@@ -61,11 +87,11 @@ func TestLive(t *testing.T) {
 
 	t.Run("whoami", func(t *testing.T) {
 		var v struct{ Workspace string }
-		if err := json.Unmarshal(run("whoami"), &v); err != nil {
+		if err := json.Unmarshal(run(t, "whoami"), &v); err != nil {
 			t.Fatal(err)
 		}
-		if v.Workspace != "example-ws" {
-			t.Errorf("workspace %q", v.Workspace)
+		if ws := want(t, "SCUT_LIVE_WORKSPACE"); v.Workspace != ws {
+			t.Errorf("workspace %q, want %q", v.Workspace, ws)
 		}
 	})
 	t.Run("story view", func(t *testing.T) {
@@ -73,16 +99,19 @@ func TestLive(t *testing.T) {
 			ID   int64
 			Name string
 		}
-		if err := json.Unmarshal(run("story", "view", "4966"), &v); err != nil {
+		if err := json.Unmarshal(run(t, "story", "view", story), &v); err != nil {
 			t.Fatal(err)
 		}
-		if v.ID != 4966 || v.Name != storyName {
-			t.Errorf("got %d %q", v.ID, v.Name)
+		if v.ID != id {
+			t.Errorf("id %d, want %d", v.ID, id)
+		}
+		if name := want(t, "SCUT_LIVE_STORY_NAME"); v.Name != name {
+			t.Errorf("name %q, want %q", v.Name, name)
 		}
 	})
 	t.Run("story search", func(t *testing.T) {
 		var v []json.RawMessage
-		if err := json.Unmarshal(run("story", "search", "id:4966"), &v); err != nil {
+		if err := json.Unmarshal(run(t, "story", "search", "id:"+story), &v); err != nil {
 			t.Fatal(err)
 		}
 		if len(v) != 1 {
@@ -90,23 +119,28 @@ func TestLive(t *testing.T) {
 		}
 	})
 	t.Run("story files", func(t *testing.T) {
+		file := want(t, "SCUT_LIVE_FILE")
+		size, err := strconv.ParseInt(want(t, "SCUT_LIVE_FILE_SIZE"), 10, 64)
+		if err != nil {
+			t.Fatal("SCUT_LIVE_FILE_SIZE is not a number")
+		}
 		dir := t.TempDir()
-		run("story", "files", "4966", "--out", dir)
-		fi, err := os.Stat(filepath.Join(dir, "example_attachment.txt"))
+		run(t, "story", "files", story, "--out", dir)
+		fi, err := os.Stat(filepath.Join(dir, file))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if fi.Size() != 9692 {
-			t.Errorf("size %d, want 9692", fi.Size())
+		if fi.Size() != size {
+			t.Errorf("size %d, want %d", fi.Size(), size)
 		}
 	})
 	t.Run("story branch", func(t *testing.T) {
 		var v struct{ Branch string }
-		if err := json.Unmarshal(run("story", "branch", "4966"), &v); err != nil {
+		if err := json.Unmarshal(run(t, "story", "branch", story), &v); err != nil {
 			t.Fatal(err)
 		}
-		if !strings.HasPrefix(v.Branch, "bug/a test story/") {
-			t.Errorf("branch %q", v.Branch)
+		if p := want(t, "SCUT_LIVE_BRANCH"); !strings.HasPrefix(v.Branch, p) {
+			t.Errorf("branch %q, want prefix %q", v.Branch, p)
 		}
 	})
 }

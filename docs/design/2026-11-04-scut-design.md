@@ -60,7 +60,7 @@ A command that does these things is a failure, even if it works:
 
 | Topic | Fact | Design effect |
 |---|---|---|
-| Attachment download | Test on a test story: `Authorization: Bearer` gives 400 from the storage backend ("Only one auth mechanism allowed"). `Shortcut-Token: <token>` header and `?token=` give 200 and the full file. No auth gives 401. | Send `Shortcut-Token`, never `Bearer`, to the file host. Do not use `?token=`. |
+| Attachment download | Test on a story with one attachment: `Authorization: Bearer` gives 400 from the storage backend ("Only one auth mechanism allowed"). `Shortcut-Token: <token>` header and `?token=` give 200 and the full file. No auth gives 401. | Send `Shortcut-Token`, never `Bearer`, to the file host. Do not use `?token=`. |
 | Find by `external_id` | No endpoint or search operator filters on it. `GET /stories` takes `order_by=created_at`, `order_dir`, `fields`, `ids`, `limit`, `cursor`. | Make the G8 check with `GET /stories?order_by=created_at&order_dir=desc&fields=id,external_id,…`. This reads current data, not the search index. |
 | Bulk | Atomicity is not stated. Errors are 400, 404 and 422, with no per-item result. | v1 does not use bulk endpoints. |
 | Branch name | `formatted_vcs_branch_name` is "built from the Workspace's branch name format. Null if the Workspace has no branch name format." | On null, exit 3 (not found) with a message. Do not make up a name. |
@@ -202,7 +202,7 @@ Before `scut` parses a body, it checks the status and the `Content-Type`.
 - Commit the v4 spec (`api/shortcut.openapi.json`). It is the contract for the Prism tests, the operation check of the `scut/ops` annotations and the coverage table. No Go client is generated from it: commands shape raw JSON (decision of 2026-11-04). CI downloads the live spec and shows a diff when it changed.
 - Unit tests for each package. Contract tests run against Prism (Stoplight) in mock mode on the committed spec. They cover `story view`, `search`, `comments`, `comment`, `create` and `update`, `epic view`, `search`, `stories` and `comment`, `team list`, `member list`, `workflow list` and `states`, `field list` and `values`, and `cache clear`. `story link`, `unlink`, `relink`, `branch`, `files`, `whoami`, `api` and `auth` have no Prism test. A write test checks the request body against the schema (shortcut-cli #366).
 - Recorded responses (fixtures) for flows that Prism cannot model: G8 retry, paging loop, file download error page, name resolution.
-- One live smoke test, run by hand or in CI with a read-only token: `whoami`, `story view`, `story search`, `story files` on a test story (it has a 9,692-byte attachment).
+- One live smoke test, run by hand or in CI with a read-only token: `whoami`, `story view`, `story search`, `story files` and `story branch` on a story with one attachment. The story and the expected values come from `SCUT_LIVE_*` environment variables, because the repository is public.
 - Generate a coverage table of the v4 endpoints that `scut` calls, and check it in CI.
 - Host: `github.com/nono/scut`, public. This is also the Go module path. CI is GitHub Actions (my call). The GitHub repo does not exist yet. Work locally until it does.
 - Release from a git tag, as a GitHub release binary for linux amd64 only (your call; other platforms later). `mise use github:nono/scut` installs them with no token, because the repo is public.

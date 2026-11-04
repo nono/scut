@@ -31,6 +31,12 @@ jobs:
         run: make live
         env:
           SCUT_TOKEN: ${{ secrets.SCUT_LIVE_TOKEN }}
+          SCUT_LIVE_STORY: ${{ vars.SCUT_LIVE_STORY }}
+          SCUT_LIVE_WORKSPACE: ${{ vars.SCUT_LIVE_WORKSPACE }}
+          SCUT_LIVE_STORY_NAME: ${{ vars.SCUT_LIVE_STORY_NAME }}
+          SCUT_LIVE_FILE: ${{ vars.SCUT_LIVE_FILE }}
+          SCUT_LIVE_FILE_SIZE: ${{ vars.SCUT_LIVE_FILE_SIZE }}
+          SCUT_LIVE_BRANCH: ${{ vars.SCUT_LIVE_BRANCH }}
 
   spec-drift:
     runs-on: ubuntu-latest

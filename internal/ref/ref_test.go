@@ -15,9 +15,9 @@ func TestStoryRef(t *testing.T) {
 		"sc-5409": 5409,
 		"5409":    5409,
 		"https://app.shortcut.com/example-ws/story/5409/some-slug": 5409,
-		"https://app.shortcut.com/acme/story/12":                         12,
-		"bug/sc-5409/fix-wave":                                           5409,
-		"user42/sc-17-x":                                                 17,
+		"https://app.shortcut.com/acme/story/12":                   12,
+		"bug/sc-5409/fix-wave":                                     5409,
+		"user42/sc-17-x":                                           17,
 	} {
 		got, err := ref.Story(in)
 		if err != nil || got != want {
