@@ -1,11 +1,8 @@
 package cache_test
 
 import (
-	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"syscall"
 	"testing"
 	"time"
 
@@ -106,23 +103,20 @@ func TestCachePutAfterClear(t *testing.T) {
 	}
 }
 
-// A file that a concurrent Put writes during the removal makes RemoveAll
-// fail with ENOTEMPTY: Clear tries once more.
-func TestCacheClearNotEmpty(t *testing.T) {
-	notEmpty := &fs.PathError{Op: "unlinkat", Path: "x", Err: syscall.ENOTEMPTY}
-	for fails, ok := range map[int]bool{1: true, 2: false} {
-		s := cache.New(t.TempDir(), time.Hour, time.Now)
-		n := 0
-		cache.SetRemoveAll(s, func(p string) error {
-			n++
-			if n <= fails {
-				return notEmpty
-			}
-			return os.RemoveAll(p)
-		})
-		err := s.Clear()
-		if ok != (err == nil) || (!ok && !errors.Is(err, syscall.ENOTEMPTY)) {
-			t.Errorf("%d failures: err %v", fails, err)
-		}
+// Clear removes the entries and the temp files, and keeps the dir.
+func TestCacheClearTemp(t *testing.T) {
+	dir := t.TempDir()
+	s := cache.New(dir, time.Hour, time.Now)
+	if err := s.Put("k", 1, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "k.123.tmp"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Clear(); err != nil {
+		t.Fatal(err)
+	}
+	if ents, err := os.ReadDir(dir); err != nil || len(ents) != 1 || ents[0].Name() != "cleared-at" {
+		t.Errorf("dir after clear: %v, %v", ents, err)
 	}
 }

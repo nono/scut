@@ -8,7 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"syscall"
+	"strings"
 	"time"
 )
 
@@ -18,16 +18,15 @@ const markerName = "cleared-at"
 
 // Store is a directory of cached values.
 type Store struct {
-	dir       string
-	ttl       time.Duration
-	now       func() time.Time
-	removeAll func(string) error
+	dir string
+	ttl time.Duration
+	now func() time.Time
 }
 
 // New returns a Store in dir. An entry older than ttl, or fetched before the
 // last Clear, is stale.
 func New(dir string, ttl time.Duration, now func() time.Time) *Store {
-	return &Store{dir: dir, ttl: ttl, now: now, removeAll: os.RemoveAll}
+	return &Store{dir: dir, ttl: ttl, now: now}
 }
 
 // Now returns the time on the clock of the store. A caller reads it before a
@@ -86,15 +85,15 @@ func (s *Store) Put(key string, v any, fetchedAt time.Time) error {
 	if err != nil {
 		return fmt.Errorf("encode cache: %w", err)
 	}
-	return s.write(key+".json", key+".*.tmp", b)
+	return s.write(key+".json", b)
 }
 
-// write writes b to name in dir, through a temp file.
-func (s *Store) write(name, pattern string, b []byte) error {
+// write writes b to name in dir, through a temp file <name without .json>.*.tmp.
+func (s *Store) write(name string, b []byte) error {
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return fmt.Errorf("write cache: %w", err)
 	}
-	f, err := os.CreateTemp(s.dir, pattern)
+	f, err := os.CreateTemp(s.dir, strings.TrimSuffix(name, ".json")+".*.tmp")
 	if err != nil {
 		return fmt.Errorf("write cache: %w", err)
 	}
@@ -111,22 +110,25 @@ func (s *Store) write(name, pattern string, b []byte) error {
 	return nil
 }
 
-// Clear removes all entries, then writes the time of the clear to a marker
-// file. A Put that runs after the clear, of data fetched before it, is
-// stale. A Put during the removal can make it fail with ENOTEMPTY: it tries
-// once more.
+// Clear removes the entries and the temp files, then writes the time of the
+// clear to a marker file. It keeps the dir. A Put that runs after the clear,
+// of data fetched before it, is stale.
 func (s *Store) Clear() error {
 	at := s.now()
-	err := s.removeAll(s.dir)
-	if errors.Is(err, syscall.ENOTEMPTY) {
-		err = s.removeAll(s.dir)
-	}
-	if err != nil {
+	ents, err := os.ReadDir(s.dir)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("clear cache: %w", err)
+	}
+	for _, e := range ents {
+		if n := e.Name(); strings.HasSuffix(n, ".json") || strings.HasSuffix(n, ".tmp") {
+			if err := os.Remove(filepath.Join(s.dir, n)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return fmt.Errorf("clear cache: %w", err)
+			}
+		}
 	}
 	b, err := at.MarshalText()
 	if err != nil {
 		return fmt.Errorf("clear cache: %w", err)
 	}
-	return s.write(markerName, markerName+".*.tmp", b)
+	return s.write(markerName, b)
 }
