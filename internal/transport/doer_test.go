@@ -350,15 +350,12 @@ func TestRawUnwrap(t *testing.T) {
 func TestPrismGetStory(t *testing.T) {
 	base := testapi.Prism(t)
 	d := transport.New(settings, transport.WithBaseURL(base))
-	resp, err := d.Client().GetStoryWithResponse(context.Background(), d.Slug(), 1, nil)
+	got, err := d.Raw(context.Background(), "GET", "/stories/1", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.StatusCode() != 200 {
-		t.Errorf("status %d: %s", resp.StatusCode(), resp.Body)
-	}
-	if !json.Valid(resp.Body) {
-		t.Errorf("body not JSON")
+	if !json.Valid(got) {
+		t.Errorf("body not JSON: %s", got)
 	}
 }
 

@@ -1,7 +1,4 @@
-.PHONY: generate build test lint skill check-skill live
-
-generate:
-	go generate ./internal/v4
+.PHONY: build test lint skill check-skill live
 
 build:
 	go build -o scut ./cmd/scut

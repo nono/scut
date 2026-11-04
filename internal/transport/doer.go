@@ -21,7 +21,6 @@ import (
 
 	"github.com/nono/scut/internal/config"
 	"github.com/nono/scut/internal/exit"
-	v4 "github.com/nono/scut/internal/v4"
 )
 
 // DefaultBaseURL is the Shortcut API server.
@@ -39,7 +38,6 @@ const (
 )
 
 // Doer sends HTTP requests with auth, retries and error mapping.
-// It implements the HttpRequestDoer interface of the generated client.
 type Doer struct {
 	s     config.Settings
 	base  string
@@ -72,17 +70,8 @@ func New(s config.Settings, opts ...Option) *Doer {
 	return d
 }
 
-// Slug returns the workspace slug, to pass to generated methods.
+// Slug returns the workspace slug.
 func (d *Doer) Slug() string { return d.s.Workspace }
-
-// Client returns the generated client that sends through d.
-func (d *Doer) Client() *v4.ClientWithResponses {
-	c, err := v4.NewClientWithResponses(d.base, v4.WithHTTPClient(d))
-	if err != nil { // only a bad server URL
-		panic(err)
-	}
-	return c
-}
 
 // Do sends req. A non-2xx response comes back as an *exit.Error.
 func (d *Doer) Do(req *http.Request) (*http.Response, error) {

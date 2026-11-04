@@ -26,15 +26,6 @@ jobs:
         run: make lint
       - name: Test
         run: make test
-      - name: Generated client is up to date
-        run: |
-          make generate
-          out=$(git status --porcelain --untracked-files=all)
-          if [ -n "$out" ]; then
-            echo "$out"
-            echo "generated files differ from the committed ones"
-            exit 1
-          fi
       - name: Live smoke test
         if: github.event_name == 'push' && env.HAS_LIVE_TOKEN == 'true'
         run: make live

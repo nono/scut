@@ -197,7 +197,7 @@ Before `scut` parses a body, it checks the status and the `Content-Type`.
 
 ## Build and test
 
-- Commit the v4 spec (`api/shortcut.openapi.json`). Generate the Go client from it. CI downloads the live spec and fails with a diff when it changed.
+- Commit the v4 spec (`api/shortcut.openapi.json`). It is the contract for the Prism tests, the operation check of the `scut/ops` annotations and the coverage table. No Go client is generated from it: commands shape raw JSON (decision of 2026-11-04). CI downloads the live spec and shows a diff when it changed.
 - Unit tests for each package. Contract tests run each command against Prism (Stoplight) in mock mode on the committed spec. A write test checks the request body against the schema (shortcut-cli #366).
 - Recorded responses (fixtures) for flows that Prism cannot model: G8 retry, paging loop, file download error page, name resolution.
 - One live smoke test, run by hand or in CI with a read-only token: `whoami`, `story view`, `story search`, `story files` on a test story (it has a 9,692-byte attachment).
