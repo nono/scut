@@ -342,3 +342,33 @@ func TestMemberEmptyMention(t *testing.T) {
 		t.Errorf("valid %v", x.Valid)
 	}
 }
+
+func TestResolveLists(t *testing.T) {
+	e := newEnv(t, nil)
+	for name, f := range map[string]func() ([]json.RawMessage, error){
+		"teams": e.r.Teams, "members": e.r.MemberList, "workflows": e.r.Workflows, "custom-fields": e.r.Fields,
+	} {
+		l, err := f()
+		if err != nil || len(l) == 0 {
+			t.Errorf("%s: %d items, %v", name, len(l), err)
+		}
+		if n := e.n("GET /api/v4/acme/" + name); n != 1 {
+			t.Errorf("%s: %d fetches", name, n)
+		}
+		if _, err := f(); err != nil || e.n("GET /api/v4/acme/"+name) != 1 {
+			t.Errorf("%s: second call fetched again", name)
+		}
+	}
+}
+
+func TestResolveFieldValues(t *testing.T) {
+	e := newEnv(t, nil)
+	vs, err := e.r.FieldValues("Technical Area")
+	if err != nil || len(vs) != 2 || vs[0] != (resolve.FieldValue{ID: backEnd, Name: "Back end"}) {
+		t.Fatalf("got %v, %v", vs, err)
+	}
+	_, err = e.r.FieldValues("technical area")
+	if x := wantErr(t, err, exit.NotFound); !slices.Contains(x.Valid, "Technical Area") {
+		t.Errorf("valid %v", x.Valid)
+	}
+}

@@ -469,3 +469,51 @@ func (r *R) Names(kind string, ids ...string) (map[string]string, error) {
 	}
 	return out, nil
 }
+
+// all returns the raw entities of kind, from the cache or the API.
+func (r *R) all(kind string) ([]json.RawMessage, error) {
+	var raw []json.RawMessage
+	if fresh, err := r.c.Get(kind, &raw); err != nil {
+		return nil, err
+	} else if fresh && raw != nil {
+		return raw, nil
+	}
+	return r.fetch(kind)
+}
+
+// Teams returns all teams, as the API sent them.
+func (r *R) Teams() ([]json.RawMessage, error) { return r.all("teams") }
+
+// MemberList returns all members, as the API sent them.
+func (r *R) MemberList() ([]json.RawMessage, error) { return r.all("members") }
+
+// Workflows returns all workflows, with their states, as the API sent them.
+func (r *R) Workflows() ([]json.RawMessage, error) { return r.all("workflows") }
+
+// Fields returns all custom fields, with their values, as the API sent them.
+func (r *R) Fields() ([]json.RawMessage, error) { return r.all("custom-fields") }
+
+// FieldValue is one value of a custom field.
+type FieldValue struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// FieldValues returns the values of the custom field called name.
+func (r *R) FieldValues(name string) ([]FieldValue, error) {
+	return lookup(r, "custom-fields", func(es []entity) ([]FieldValue, error) {
+		var valid []string
+		for _, f := range es {
+			if f.Name != name {
+				valid = append(valid, f.Name)
+				continue
+			}
+			out := make([]FieldValue, 0, len(f.Values))
+			for _, v := range f.Values {
+				out = append(out, FieldValue{idString(v.ID), v.Value})
+			}
+			return out, nil
+		}
+		return nil, miss(valid, "no field %q", name)
+	})
+}

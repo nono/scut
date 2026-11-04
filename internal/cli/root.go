@@ -73,7 +73,8 @@ func NewRoot(env Env) *cobra.Command {
 	pf.Bool("human", false, "print text instead of JSON")
 	pf.String("token-file", "", "read the token from this file")
 	pf.String("profile", "", "settings and token profile (default \"default\")")
-	root.AddCommand(newUsage(true), newAuth(env), newWhoami(env), newAPI(env))
+	root.AddCommand(newUsage(true), newAuth(env), newWhoami(env), newAPI(env),
+		newTeamGroup(env), newMemberGroup(env), newWorkflowGroup(env), newFieldGroup(env), newCacheGroup(env))
 	return root
 }
 
