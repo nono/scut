@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -23,25 +24,36 @@ import (
 
 const fileTimeout = 60 * time.Second
 
-// shortcutHosts may receive the token on a redirect.
-var shortcutHosts = map[string]bool{"media.app.shortcut.com": true, "api.app.shortcut.com": true}
+// defaultFileHosts may receive the token.
+var defaultFileHosts = []string{"media.app.shortcut.com", "api.app.shortcut.com"}
 
-// newFileClient returns the client for the file host. It never sends
-// Authorization, and it sends Shortcut-Token only to Shortcut hosts.
-func newFileClient() *http.Client {
-	return &http.Client{
-		Timeout: fileTimeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return errors.New("too many redirects")
-			}
-			req.Header.Del("Authorization")
-			if !shortcutHosts[req.URL.Hostname()] {
-				req.Header.Del("Shortcut-Token")
-			}
-			return nil
-		},
+// tokenAllowed reports whether the token may go to u: https and a listed host.
+func tokenAllowed(u *url.URL, hosts []string) bool {
+	return u.Scheme == "https" && slices.Contains(hosts, u.Hostname())
+}
+
+// fileClient returns a copy of c (or a new client) for the file host. It has
+// a timeout and never sends Authorization. It sends Shortcut-Token on a
+// redirect only to an allowed target.
+func fileClient(c *http.Client, hosts []string) *http.Client {
+	n := http.Client{}
+	if c != nil {
+		n = *c
 	}
+	if n.Timeout == 0 {
+		n.Timeout = fileTimeout
+	}
+	n.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("too many redirects")
+		}
+		req.Header.Del("Authorization")
+		if !tokenAllowed(req.URL, hosts) {
+			req.Header.Del("Shortcut-Token")
+		}
+		return nil
+	}
+	return &n
 }
 
 type storyFile struct {
@@ -76,7 +88,7 @@ func newStoryFiles(env Env) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		out, err := prepareOutDir(*outFlag)
+		out, err := checkOutDir(*outFlag)
 		if err != nil {
 			return err
 		}
@@ -86,9 +98,15 @@ func newStoryFiles(env Env) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			client := env.FileClient
-			if client == nil {
-				client = newFileClient()
+			hosts := env.FileHosts
+			if hosts == nil {
+				hosts = defaultFileHosts
+			}
+			client := fileClient(env.FileClient, hosts)
+			if len(items) > 0 {
+				if err := os.MkdirAll(out, 0o755); err != nil {
+					return &exit.Error{Code: exit.Other, Msg: err.Error()}
+				}
 			}
 			done := []storyFile{}
 			used := map[string]bool{}
@@ -101,7 +119,7 @@ func newStoryFiles(env Env) *cobra.Command {
 				}
 				name := uniqueName(cleanName(f.Name, f.ID), f.ID, used)
 				p := filepath.Join(out, name)
-				if err := download(ctx, client, d.Settings.Token, f, out, p); err != nil {
+				if err := download(ctx, client, hosts, d.Settings.Token, f, out, p); err != nil {
 					failure = err
 					break
 				}
@@ -116,8 +134,9 @@ func newStoryFiles(env Env) *cobra.Command {
 	return cmd
 }
 
-// prepareOutDir creates dir if needed and returns its absolute path.
-func prepareOutDir(dir string) (string, error) {
+// checkOutDir returns the absolute path of dir. It fails if dir exists and is
+// not a directory. It does not create dir.
+func checkOutDir(dir string) (string, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return "", err
@@ -126,15 +145,11 @@ func prepareOutDir(dir string) (string, error) {
 	switch {
 	case err == nil && !fi.IsDir():
 		return "", exit.Usagef("--out %q is not a directory", dir)
-	case err == nil:
-	case errors.Is(err, os.ErrNotExist):
-		if err := os.MkdirAll(abs, 0o755); err != nil {
-			return "", &exit.Error{Code: exit.Other, Msg: err.Error()}
-		}
+	case err == nil, errors.Is(err, os.ErrNotExist):
+		return abs, nil
 	default:
 		return "", &exit.Error{Code: exit.Other, Msg: err.Error()}
 	}
-	return abs, nil
 }
 
 // cleanName returns the last path element of a file name from the API.
@@ -150,14 +165,18 @@ func cleanName(name string, id int64) string {
 func uniqueName(name string, id int64, used map[string]bool) string {
 	if used[name] {
 		ext := path.Ext(name)
-		name = strings.TrimSuffix(name, ext) + "-" + strconv.FormatInt(id, 10) + ext
+		base := strings.TrimSuffix(name, ext) + "-" + strconv.FormatInt(id, 10)
+		name = base + ext
+		for i := 2; used[name]; i++ {
+			name = base + "-" + strconv.Itoa(i) + ext
+		}
 	}
 	used[name] = true
 	return name
 }
 
 // download writes one file through a temp file in dir, then renames it to dest.
-func download(ctx context.Context, c *http.Client, token string, f apiFile, dir, dest string) (err error) {
+func download(ctx context.Context, c *http.Client, hosts []string, token string, f apiFile, dir, dest string) (err error) {
 	scrub := func(s string) string {
 		if token != "" {
 			s = strings.ReplaceAll(s, token, "***")
@@ -177,6 +196,9 @@ func download(ctx context.Context, c *http.Client, token string, f apiFile, dir,
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.URL, nil)
 	if err != nil {
 		return &exit.Error{Code: exit.Other, Msg: scrub(fmt.Sprintf("file %d: bad url", f.ID))}
+	}
+	if !tokenAllowed(req.URL, hosts) {
+		return &exit.Error{Code: exit.Other, Msg: "file host not allowed: " + req.URL.Hostname()}
 	}
 	req.Header.Set("Shortcut-Token", token)
 	resp, err := c.Do(req)

@@ -26,7 +26,8 @@ type Env struct {
 	APIBase    string              // empty: the real API
 	Sleep      func(time.Duration) // nil: wait on a timer; tests set a no-op
 	Now        func() time.Time    // nil: time.Now
-	FileClient *http.Client        // nil: a client for the file host
+	FileClient *http.Client        // nil: a new client for the file host
+	FileHosts  []string            // hosts that get the file token; nil: the Shortcut hosts
 }
 
 // OSEnv returns the Env of the running process.
