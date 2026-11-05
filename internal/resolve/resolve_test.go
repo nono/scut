@@ -330,11 +330,14 @@ func TestEpic(t *testing.T) {
 	}
 	_, err := e.r.Epic("Dup")
 	x := wantErr(t, err, exit.Usage)
-	if !slices.Equal(x.Valid, []string{"3", "4"}) {
-		t.Errorf("valid %v", x.Valid)
+	if !slices.Equal(x.Valid, []string{"3", "4"}) || x.Msg != `epic name "Dup" matches more than one epic` ||
+		x.Suggestion != "give the epic ID" {
+		t.Errorf("got %+v", x)
 	}
 	_, err = e.r.Epic("Missing")
-	_ = wantErr(t, err, exit.NotFound)
+	if x = wantErr(t, err, exit.NotFound); x.Msg != `no epic "Missing"` {
+		t.Errorf("msg %q", x.Msg)
+	}
 }
 
 func TestDoc(t *testing.T) {
@@ -393,13 +396,14 @@ func TestDoc(t *testing.T) {
 	}
 	_, err = e.r.Doc("Dup")
 	x := wantErr(t, err, exit.Usage)
-	if !slices.Equal(x.Valid, []string{c, d}) {
-		t.Errorf("valid %v", x.Valid)
+	if !slices.Equal(x.Valid, []string{c, d}) || x.Msg != `doc title "Dup" matches more than one doc` ||
+		x.Suggestion != "give the doc URL or ID" {
+		t.Errorf("got %+v", x)
 	}
 	_, err = e.r.Doc("Missing")
 	x = wantErr(t, err, exit.NotFound)
-	if !slices.Contains(x.Valid, "Spec v2") {
-		t.Errorf("valid %v", x.Valid)
+	if !slices.Contains(x.Valid, "Spec v2") || x.Msg != `no doc "Missing"` {
+		t.Errorf("got %+v", x)
 	}
 	_, err = e.r.Doc("https://app.shortcut.com/acme/write/bm90IGEgZG9j")
 	_ = wantErr(t, err, exit.Usage)
