@@ -451,15 +451,22 @@ func TestViewDeletedComment(t *testing.T) {
 	}
 }
 
-func TestViewFromBranch(t *testing.T) {
-	var c calls
-	h := viewHarness(t, &c, storyFixture(t), nil)
-	for _, args := range [][]string{{"init", "-q"}, {"checkout", "-q", "-b", "chore/sc-5818/x"},
+// gitBranch makes dir a git repository on branch, with one commit. It skips
+// the test when git fails.
+func gitBranch(t *testing.T, dir, branch string) {
+	t.Helper()
+	for _, args := range [][]string{{"init", "-q"}, {"checkout", "-q", "-b", branch},
 		{"-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "x"}} {
-		if out, err := exec.Command("git", append([]string{"-C", h.env.Dir}, args...)...).CombinedOutput(); err != nil {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
 			t.Skipf("git: %v %s", err, out)
 		}
 	}
+}
+
+func TestViewFromBranch(t *testing.T) {
+	var c calls
+	h := viewHarness(t, &c, storyFixture(t), nil)
+	gitBranch(t, h.env.Dir, "chore/sc-5818/x")
 	code, out, errs := h.run("story", "view")
 	if code != 0 {
 		t.Fatalf("code %d, stderr %s", code, errs)

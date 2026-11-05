@@ -19,8 +19,8 @@ const (
 	updateAuth = "sct_rw_acme_s3cret"
 )
 
-// updateHarness serves the lookup routes plus a story PATCH that records the
-// body. extra overrides or adds routes.
+// updateHarness serves the lookup routes plus storyPatch with the Sub-task
+// feature on. extra overrides or adds routes.
 func updateHarness(t *testing.T, c *calls, body *map[string]any, extra map[string]http.HandlerFunc) *harness {
 	t.Helper()
 	routes := lookupRoutes()
@@ -28,12 +28,7 @@ func updateHarness(t *testing.T, c *calls, body *map[string]any, extra map[strin
 		"id": areaField, "name": "Technical Area", "field_type": "enum",
 		"values": []any{map[string]any{"id": areaAPI, "value": "API"}},
 	}))
-	routes["PATCH "+updPath] = c.wrap(func(w http.ResponseWriter, r *http.Request) {
-		b, _ := io.ReadAll(r.Body)
-		*body = nil
-		_ = json.Unmarshal(b, body)
-		jsonHandler(jsonOf(map[string]any{"entity": storyFixture(t)}))(w, r)
-	})
+	routes["PATCH "+updPath] = storyPatch(t, c, body, false, nil)
 	for k, v := range extra {
 		routes[k] = v
 	}
@@ -121,21 +116,19 @@ func TestUpdateFieldBadForm(t *testing.T) {
 	}
 }
 
-// parentPatch serves a story PATCH that records the body. With apply, the
-// reply has the parent of the body; else the reply keeps parent, as an API
-// that ignores parent_story_id does.
-func parentPatch(t *testing.T, c *calls, body *map[string]any, apply bool, parent any) http.HandlerFunc {
+// storyPatch serves a story PATCH that records the body in *body. The reply
+// has the parent that the body sets, as an API with the Sub-task feature on.
+// With ignored, the reply has parent, as an API with the feature off.
+func storyPatch(t *testing.T, c *calls, body *map[string]any, ignored bool, parent any) http.HandlerFunc {
 	return c.wrap(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		*body = nil
 		_ = json.Unmarshal(b, body)
 		s := storyFixture(t)
-		s["parent_story"] = parent
-		if id, ok := (*body)["parent_story_id"]; ok && apply {
-			s["parent_story"] = nil
-			if id != nil {
-				s["parent_story"] = map[string]any{"id": id, "name": "Parent"}
-			}
+		if ignored {
+			s["parent_story"] = parent
+		} else if id, ok := (*body)["parent_story_id"]; ok && id != nil {
+			s["parent_story"] = map[string]any{"id": id, "name": "Parent"}
 		}
 		jsonHandler(jsonOf(map[string]any{"entity": s}))(w, r)
 	})
@@ -144,9 +137,7 @@ func parentPatch(t *testing.T, c *calls, body *map[string]any, apply bool, paren
 func TestUpdateParent(t *testing.T) {
 	var c calls
 	var body map[string]any
-	h := updateHarness(t, &c, &body, map[string]http.HandlerFunc{
-		"PATCH " + updPath: parentPatch(t, &c, &body, true, map[string]any{"id": 4000}),
-	})
+	h := updateHarness(t, &c, &body, nil)
 	code, _, errs := h.run("story", "update", "5818", "--parent", "sc-5428")
 	if code != 0 || jsonOf(body) != `{"parent_story_id":5428}` {
 		t.Errorf("code %d, body %s, stderr %s", code, jsonOf(body), errs)
@@ -171,7 +162,7 @@ func TestUpdateParentIgnored(t *testing.T) {
 		var c calls
 		var body map[string]any
 		h := updateHarness(t, &c, &body, map[string]http.HandlerFunc{
-			"PATCH " + updPath: parentPatch(t, &c, &body, false, tc.parent),
+			"PATCH " + updPath: storyPatch(t, &c, &body, true, tc.parent),
 		})
 		code, out, errs := h.run(append([]string{"story", "update", "5818"}, tc.flag...)...)
 		if code != 1 || out != "" || !strings.Contains(errs, tc.want) || !strings.Contains(errs, "Sub-task") {

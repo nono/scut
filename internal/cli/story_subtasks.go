@@ -30,7 +30,7 @@ func newStorySubtasks(env Env) *cobra.Command {
 			return err
 		}
 		return withDeps(env, func(cmd *cobra.Command, _ []string, d *deps) error {
-			return listStoriesInOrder(cmd, d, "stories/"+strconv.FormatInt(ids[0], 10)+"/sub-task-stories", limit, *fieldsFlag, fields)
+			return listStories(cmd, d, "stories/"+strconv.FormatInt(ids[0], 10)+"/sub-task-stories", positionOrder(), limit, *fieldsFlag, fields)
 		})(cmd, args)
 	}
 	return cmd

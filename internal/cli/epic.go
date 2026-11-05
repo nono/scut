@@ -189,28 +189,10 @@ func newEpicStories(env Env) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return listStoriesInOrder(cmd, d, "epics/"+strconv.FormatInt(id, 10)+"/stories", limit, *fieldsFlag, fields)
+			return listStories(cmd, d, "epics/"+strconv.FormatInt(id, 10)+"/stories", positionOrder(), limit, *fieldsFlag, fields)
 		})(cmd, args)
 	}
 	return cmd
-}
-
-// listStoriesInOrder prints the stories that path lists, in position order.
-func listStoriesInOrder(cmd *cobra.Command, d *deps, path string, limit int, fieldsFlag string, fields []string) error {
-	q := url.Values{"order_by": {"position"}, "order_dir": {"asc"}}
-	fieldsQuery(q, fields)
-	raw, stop := listPages(cmd, d, path, q, limit)
-	if raw == nil && stop != nil {
-		return stop
-	}
-	out, err := shapeStories(d, raw, listShapeOpts(fieldsFlag, fields))
-	if err != nil {
-		return err
-	}
-	if err := d.Out(out); err != nil {
-		return err
-	}
-	return stop // a list cut short: the items read, then the error
 }
 
 func newEpicComment(env Env) *cobra.Command {
