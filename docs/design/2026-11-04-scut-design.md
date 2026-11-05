@@ -72,7 +72,7 @@ A command that does these things is a failure, even if it works:
 | `whoami` | The path is `/api/v4/whoami`, with no workspace slug. It gives the member, the scopes, the default workflow and the default state. | `auth login` and `auth status` use it. |
 | Names, live | "To Do" is a state in 2 workflows (Standard, Simpler Kanban). The Technical Area value is "Back end", not "Back End". | The state rule below is needed. The default in the user file is "Back end". |
 | Responses | An envelope with `entity` or `entities` and a cursor. | Print the entity or the array, not the envelope. |
-| Docs, live | Test on 2026-11-05: `GET /documents/{id}` with no `content_format` gives no content, though the spec says markdown is the default. `fields` works with `content_markdown`. A doc URL of the web app ends in base64 of `"Doc":#uuid "<id>"`. `GET /documents/search` matches words of the title. | `doc view` always sends `content_format`. It decodes the URL. |
+| Docs, live | Test on 2026-11-05: `GET /documents/{id}` with no `content_format` gives no content, as the parameter text of the spec says (its summary says markdown is the default). `fields` works with `content_markdown`. A doc URL of the web app ends in base64 of `"Doc":#uuid "<id>"`. `GET /documents/search` matches words of the title. | `doc view` always sends `content_format`. It decodes the URL. |
 | Paging | Cursor pages, `limit` 1–100, default 10. | The CLI default is 25 (my call). `--limit all` pages to the end. |
 
 ## Command tree (v1)
@@ -195,11 +195,11 @@ Before `scut` parses a body, it checks the status and the `Content-Type`.
 ### Docs (U12)
 
 - The use: you paste a doc URL. The agent reads a spec that a teammate wrote, then writes an explainer and a review.
-- `<doc>` is a doc URL of the web app, an API doc URL, a doc ID (UUID), or an exact title. A title is found with `GET /documents/search` and an exact, case-sensitive match, as for epics. No match exits 3 and lists the titles found. More than one match exits 2 and lists the IDs. A URL with no doc ID exits 2.
+- `<doc>` is a doc URL of the web app (`…/write/<base64>`), an API doc URL (`…/documents/<id>`), a doc ID (UUID), or an exact title. Any other URL exits 2. The argument is trimmed; a blank one exits 2. A title is found with `GET /documents/search` and an exact, case-sensitive match, as for epics. No match exits 3 and lists the titles found. More than one match exits 2 and lists the IDs.
 - `doc view` prints id, title, archived, creator (as a member), created_at, updated_at and the content in the key of its format: `content_markdown` (default) or `content_html` (`--format html`). Null content prints as `""`.
-- G7: a doc can be large (90k and 136k chars through the MCP). `--out <file>` writes the content to the file, which it replaces, and prints `content_file` (the absolute path) in place of the content.
+- G7: a doc can be large (90k and 136k chars through the MCP). `--out <file>` writes the content to the file, which it replaces, and prints `content_file` (the absolute path) in place of the content. `-`, a directory, or a path with no parent directory exits 2 before any call. A reply with no content key, or no doc, exits 1 and does not touch the file.
 - `doc search` sends the text unchanged and prints the same fields with no content. With no text, exit 2.
-- Calls: 1 for a doc by URL or ID, plus 1 search call for a title, plus the member cache.
+- Calls: 1 for a doc by URL or ID, plus 1 search call for each 100 docs that match a title, plus the member cache. The search is fuzzy, so a short title can match many docs; after 100 pages the lookup exits 1.
 - No `doc update` or `doc create` for now (your call, 2026-11-05). The API replaces all of the content on update.
 
 ### Agent skill
