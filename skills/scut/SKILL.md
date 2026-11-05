@@ -60,4 +60,4 @@ Each line: command, summary, flags. Run `scut <noun> usage` for flag help.
 - `whoami` Show the member and workspace of the token.
 - `workflow list` List workflows.
 - `workflow states` `[<workflow>]` List the states of a workflow, or of all.
-- `worktree` `[<story>]` Find or make the git worktree of a story. Flags: --branch string, --dir string, --repo string.
+- `worktree` `[<story>]` Find or make the git worktree of a story. Flags: --branch string, --dir string, --repo string, --start.

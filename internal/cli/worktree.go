@@ -1,11 +1,16 @@
 package cli
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 
 	"github.com/spf13/cobra"
 
@@ -27,6 +32,7 @@ func (r worktreeResult) Human() string { return r.Dir + "\n" + r.Branch }
 
 func newWorktree(env Env) *cobra.Command {
 	var repo, dir, branch string
+	var start bool
 	c := &cobra.Command{
 		Use:   "worktree [<story>]",
 		Short: "Find or make the git worktree of a story",
@@ -34,7 +40,7 @@ func newWorktree(env Env) *cobra.Command {
 			"in a worktree, a local branch, a branch on origin (after a fetch if none is found), " +
 			"else a new branch with the name that Shortcut suggests, from origin/HEAD.",
 		Args:        cobra.MaximumNArgs(1),
-		Annotations: map[string]string{OpsAnnotation: "getStory"},
+		Annotations: map[string]string{OpsAnnotation: "getStory,listWorkflowStatesWithinAWorkflow,getWhoami,updateStory"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ids, err := storyIDs(env, args)
 			if err != nil {
@@ -134,6 +140,24 @@ func newWorktree(env Env) *cobra.Command {
 				}
 				res.Dir, res.Created = dir, true
 			}
+			if start {
+				d, err := api()
+				if err == nil {
+					var started bool
+					started, err = startStory(ctx, d, id)
+					res.Started = &started
+				}
+				if err != nil {
+					res.Started = nil
+					var e *exit.Error
+					if !errors.As(err, &e) {
+						e = &exit.Error{Code: exit.Other, Msg: err.Error()}
+					}
+					c := *e
+					c.Worktree = res
+					return &c
+				}
+			}
 			if d != nil {
 				return d.Out(res)
 			}
@@ -145,8 +169,84 @@ func newWorktree(env Env) *cobra.Command {
 	f := c.Flags()
 	f.StringVar(&repo, "repo", "", "a directory in the git repository (default: the current directory)")
 	f.StringVar(&dir, "dir", "", "the directory of a new worktree (default: <parent of the main worktree>/<id>)")
+	f.BoolVar(&start, "start", false, "also move an unstarted story to the first started state of its workflow, and add @me as owner")
 	f.StringVar(&branch, "branch", "", "the branch to use when more than one matches, or the name of a new branch")
 	return c
+}
+
+// startStory moves an unstarted story to the started state with the lowest
+// position in its workflow, and adds @me as owner. It makes one PATCH, or none
+// when there is nothing to change. started tells if the state changed.
+func startStory(ctx context.Context, d *deps, id int64) (started bool, err error) {
+	path := "stories/" + strconv.FormatInt(id, 10)
+	raw, err := d.Doer.Raw(ctx, "GET", path, url.Values{"fields": {"workflow,workflow_state,owners"}}, nil)
+	if err != nil {
+		return false, err
+	}
+	type member struct {
+		ID string `json:"id"`
+	}
+	var s struct {
+		Workflow struct {
+			ID int64 `json:"id"`
+		} `json:"workflow"`
+		State struct {
+			ID int64 `json:"id"`
+		} `json:"workflow_state"`
+		Owners struct {
+			Entities []member `json:"entities"`
+		} `json:"owners"`
+	}
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return false, &exit.Error{Code: exit.Other, Msg: "bad story response"}
+	}
+	items, _, err := d.Doer.List(ctx, "workflows/"+strconv.FormatInt(s.Workflow.ID, 10)+"/states",
+		url.Values{"fields": {"id,type,position"}, "limit": {"100"}})
+	if err != nil {
+		return false, err
+	}
+	type state struct {
+		ID       int64  `json:"id"`
+		Type     string `json:"type"`
+		Position int64  `json:"position"`
+	}
+	var cur string
+	var first *state
+	for _, it := range items {
+		var st state
+		if err := json.Unmarshal(it, &st); err != nil {
+			return false, &exit.Error{Code: exit.Other, Msg: "bad workflow state"}
+		}
+		if st.ID == s.State.ID {
+			cur = st.Type
+		}
+		if st.Type == "started" && (first == nil || st.Position < first.Position) {
+			first = &st
+		}
+	}
+	body := map[string]any{}
+	if cur == "unstarted" {
+		if first == nil {
+			return false, exit.NotFoundf("no started state in workflow %d", s.Workflow.ID)
+		}
+		body["workflow_state_id"] = first.ID
+	}
+	me, err := d.Resolver.Me()
+	if err != nil {
+		return false, err
+	}
+	// A nested list can be cut short: then me can be an owner that is not in
+	// it, and owner_ids_add of an owner changes nothing.
+	if !slices.Contains(s.Owners.Entities, member{me}) {
+		body["owner_ids_add"] = []string{me}
+	}
+	if len(body) == 0 {
+		return false, nil
+	}
+	if _, err := d.Doer.Raw(ctx, "PATCH", path, nil, body); err != nil {
+		return false, err
+	}
+	return body["workflow_state_id"] != nil, nil
 }
 
 // abs returns p made absolute against base. An empty p gives base.

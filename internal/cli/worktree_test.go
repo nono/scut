@@ -1,12 +1,17 @@
 package cli_test
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/nono/scut/internal/testapi"
 )
 
 const wtStory = "/api/v4/acme/stories/1234"
@@ -201,5 +206,121 @@ func TestWorktreeOutsideRepo(t *testing.T) {
 	h := newHarness(t, nil, "", nil)
 	if code, _, errs := h.run("worktree", "1234"); code != 2 || !strings.Contains(errs, "not in a git repository") {
 		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+}
+
+// startHarness serves story 1234 in workflow 5 with state stateID and owners,
+// the states of workflow 5, whoami (member u1) and a PATCH that records its
+// body. patchStatus is the status of the PATCH.
+func startHarness(t *testing.T, c *calls, stateID int, owners []string, states []any, patchStatus int, patch *map[string]any) (*harness, string) {
+	t.Helper()
+	h, main := wtHarness(t, c, `"bug/sc-1234/x"`, wtToken)
+	ows := make([]any, len(owners))
+	for i, o := range owners {
+		ows[i] = map[string]any{"id": o}
+	}
+	story := map[string]any{"id": 1234, "formatted_vcs_branch_name": "bug/sc-1234/x",
+		"workflow": map[string]any{"id": 5}, "workflow_state": map[string]any{"id": stateID}, "owners": nestedList(ows...)}
+	h.env.APIBase = testapi.Fake(t, map[string]http.HandlerFunc{
+		"GET " + wtStory:                      c.wrap(jsonHandler(jsonOf(story))),
+		"GET /api/v4/acme/workflows/5/states": c.wrap(jsonHandler(listBody(states...))),
+		"GET /api/v4/whoami":                  c.wrap(jsonHandler(whoamiBody)),
+		"PATCH " + wtStory: c.wrap(func(w http.ResponseWriter, r *http.Request) {
+			b, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(b, patch)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(patchStatus)
+			_, _ = io.WriteString(w, jsonOf(map[string]any{"entity": story}))
+		}),
+	})
+	h.env.Sleep = func(time.Duration) {}
+	return h, main
+}
+
+func wfStates() []any {
+	return []any{
+		map[string]any{"id": 7, "type": "unstarted", "position": 0},
+		map[string]any{"id": 8, "type": "started", "position": 2},
+		map[string]any{"id": 9, "type": "started", "position": 1},
+		map[string]any{"id": 10, "type": "done", "position": 3},
+	}
+}
+
+func TestWorktreeStartUnstarted(t *testing.T) {
+	var c calls
+	var patch map[string]any
+	h, _ := startHarness(t, &c, 7, []string{}, wfStates(), 200, &patch)
+	code, out, errs := h.run("worktree", "1234", "--start")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if got := jsonOf(patch); got != `{"owner_ids_add":["u1"],"workflow_state_id":9}` {
+		t.Errorf("patch %s", got)
+	}
+	if m := decode(t, out); m["started"] != true || m["from"] != "new" {
+		t.Errorf("out %s", out)
+	}
+}
+
+func TestWorktreeStartAlreadyStarted(t *testing.T) {
+	var c calls
+	var patch map[string]any
+	h, _ := startHarness(t, &c, 8, []string{"u1"}, wfStates(), 200, &patch)
+	code, out, errs := h.run("worktree", "1234", "--start")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if c.count(wtStory) != 2 || patch != nil {
+		t.Errorf("calls %v, patch %v", c.paths, patch)
+	}
+	if m := decode(t, out); m["started"] != false {
+		t.Errorf("out %s", out)
+	}
+}
+
+func TestWorktreeStartDoneOwnerMissing(t *testing.T) {
+	var c calls
+	var patch map[string]any
+	h, _ := startHarness(t, &c, 10, []string{"u2"}, wfStates(), 200, &patch)
+	code, out, errs := h.run("worktree", "1234", "--start")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if got := jsonOf(patch); got != `{"owner_ids_add":["u1"]}` {
+		t.Errorf("patch %s", got)
+	}
+	if m := decode(t, out); m["started"] != false {
+		t.Errorf("out %s", out)
+	}
+}
+
+func TestWorktreeStartNoStartedState(t *testing.T) {
+	var c calls
+	var patch map[string]any
+	h, main := startHarness(t, &c, 7, []string{}, []any{map[string]any{"id": 7, "type": "unstarted", "position": 0}}, 200, &patch)
+	code, _, errs := h.run("worktree", "1234", "--start")
+	if code != 3 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	dir := filepath.Join(filepath.Dir(main), "1234")
+	wt, _ := decode(t, errs)["worktree"].(map[string]any)
+	if wt["dir"] != dir {
+		t.Errorf("stderr %s", errs)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Errorf("worktree gone: %v", err)
+	}
+}
+
+func TestWorktreeStartAPIDown(t *testing.T) {
+	var c calls
+	var patch map[string]any
+	h, _ := startHarness(t, &c, 7, []string{}, wfStates(), 503, &patch)
+	code, _, errs := h.run("worktree", "1234", "--start")
+	if code != 5 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if wt, _ := decode(t, errs)["worktree"].(map[string]any); wt["branch"] != "bug/sc-1234/x" {
+		t.Errorf("stderr %s", errs)
 	}
 }

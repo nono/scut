@@ -84,7 +84,7 @@ When no source matches, `--branch` gives the name of the new branch, and step 3 
 
 After the git part:
 
-1. Read the story: `workflow_id`, `workflow_state_id`, `owner_ids`.
+1. Read the story: `workflow`, `workflow_state`, `owners`. In v4 these are nested objects, not IDs.
 2. Read the workflow states. If the current state has type `unstarted`, set the state to the `started` state with the lowest position. A story in a `started` or `done` state does not move. A workflow with no `started` state is exit 3.
 3. Add `@me` with `owner_ids_add`. Skip it if `@me` is an owner.
 4. One `PATCH` with the changes, or no call when there is none.

@@ -29,6 +29,15 @@ func TestWriteAllFields(t *testing.T) {
 	}
 }
 
+func TestWriteWorktree(t *testing.T) {
+	var b bytes.Buffer
+	exit.Write(&b, &exit.Error{Code: exit.Unavailable, Msg: "m", Worktree: map[string]any{"dir": "/x"}})
+	want := `{"error":"m","worktree":{"dir":"/x"}}` + "\n"
+	if b.String() != want {
+		t.Errorf("got %q, want %q", b.String(), want)
+	}
+}
+
 func TestWritePlainError(t *testing.T) {
 	var b bytes.Buffer
 	if code := exit.Write(&b, errors.New("x")); code != exit.Other {
