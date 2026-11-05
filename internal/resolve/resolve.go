@@ -418,8 +418,13 @@ func epicQuery(s string) string {
 	return `"` + s + `"`
 }
 
-// Epic resolves an epic ID or an exact epic name. Epics are not cached.
+// Epic resolves an epic ID or an exact epic name, trimmed. A blank one is a
+// usage error. Epics are not cached.
 func (r *R) Epic(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, exit.Usagef("give an epic ID or name")
+	}
 	if digitRe.MatchString(s) {
 		return strconv.ParseInt(s, 10, 64)
 	}

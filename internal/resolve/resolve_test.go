@@ -325,10 +325,22 @@ func TestEpic(t *testing.T) {
 	if id, err := e.r.Epic("Alpha"); err != nil || id != 2 || query != `"Alpha"` {
 		t.Errorf("name: %d, %v, query %q", id, err, query)
 	}
+	// An ID or a name is trimmed; a blank one is a usage error, before any call.
+	if id, err := e.r.Epic(" 42\n"); err != nil || id != 42 {
+		t.Errorf("trim id: %d, %v", id, err)
+	}
+	if id, err := e.r.Epic(" Alpha\n"); err != nil || id != 2 || query != `"Alpha"` {
+		t.Errorf("trim name: %d, %v, query %q", id, err, query)
+	}
+	query = ""
+	_, err := e.r.Epic(" \t")
+	if _ = wantErr(t, err, exit.Usage); query != "" {
+		t.Errorf("blank made a call: query %q", query)
+	}
 	if id, err := e.r.Epic("Late"); err != nil || id != 9 {
 		t.Errorf("page 2: %d, %v", id, err)
 	}
-	_, err := e.r.Epic("Dup")
+	_, err = e.r.Epic("Dup")
 	x := wantErr(t, err, exit.Usage)
 	if !slices.Equal(x.Valid, []string{"3", "4"}) || x.Msg != `epic name "Dup" matches more than one epic` ||
 		x.Suggestion != "give the epic ID" {
