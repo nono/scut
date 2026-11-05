@@ -82,8 +82,8 @@ func shortcutWrites(c *cobra.Command, spec specInfo) []string {
 	return writes
 }
 
-// allowed reports if allowed-tools lists c: it makes no write to Shortcut,
-// to the keyring or to a path that the caller gives, and it has an ops
+// allowed reports if allowed-tools lists c: it writes nothing other than the
+// cache (not localWrites, no write to Shortcut), and it has an ops
 // annotation or is a local read.
 func allowed(c *cobra.Command, spec specInfo) bool {
 	p := cmdPath(c)

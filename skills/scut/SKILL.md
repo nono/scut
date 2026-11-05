@@ -22,7 +22,7 @@ allowed-tools: "Bash(scut auth status:*), Bash(scut auth usage:*), Bash(scut cac
 |---|---|---|
 | 2 | Usage error, or the API refused a request (HTTP 400). | Pick from `valid`, or do the `suggestion`. A noun with no command is an error. A command that sends several writes (`story link` with several pairs, `story update` on several stories) can have done some: read stdout first. |
 | 3 | Not found. | Check the ID. For a name, pick from `valid`. |
-| 4 | No token, a bad token, or a missing scope. | Do not retry. If `error` names `SCUT_TOKEN` or a token file, ask the user to fix it. If `scut auth status` shows a read-only token, stop: the write needs another token. Else ask the user to run `scut auth login` in a terminal: it asks for a token from https://app.shortcut.com/settings/account/api-tokens, with no echo. |
+| 4 | No token, a bad token, or a missing scope. | Do not retry. If `scut auth status` shows a read-only token, stop: the write needs another token. `auth login` writes only the keyring, and `SCUT_TOKEN`, `--token-file` and `token_file` in the config come first: if one is set, ask the user to fix it. Else ask the user to run `scut auth login` in a terminal: it asks for a token from https://app.shortcut.com/settings/account/api-tokens, with no echo. |
 | 5 | Shortcut is unavailable. | Retry later. A write may have taken effect: read the `suggestion` first. For `story create`, it says if the story exists. |
 | 1 | Other error. | Read `error` and `api`. |
 | 130 | Cancelled. | Read the `suggestion`, if any. |
@@ -33,17 +33,17 @@ allowed-tools: "Bash(scut auth status:*), Bash(scut auth usage:*), Bash(scut cac
 ## Common tasks
 
 ```sh
-scut story view                                   # the story of the current git branch
-scut story view 12 13 14 --fields id,name,state   # several stories in one call, few fields
+scut story view  # the story of the current git branch
+scut story view 12 13 14 --fields id,name,state  # several stories in one call, few fields
 scut story search '!is:done owner:me' --fields id,name,state
 scut story create --type bug --name "Login fails" --state "To Do" --description-file d.md
 scut story update 12 --state "In Review" --add-owner @me
-scut story update 13 14 15 --parent 12            # make sub-tasks of 12
+scut story update 13 14 15 --parent 12  # make sub-tasks of 12
 scut story comment 12 --body-file note.md
 scut story link 12 blocks 13 relates-to 14
-scut story files 12 --out ./files                 # download the attachments
-scut story branch 12                              # the git branch name
-scut worktree 12 --start                          # find or make the worktree, and start the story
+scut story files 12 --out ./files  # download the attachments
+scut story branch 12  # the git branch name
+scut worktree 12 --start  # find or make the worktree, and start the story
 ```
 
 ## Output size
