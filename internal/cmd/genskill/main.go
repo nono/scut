@@ -48,9 +48,11 @@ const description = "Use when a task reads or changes Shortcut stories, epics, c
 	"a story ID such as sc-1234, an app.shortcut.com URL, a git branch with sc-NNNN in it, a ticket or bug to file, " +
 	"a sub-task, a state change such as \"move it to In Review\", a Shortcut doc, or the branch name of a story."
 
-// localWrites are commands that call only GET operations but change local
-// state that the agent did not name: they stay out of allowed-tools.
-// A rule matches the start of the command, so it cannot leave out a flag such as --out.
+// localWrites are commands that call only GET operations but write the
+// keyring, remove the cache, or write a file at a path that the caller
+// gives: they stay out of allowed-tools. A rule matches the start of the
+// command, so it cannot leave out a flag such as --out. Reads also write the
+// cache, which is not in this list.
 var localWrites = map[string]bool{
 	"auth login":  true, // stores the token in the keyring
 	"cache clear": true, // removes the cache
@@ -65,22 +67,41 @@ var localReads = map[string]bool{
 	"spec": true, // reads the embedded spec
 }
 
-// allowedTools is the allowed-tools value: each command that makes no write,
-// so that an agent can read without a permission prompt and each write still asks.
+// shortcutWrites returns the operations of c that write to Shortcut: each
+// one that is not GET, and for scut api ("*") any operation.
+func shortcutWrites(c *cobra.Command, spec specInfo) []string {
+	var writes []string
+	for _, op := range cli.Ops(c) {
+		switch {
+		case op == "*":
+			writes = append(writes, "any operation; a DELETE needs `--yes`")
+		case spec.methods[op] != "GET":
+			writes = append(writes, "`"+op+"`")
+		}
+	}
+	return writes
+}
+
+// allowed reports if allowed-tools lists c: it makes no write to Shortcut,
+// to the keyring or to a path that the caller gives, and it has an ops
+// annotation or is a local read.
+func allowed(c *cobra.Command, spec specInfo) bool {
+	p := cmdPath(c)
+	return !localWrites[p] && len(shortcutWrites(c, spec)) == 0 && (len(cli.Ops(c)) > 0 || localReads[p])
+}
+
+// allowedTools is the allowed-tools value: the usage commands and each
+// allowed command, so that an agent can read without a permission prompt
+// and each write still asks.
 func allowedTools(root *cobra.Command, spec specInfo) string {
 	rules := []string{"Bash(scut usage:*)"}
 	for _, c := range root.Commands() {
-		if c.HasSubCommands() && !skipCmd(c) {
+		if c.HasSubCommands() {
 			rules = append(rules, "Bash(scut "+c.Name()+" usage:*)")
 		}
 	}
 	for _, c := range leafCommands(root) {
-		ops := cli.Ops(c)
-		read := !localWrites[cmdPath(c)] && (len(ops) > 0 || localReads[cmdPath(c)])
-		for _, op := range ops {
-			read = read && op != "*" && spec.methods[op] == "GET"
-		}
-		if read {
+		if allowed(c, spec) {
 			rules = append(rules, "Bash(scut "+cmdPath(c)+":*)")
 		}
 	}
@@ -208,7 +229,7 @@ func skillText(root *cobra.Command, spec specInfo) string {
 				return
 			}
 			s := "--" + f.Name
-			if strings.HasSuffix(f.Value.Type(), "Array") || strings.HasSuffix(f.Value.Type(), "Slice") {
+			if _, ok := f.Value.(pflag.SliceValue); ok {
 				s += " …" // repeatable
 			}
 			flags = append(flags, s)
@@ -328,26 +349,22 @@ func notSupported() string {
 }
 
 // permissionsText is the README table that tells, for each command, the
-// operations that write to Shortcut: the operations that are not GET.
+// operations that write to Shortcut (the operations that are not GET), and
+// if the skill's allowed-tools lists it.
 // coverageText has already checked that each operationId is in the spec.
 func permissionsText(root *cobra.Command, spec specInfo) string {
 	var b strings.Builder
-	b.WriteString("| Command | Writes to Shortcut |\n|---|---|\n")
+	b.WriteString("| Command | Writes to Shortcut | In the skill's allowed-tools |\n|---|---|---|\n")
 	for _, c := range leafCommands(root) {
-		var writes []string
-		for _, op := range cli.Ops(c) {
-			switch {
-			case op == "*":
-				writes = append(writes, "any operation; a DELETE needs `--yes`")
-			case spec.methods[op] != "GET":
-				writes = append(writes, "`"+op+"`")
-			}
-		}
 		w := "no"
-		if len(writes) > 0 {
+		if writes := shortcutWrites(c, spec); len(writes) > 0 {
 			w = strings.Join(writes, ", ")
 		}
-		fmt.Fprintf(&b, "| `%s` | %s |\n", cmdPath(c), w)
+		in := "no"
+		if allowed(c, spec) {
+			in = "yes"
+		}
+		fmt.Fprintf(&b, "| `%s` | %s | %s |\n", cmdPath(c), w, in)
 	}
 	return strings.TrimSuffix(b.String(), "\n")
 }

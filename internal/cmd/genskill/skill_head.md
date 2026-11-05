@@ -30,7 +30,7 @@
 scut story view                                   # the story of the current git branch
 scut story view 12 13 14 --fields id,name,state   # several stories in one call, few fields
 scut story search '!is:done owner:me' --fields id,name,state
-scut story create --type bug --name "Login fails" --description-file d.md
+scut story create --type bug --name "Login fails" --state "To Do" --description-file d.md
 scut story update 12 --state "In Review" --add-owner @me
 scut story update 13 14 15 --parent 12            # make sub-tasks of 12
 scut story comment 12 --body-file note.md
@@ -53,7 +53,7 @@ Write the text to a file with your file tool. Then pass `--description-file <fil
 
 ## Writes
 
-- Each write is its own command. This skill allows the reads with no prompt. Each write asks for permission, and so do `doc view` and `story files`, which can write local files.
+- Each write is its own command. This skill allows the reads with no prompt. Each write asks for permission, and so do the commands that can write a file at a path that you give.
 - Archive, unlink, `--no-parent`, or a change of parent: only when the user asks.
 - Never add `--yes` yourself. `scut api -X DELETE` needs it.
 

@@ -21,6 +21,12 @@ func testRoot() *cobra.Command {
 	return cli.NewRoot(cli.Env{Getenv: func(string) string { return "" }})
 }
 
+// testSkill is the SKILL.md text of the real command tree and spec.
+func testSkill(t *testing.T) string {
+	t.Helper()
+	return skillText(testRoot(), loadSpec(t))
+}
+
 func loadSpec(t *testing.T) specInfo {
 	t.Helper()
 	s, err := readSpec(filepath.Join(repoRoot, specPath))
@@ -32,7 +38,7 @@ func loadSpec(t *testing.T) specInfo {
 
 func TestSkillHasEachCommand(t *testing.T) {
 	root := testRoot()
-	text := skillText(root, loadSpec(t))
+	text := testSkill(t)
 	leaves := leafCommands(root)
 	if len(leaves) < 20 {
 		t.Fatalf("only %d leaf commands", len(leaves))
@@ -45,13 +51,13 @@ func TestSkillHasEachCommand(t *testing.T) {
 }
 
 func TestSkillNoMCP(t *testing.T) {
-	if strings.Contains(skillText(testRoot(), loadSpec(t)), "MCP") {
+	if strings.Contains(testSkill(t), "MCP") {
 		t.Error("the skill mentions MCP")
 	}
 }
 
 func TestSkillNotSupported(t *testing.T) {
-	text := skillText(testRoot(), loadSpec(t))
+	text := testSkill(t)
 	_, sec, ok := strings.Cut(text, "## Not supported")
 	if !ok {
 		t.Fatal("no Not supported section")
@@ -66,7 +72,7 @@ func TestSkillNotSupported(t *testing.T) {
 }
 
 func TestSkillFrontmatterAndHead(t *testing.T) {
-	text := skillText(testRoot(), loadSpec(t))
+	text := testSkill(t)
 	for _, want := range []string{
 		"---\nname: scut\n",
 		"scut usage", "--body-file", "--description-file", "130", "suggestion", "story search", "scut api",
@@ -117,17 +123,12 @@ func TestAllowedToolsFailsClosed(t *testing.T) {
 	}
 }
 
-// allowed-tools lists the commands that make no write: no write to Shortcut,
-// to the keyring or to the cache.
+// allowed-tools lists the commands that make no write to Shortcut, to the
+// keyring or to a path that the caller gives. Reads also write the cache.
 func TestSkillAllowedTools(t *testing.T) {
 	spec := loadSpec(t)
-	text := skillText(testRoot(), spec)
-	line := ""
-	for _, l := range strings.Split(text, "\n") {
-		if strings.HasPrefix(l, "allowed-tools: ") {
-			line = l
-		}
-	}
+	_, line, _ := strings.Cut(skillText(testRoot(), spec), "\nallowed-tools: ")
+	line, _, _ = strings.Cut(line, "\n")
 	for _, want := range []string{"Bash(scut story view:*)", "Bash(scut story search:*)", "Bash(scut usage:*)", "Bash(scut story usage:*)", "Bash(scut spec:*)", "Bash(scut whoami:*)"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("allowed-tools lacks %s: %q", want, line)
@@ -138,6 +139,7 @@ func TestSkillAllowedTools(t *testing.T) {
 			t.Errorf("allowed-tools has %q: %q", bad, line)
 		}
 	}
+	// The lists above cover the commands of today; this loop guards the ones added later.
 	for _, c := range leafCommands(testRoot()) {
 		if !strings.Contains(line, "Bash(scut "+cmdPath(c)+":*)") {
 			continue
@@ -152,7 +154,7 @@ func TestSkillAllowedTools(t *testing.T) {
 
 // The command list gives flag names, not cobra types; a repeatable flag ends in "…".
 func TestSkillFlagNames(t *testing.T) {
-	text := skillText(testRoot(), loadSpec(t))
+	text := testSkill(t)
 	for _, bad := range []string{"stringArray", " string,", " string.", " int."} {
 		if strings.Contains(text, bad) {
 			t.Errorf("has %q", bad)
@@ -167,14 +169,14 @@ func TestSkillFlagNames(t *testing.T) {
 
 // The skill loads into the context of each task that needs Shortcut: keep it short.
 func TestSkillSize(t *testing.T) {
-	if n := len(skillText(testRoot(), loadSpec(t))); n >= 8500 {
+	if n := len(testSkill(t)); n >= 8500 {
 		t.Errorf("SKILL.md has %d characters, want under 8500", n)
 	}
 }
 
 func TestSkillStable(t *testing.T) {
-	first := skillText(testRoot(), loadSpec(t))
-	if first != skillText(testRoot(), loadSpec(t)) {
+	first := testSkill(t)
+	if first != testSkill(t) {
 		t.Error("output differs between runs")
 	}
 }
@@ -322,14 +324,16 @@ func TestPermissionsTable(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"| `story view` | no |",
-		"| `story search` | no |",
-		"| `cache clear` | no |",
-		"| `story comment` | `createStoryComment` |",
-		"| `story unlink` | `deleteStoryLink` |",
-		"| `story create` | `createStory` |",
-		"| `worktree` | `updateStory` |",
-		"| `api` | any operation; a DELETE needs `--yes` |",
+		"| `story view` | no | yes |",
+		"| `story search` | no | yes |",
+		"| `cache clear` | no | no |",
+		"| `story comment` | `createStoryComment` | no |",
+		"| `story unlink` | `deleteStoryLink` | no |",
+		"| `story create` | `createStory` | no |",
+		"| `worktree` | `updateStory` | no |",
+		"| `api` | any operation; a DELETE needs `--yes` | no |",
+		"| `doc view` | no | no |",
+		"| `spec` | no | yes |",
 	} {
 		if !strings.Contains(table+"\n", want+"\n") {
 			t.Errorf("no %q in\n%s", want, table)
