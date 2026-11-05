@@ -64,15 +64,11 @@ func run(ctx context.Context, dir string, args ...string) (string, error) {
 
 // Open returns the repository of dir. dir can be in any worktree of it.
 func Open(ctx context.Context, dir string) (Repo, error) {
-	if _, err := run(ctx, dir, "rev-parse", "--git-dir"); err != nil {
-		var e *exit.Error
-		if errors.As(err, &e) && strings.Contains(e.Msg, "not a git repository") {
-			return Repo{}, exit.Usagef("%s is not in a git repository", dir)
-		}
-		return Repo{}, err
-	}
 	es, err := list(ctx, dir)
-	if err != nil {
+	var e *exit.Error
+	if errors.As(err, &e) && strings.Contains(e.Msg, "not a git repository") {
+		return Repo{}, exit.Usagef("%s is not in a git repository", dir)
+	} else if err != nil {
 		return Repo{}, err
 	}
 	if len(es) == 0 || es[0].dir == "" {
