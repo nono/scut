@@ -33,14 +33,12 @@ type DocOut struct {
 }
 
 type docIn struct {
-	ID              string    `json:"id"`
-	Title           string    `json:"title"`
-	Archived        bool      `json:"archived"`
-	Creator         *memberIn `json:"creator"`
-	CreatedAt       string    `json:"created_at"`
-	UpdatedAt       string    `json:"updated_at"`
-	ContentMarkdown *string   `json:"content_markdown"`
-	ContentHTML     *string   `json:"content_html"`
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Archived  bool      `json:"archived"`
+	Creator   *memberIn `json:"creator"`
+	CreatedAt string    `json:"created_at"`
+	UpdatedAt string    `json:"updated_at"`
 }
 
 // Human is the text form: title, creator, update time, content file or content.
@@ -69,8 +67,7 @@ func (o DocOut) Human() string {
 
 type docList = humanList[DocOut]
 
-// shapeDocs converts Doc entities to the compact shape. The content keys stay
-// as the API sent them.
+// shapeDocs converts Doc entities to the compact shape, with no content.
 func shapeDocs(d *deps, raw []json.RawMessage) (docList, error) {
 	docs, err := decodeAll[docIn](raw, "doc")
 	if err != nil {
@@ -91,7 +88,6 @@ func shapeDocs(d *deps, raw []json.RawMessage) (docList, error) {
 		out = append(out, DocOut{
 			ID: x.ID, Title: x.Title, Archived: x.Archived, Creator: nm.member(x.Creator),
 			CreatedAt: x.CreatedAt, UpdatedAt: x.UpdatedAt,
-			ContentMarkdown: x.ContentMarkdown, ContentHTML: x.ContentHTML,
 		})
 	}
 	return out, nil
@@ -118,24 +114,21 @@ func newDocView(env Env) *cobra.Command {
 		if *format != "markdown" && *format != "html" {
 			return &exit.Error{Code: exit.Usage, Msg: fmt.Sprintf("--format takes markdown or html, not %q", *format), Valid: []string{"html", "markdown"}}
 		}
-		// Check the doc argument before the token is read.
-		if strings.TrimSpace(args[0]) == "" {
-			return exit.Usagef("give a doc URL, ID or title")
-		}
-		if _, _, err := ref.Doc(args[0]); err != nil {
+		id, title, err := ref.Doc(args[0]) // before the token is read
+		if err != nil {
 			return err
 		}
 		out := ""
 		if *outFlag != "" {
-			var err error
 			if out, err = checkOutFile(*outFlag); err != nil {
 				return err
 			}
 		}
 		return withDeps(env, func(cmd *cobra.Command, _ []string, d *deps) error {
-			id, err := d.Resolver.Doc(args[0])
-			if err != nil {
-				return err
+			if title != "" {
+				if id, err = d.Resolver.DocByTitle(title); err != nil {
+					return err
+				}
 			}
 			key := "content_" + *format
 			// Without content_format the API sends no content.
@@ -147,30 +140,28 @@ func newDocView(env Env) *cobra.Command {
 			// A null content is an empty doc, but a reply with no content
 			// key or no doc is not: never show it as an empty doc.
 			var keys map[string]json.RawMessage
-			if json.Unmarshal(raw, &keys) != nil || keys == nil {
-				return &exit.Error{Code: exit.Other, Msg: "no doc in the reply"}
-			}
-			if _, ok := keys[key]; !ok {
+			if json.Unmarshal(raw, &keys) != nil || keys[key] == nil {
 				return &exit.Error{Code: exit.Other, Msg: fmt.Sprintf("no %s in the reply", key)}
+			}
+			var content string // null: ""
+			if json.Unmarshal(keys[key], &content) != nil {
+				return &exit.Error{Code: exit.Other, Msg: fmt.Sprintf("bad %s in the reply", key)}
 			}
 			l, err := shapeDocs(d, []json.RawMessage{raw})
 			if err != nil {
 				return err
 			}
 			o := l[0]
-			content := &o.ContentMarkdown
-			if *format == "html" {
-				content = &o.ContentHTML
-			}
-			if *content == nil { // an empty doc: print the key, so the content is not missing
-				*content = new(string)
-			}
-			if out != "" {
-				if err := os.WriteFile(out, []byte(**content), 0o644); err != nil {
+			switch {
+			case out != "":
+				if err := os.WriteFile(out, []byte(content), 0o644); err != nil {
 					return &exit.Error{Code: exit.Other, Msg: fmt.Sprintf("cannot write %s: %v", out, err)}
 				}
-				*content = nil
 				o.ContentFile = out
+			case *format == "html":
+				o.ContentHTML = &content
+			default:
+				o.ContentMarkdown = &content
 			}
 			return d.Out(o)
 		})(cmd, args)

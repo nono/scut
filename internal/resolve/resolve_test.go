@@ -340,7 +340,7 @@ func TestEpic(t *testing.T) {
 	}
 }
 
-func TestDoc(t *testing.T) {
+func TestDocByTitle(t *testing.T) {
 	const (
 		a = "1b4e28ba-2fa1-41d2-883f-0016d3cca427"
 		b = "2b4e28ba-2fa1-41d2-883f-0016d3cca427"
@@ -370,43 +370,26 @@ func TestDoc(t *testing.T) {
 				map[string]any{"id": c, "title": "Dup"}, map[string]any{"id": d, "title": "Dup"}))
 		}
 	})
-	if id, err := e.r.Doc(a); err != nil || id != a || len(queries) != 0 {
-		t.Errorf("id: %s, %v, queries %v", id, err, queries)
-	}
-	if id, err := e.r.Doc("Spec"); err != nil || id != b || queries[0] != "Spec" {
+	if id, err := e.r.DocByTitle("Spec"); err != nil || id != b || queries[0] != "Spec" {
 		t.Errorf("title: %s, %v, queries %v", id, err, queries)
 	}
 	// The match is case-sensitive: "SPEC" matches neither "Spec" nor "spec".
-	_, err := e.r.Doc("SPEC")
+	_, err := e.r.DocByTitle("SPEC")
 	_ = wantErr(t, err, exit.NotFound)
-	// A title is trimmed, as an ID or a URL is.
-	n := len(queries)
-	if id, err := e.r.Doc(" Spec\n"); err != nil || id != b || queries[n] != "Spec" {
-		t.Errorf("trim: %s, %v, queries %v", id, err, queries)
-	}
-	// A blank title is a usage error, before any call.
-	n = len(queries)
-	_, err = e.r.Doc(" \t")
-	_ = wantErr(t, err, exit.Usage)
-	if len(queries) != n {
-		t.Errorf("blank title made a call: %v", queries)
-	}
-	if id, err := e.r.Doc("Late"); err != nil || id != d {
+	if id, err := e.r.DocByTitle("Late"); err != nil || id != d {
 		t.Errorf("page 2: %s, %v", id, err)
 	}
-	_, err = e.r.Doc("Dup")
+	_, err = e.r.DocByTitle("Dup")
 	x := wantErr(t, err, exit.Usage)
 	if !slices.Equal(x.Valid, []string{c, d}) || x.Msg != `doc title "Dup" matches more than one doc` ||
 		x.Suggestion != "give the doc URL or ID" {
 		t.Errorf("got %+v", x)
 	}
-	_, err = e.r.Doc("Missing")
+	_, err = e.r.DocByTitle("Missing")
 	x = wantErr(t, err, exit.NotFound)
 	if !slices.Contains(x.Valid, "Spec v2") || x.Msg != `no doc "Missing"` {
 		t.Errorf("got %+v", x)
 	}
-	_, err = e.r.Doc("https://app.shortcut.com/acme/write/bm90IGEgZG9j")
-	_ = wantErr(t, err, exit.Usage)
 }
 
 func TestNames(t *testing.T) {

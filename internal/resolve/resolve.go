@@ -430,17 +430,9 @@ func (r *R) Epic(s string) (int64, error) {
 	return strconv.ParseInt(id, 10, 64)
 }
 
-// Doc resolves a doc ID, a doc URL (see ref.Doc) or an exact doc title.
-// Docs are not cached.
-func (r *R) Doc(s string) (string, error) {
-	id, ok, err := ref.Doc(s)
-	if err != nil || ok {
-		return id, err
-	}
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return "", exit.Usagef("give a doc URL, ID or title")
-	}
+// DocByTitle resolves an exact doc title (see ref.Doc) to a doc ID. Docs are
+// not cached.
+func (r *R) DocByTitle(s string) (string, error) {
 	return r.byName("/documents/search", url.Values{"query": {s}, "fields": {"id,title"}}, "title", s, "doc", "give the doc URL or ID")
 }
 

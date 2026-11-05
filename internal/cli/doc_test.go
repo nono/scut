@@ -192,7 +192,7 @@ func TestDocViewByTitle(t *testing.T) {
 		"GET " + testDocPath:                docRoute(ptr("x")),
 		"GET /api/v4/acme/members":          membersRoute(),
 	}, "", searchEnv)
-	if code, _, errs := h.run("doc", "view", "Picking spec"); code != 0 {
+	if code, _, errs := h.run("doc", "view", " Picking spec\n"); code != 0 { // a title is trimmed
 		t.Fatalf("code %d, stderr %s", code, errs)
 	}
 	if got := c.param("/api/v4/acme/documents/search", "query"); got != "Picking spec" {
