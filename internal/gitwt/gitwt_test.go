@@ -74,7 +74,8 @@ func TestHasID(t *testing.T) {
 	for _, c := range []struct {
 		b    string
 		want bool
-	}{{"bug/sc-12/x", true}, {"bug/sc-123/x", false}, {"sc-12", true}, {"main", false}} {
+	}{{"bug/sc-12/x", true}, {"bug/sc-123/x", false}, {"sc-12", true}, {"main", false},
+		{"fix/misc-12-typo", false}, {"disc-12", false}, {"a-sc-12", true}, {"misc-12/sc-12", true}} {
 		if got := gitwt.HasID(c.b, 12); got != c.want {
 			t.Errorf("HasID(%q, 12) = %v", c.b, got)
 		}
@@ -250,7 +251,90 @@ func TestGitErrorHasStderr(t *testing.T) {
 	}
 	err := open(t, main).Add(context.Background(), filepath.Join(file, "wt"), gitwt.Match{Branch: "bug/sc-1/x", Source: gitwt.New}, "origin/HEAD")
 	var e *exit.Error
-	if !errors.As(err, &e) || e.Code != exit.Other || !strings.Contains(e.Msg, "git worktree add") {
+	if !errors.As(err, &e) || e.Code != exit.Other || !strings.Contains(e.Msg, "git worktree add") || !strings.Contains(e.Msg, "Not a directory") {
 		t.Fatalf("err %v", err)
+	}
+}
+
+// A git that cannot run is a git failure (exit 1), not "not in a git repository".
+func TestOpenGitMissing(t *testing.T) {
+	_, main := newRepos(t)
+	t.Setenv("PATH", t.TempDir())
+	_, err := gitwt.Open(context.Background(), main)
+	var e *exit.Error
+	if !errors.As(err, &e) || e.Code != exit.Other {
+		t.Fatalf("err %v", err)
+	}
+}
+
+func TestOpenCancelled(t *testing.T) {
+	_, main := newRepos(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := gitwt.Open(ctx, main); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err %v", err)
+	}
+}
+
+func TestFindUnicodeSpace(t *testing.T) {
+	_, main := newRepos(t)
+	git(t, main, "branch", "bug/sc-1234/a\u00a0b")
+	want := []gitwt.Match{{Branch: "bug/sc-1234/a\u00a0b", Source: gitwt.Local}}
+	if got := find(t, open(t, main), 1234); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v", got)
+	}
+}
+
+func TestFindNewlinePath(t *testing.T) {
+	_, main := newRepos(t)
+	dir := filepath.Join(filepath.Dir(main), "a\nb")
+	git(t, main, "worktree", "add", "-q", "-b", "bug/sc-1234/x", dir)
+	want := []gitwt.Match{{Branch: "bug/sc-1234/x", Dir: dir, Source: gitwt.Worktree}}
+	if got := find(t, open(t, main), 1234); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v", got)
+	}
+}
+
+// commit makes a commit that changes file f to s in dir.
+func commit(t *testing.T, dir, s string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "f"), []byte(s), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", "f")
+	git(t, dir, "commit", "-q", "-m", s)
+}
+
+// A worktree in a rebase is detached; its branch is in rebase-merge/head-name.
+func TestFindRebase(t *testing.T) {
+	_, main := newRepos(t)
+	dir := filepath.Join(filepath.Dir(main), "1234")
+	git(t, main, "worktree", "add", "-q", "-b", "bug/sc-1234/x", dir)
+	commit(t, dir, "a")
+	git(t, main, "branch", "other", "main")
+	git(t, main, "worktree", "add", "-q", filepath.Join(filepath.Dir(main), "o"), "other")
+	commit(t, filepath.Join(filepath.Dir(main), "o"), "b")
+	cmd := exec.Command("git", "-C", dir, "-c", "user.name=t", "-c", "user.email=t@example.com", "rebase", "other")
+	if out, err := cmd.CombinedOutput(); err == nil {
+		t.Fatalf("rebase did not stop: %s", out)
+	}
+	want := []gitwt.Match{{Branch: "bug/sc-1234/x", Dir: dir, Source: gitwt.Worktree}}
+	if got := find(t, open(t, main), 1234); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v", got)
+	}
+}
+
+// A worktree in a bisect is detached; its branch is in BISECT_START.
+func TestFindBisect(t *testing.T) {
+	_, main := newRepos(t)
+	dir := filepath.Join(filepath.Dir(main), "1234")
+	git(t, main, "worktree", "add", "-q", "-b", "bug/sc-1234/x", dir)
+	commit(t, dir, "a")
+	commit(t, dir, "b")
+	commit(t, dir, "c")
+	git(t, dir, "bisect", "start", "HEAD", "HEAD~3")
+	want := []gitwt.Match{{Branch: "bug/sc-1234/x", Dir: dir, Source: gitwt.Worktree}}
+	if got := find(t, open(t, main), 1234); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v", got)
 	}
 }
