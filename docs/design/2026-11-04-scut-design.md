@@ -31,7 +31,7 @@ v1 ships:
 - U11 (sub-task commands after create; the parent at create is in v1, G3), U12 (docs), U13 (history), U14 (external links).
 - G2: unlink a PR, branch or commit. v4 has no endpoint for it. v1 can list them as part of `story view`.
 - G12: bulk commands. v1 accepts several links in one `story link` command, as one call per link (see Links).
-- N1 `scut worktree`, N2 shell completion.
+- N1 `scut worktree` (see `2026-11-05-worktree-design.md`), N2 shell completion.
 - Iterations, objectives, labels as their own commands. The command tree must have room for them.
 
 ## Anti-goals
