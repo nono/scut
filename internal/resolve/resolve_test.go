@@ -362,6 +362,7 @@ func TestDoc(t *testing.T) {
 			}
 			_ = json.NewEncoder(w).Encode(list(
 				map[string]any{"id": a, "title": "Spec v2"},
+				map[string]any{"id": a, "title": "spec"}, // differs only in case
 				map[string]any{"id": b, "title": "Spec"},
 				map[string]any{"id": c, "title": "Dup"}, map[string]any{"id": d, "title": "Dup"}))
 		}
@@ -372,10 +373,25 @@ func TestDoc(t *testing.T) {
 	if id, err := e.r.Doc("Spec"); err != nil || id != b || queries[0] != "Spec" {
 		t.Errorf("title: %s, %v, queries %v", id, err, queries)
 	}
+	// The match is case-sensitive: "SPEC" matches neither "Spec" nor "spec".
+	_, err := e.r.Doc("SPEC")
+	_ = wantErr(t, err, exit.NotFound)
+	// A title is trimmed, as an ID or a URL is.
+	n := len(queries)
+	if id, err := e.r.Doc(" Spec\n"); err != nil || id != b || queries[n] != "Spec" {
+		t.Errorf("trim: %s, %v, queries %v", id, err, queries)
+	}
+	// A blank title is a usage error, before any call.
+	n = len(queries)
+	_, err = e.r.Doc(" \t")
+	_ = wantErr(t, err, exit.Usage)
+	if len(queries) != n {
+		t.Errorf("blank title made a call: %v", queries)
+	}
 	if id, err := e.r.Doc("Late"); err != nil || id != d {
 		t.Errorf("page 2: %s, %v", id, err)
 	}
-	_, err := e.r.Doc("Dup")
+	_, err = e.r.Doc("Dup")
 	x := wantErr(t, err, exit.Usage)
 	if !slices.Equal(x.Valid, []string{c, d}) {
 		t.Errorf("valid %v", x.Valid)

@@ -460,6 +460,10 @@ func (r *R) Doc(s string) (string, error) {
 	if err != nil || ok {
 		return id, err
 	}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", exit.Usagef("give a doc URL, ID or title")
+	}
 	items, err := r.pageAll("/documents/search", url.Values{"query": {s}, "fields": {"id,title"}, "limit": {pageSize}})
 	if err != nil {
 		return "", err
