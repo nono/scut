@@ -46,15 +46,15 @@ func TestSubtasksPositionOrder(t *testing.T) {
 func TestSubtasksFieldsAndAll(t *testing.T) {
 	var c calls
 	h := newHarness(t, map[string]http.HandlerFunc{
-		"GET " + subPath:           pagedHandler(t, &c, 50),
+		"GET " + subPath:           pagedHandler(t, &c, 250),
 		"GET /api/v4/acme/members": membersRoute(),
 	}, "", searchEnv)
 	code, out, errs := h.run("story", "subtasks", "5428", "--limit", "all", "--fields", "name")
 	if code != 0 {
 		t.Fatalf("code %d, stderr %s", code, errs)
 	}
-	if n := len(decodeList(t, out)); n != 50 {
-		t.Errorf("%d items", n)
+	if n := len(decodeList(t, out)); n != 250 || c.count(subPath) != 3 {
+		t.Errorf("%d items, %d requests", n, c.count(subPath))
 	}
 	if got := c.firstParam(subPath, "fields"); got != "id,name" {
 		t.Errorf("fields %q", got)
@@ -75,6 +75,20 @@ func TestSubtasksFromBranch(t *testing.T) {
 	}
 	if code, _, errs := h.run("story", "subtasks"); code != 0 || c.total() != 1 {
 		t.Errorf("code %d, calls %v, stderr %s", code, c.paths, errs)
+	}
+}
+
+func TestSubtasksNotFound(t *testing.T) {
+	h := newHarness(t, map[string]http.HandlerFunc{
+		"GET " + subPath: func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(404)
+			_, _ = w.Write([]byte(`{"message":"Resource does not exist."}`))
+		},
+	}, "", searchEnv)
+	code, out, errs := h.run("story", "subtasks", "5428")
+	if code != 3 || out != "" || !strings.Contains(errs, `"status":404`) {
+		t.Errorf("code %d, stdout %s, stderr %s", code, out, errs)
 	}
 }
 
