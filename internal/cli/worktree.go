@@ -17,6 +17,7 @@ import (
 	"github.com/nono/scut/internal/exit"
 	"github.com/nono/scut/internal/gitwt"
 	"github.com/nono/scut/internal/output"
+	"github.com/nono/scut/internal/ref"
 	"github.com/nono/scut/internal/transport"
 )
 
@@ -90,7 +91,7 @@ func newWorktree(env Env) *cobra.Command {
 					if m.Branch, err = branchName(ctx, d, id); err != nil {
 						return err
 					}
-					if !gitwt.HasID(m.Branch, id) {
+					if !ref.HasID(m.Branch, id) {
 						return &exit.Error{Code: exit.NotFound,
 							Msg:        fmt.Sprintf("the branch name %q has no sc-%d", m.Branch, id),
 							Suggestion: "give --branch"}
@@ -100,7 +101,7 @@ func newWorktree(env Env) *cobra.Command {
 					if ms, err = r.Find(ctx, id); err != nil {
 						return err
 					}
-				} else if !gitwt.HasID(branch, id) {
+				} else if !ref.HasID(branch, id) {
 					return exit.Usagef("--branch %q has no sc-%d", branch, id)
 				}
 			}

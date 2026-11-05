@@ -10,12 +10,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/nono/scut/internal/exit"
+	"github.com/nono/scut/internal/ref"
 )
 
 // Source tells where the branch of a story was found.
@@ -41,22 +41,6 @@ type Match struct {
 // Repo is a git repository.
 type Repo struct {
 	Main string // absolute path of the main worktree
-}
-
-// storyRef is sc-<id> at the start of a name or after a character that is
-// not a letter or a digit, so misc-12 is not story 12.
-var storyRef = regexp.MustCompile(`(?:^|[^A-Za-z0-9])sc-(\d+)`)
-
-// HasID tells if branch has sc-<id> with no digit after it and no letter or
-// digit before it.
-func HasID(branch string, id int64) bool {
-	want := strconv.FormatInt(id, 10)
-	for _, m := range storyRef.FindAllStringSubmatch(branch, -1) {
-		if m[1] == want {
-			return true
-		}
-	}
-	return false
 }
 
 func run(ctx context.Context, dir string, args ...string) (string, error) {
@@ -175,9 +159,9 @@ func (r Repo) Find(ctx context.Context, id int64) ([]Match, error) {
 		// for-each-ref sorts by ref name. A ref name can hold a Unicode space,
 		// but not a newline.
 		var ms []Match
-		for _, ref := range strings.Split(strings.TrimSuffix(out, "\n"), "\n") {
-			name := strings.TrimPrefix(ref, s.prefix+"/")
-			if name != "HEAD" && HasID(name, id) {
+		for _, refname := range strings.Split(strings.TrimSuffix(out, "\n"), "\n") {
+			name := strings.TrimPrefix(refname, s.prefix+"/")
+			if name != "HEAD" && ref.HasID(name, id) {
 				ms = append(ms, Match{Branch: name, Source: s.src})
 			}
 		}
@@ -198,7 +182,7 @@ func (r Repo) worktrees(ctx context.Context, id int64) ([]Match, error) {
 		if e.detached && !e.prunable {
 			e.branch = detachedBranch(ctx, e.dir)
 		}
-		if e.branch != "" && HasID(e.branch, id) {
+		if e.branch != "" && ref.HasID(e.branch, id) {
 			ms = append(ms, Match{Branch: e.branch, Dir: e.dir, Source: Worktree, Prunable: e.prunable})
 		}
 	}

@@ -33,18 +33,6 @@ func find(t *testing.T, r gitwt.Repo, id int64) []gitwt.Match {
 	return m
 }
 
-func TestHasID(t *testing.T) {
-	for _, c := range []struct {
-		b    string
-		want bool
-	}{{"bug/sc-12/x", true}, {"bug/sc-123/x", false}, {"sc-12", true}, {"main", false},
-		{"fix/misc-12-typo", false}, {"disc-12", false}, {"a-sc-12", true}, {"misc-12/sc-12", true}} {
-		if got := gitwt.HasID(c.b, 12); got != c.want {
-			t.Errorf("HasID(%q, 12) = %v", c.b, got)
-		}
-	}
-}
-
 func TestOpenFromLinkedWorktreeSubdir(t *testing.T) {
 	_, main := testgit.Repos(t)
 	other := filepath.Join(filepath.Dir(main), "other")

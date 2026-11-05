@@ -12,8 +12,10 @@ import (
 )
 
 var (
-	digits   = regexp.MustCompile(`^\d+$`)
-	scID     = regexp.MustCompile(`(?:^|[^A-Za-z0-9])sc-(\d+)`) // misc-12 is not story 12
+	digits = regexp.MustCompile(`^\d+$`)
+	// sc-<id> at the start of a name or after a character that is not a
+	// letter or a digit, so misc-12 is not story 12.
+	scID     = regexp.MustCompile(`(?:^|[^A-Za-z0-9])sc-(\d+)`)
 	urlStory = regexp.MustCompile(`(?:^|/)story/(\d+)(?:/|$)`)
 )
 
@@ -51,5 +53,16 @@ func FromGit(dir string) (int64, error) {
 	if m == nil {
 		return 0, exit.Usagef("give a story ID")
 	}
-	return Story(m[0])
+	return Story("sc-" + m[1])
+}
+
+// HasID tells if the branch name has sc-<id>, by the rule of Story.
+func HasID(branch string, id int64) bool {
+	want := strconv.FormatInt(id, 10)
+	for _, m := range scID.FindAllStringSubmatch(branch, -1) {
+		if m[1] == want {
+			return true
+		}
+	}
+	return false
 }
