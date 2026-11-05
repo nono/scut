@@ -227,6 +227,20 @@ func TestDocViewErrors(t *testing.T) {
 	}
 }
 
+// A bad doc argument is a usage error, found before the token is read.
+func TestDocArgNoToken(t *testing.T) {
+	h := newHarness(t, nil, "", nil)
+	for _, args := range [][]string{
+		{"doc", "view", " "},
+		{"doc", "view", "https://app.shortcut.com/acme/story/12"},
+		{"doc", "search", " "},
+	} {
+		if code, out, errs := h.run(args...); code != 2 || out != "" {
+			t.Errorf("%v: code %d, stdout %q, stderr %s", args, code, out, errs)
+		}
+	}
+}
+
 func TestDocSearch(t *testing.T) {
 	var c calls
 	h := newHarness(t, map[string]http.HandlerFunc{

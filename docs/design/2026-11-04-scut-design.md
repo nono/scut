@@ -195,7 +195,7 @@ Before `scut` parses a body, it checks the status and the `Content-Type`.
 ### Docs (U12)
 
 - The use: you paste a doc URL. The agent reads a spec that a teammate wrote, then writes an explainer and a review.
-- `<doc>` is a doc URL of the web app (`…/write/<base64>`), an API doc URL (`…/documents/<id>`), a doc ID (UUID), or an exact title. Any other URL exits 2. The argument is trimmed; a blank one exits 2. A title is found with `GET /documents/search` and an exact, case-sensitive match, as for epics. No match exits 3 and lists the titles found. More than one match exits 2 and lists the IDs.
+- `<doc>` is a doc URL of the web app (`…/write/<base64>`), an API doc URL (`…/documents/<id>`), a doc ID (UUID), or an exact title. Any other URL exits 2. The argument is trimmed; a blank one exits 2. Both checks run before the token is read. A title is found with `GET /documents/search` and an exact, case-sensitive match, as for epics. No match exits 3 and lists the titles found. More than one match exits 2 and lists the IDs.
 - `doc view` prints id, title, archived, creator (as a member), created_at, updated_at and the content in the key of its format: `content_markdown` (default) or `content_html` (`--format html`). Null content prints as `""`.
 - G7: a doc can be large (90k and 136k chars through the MCP). `--out <file>` writes the content to the file, which it replaces, and prints `content_file` (the absolute path) in place of the content. `-`, a directory, or a path with no parent directory exits 2 before any call. A reply with no content key, or no doc, exits 1 and does not touch the file.
 - `doc search` sends the text unchanged and prints the same fields with no content. With no text, exit 2.

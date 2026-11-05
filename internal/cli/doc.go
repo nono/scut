@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/nono/scut/internal/exit"
+	"github.com/nono/scut/internal/ref"
 )
 
 // docFields are the Doc fields of the compact shape, with no content.
@@ -116,6 +117,13 @@ func newDocView(env Env) *cobra.Command {
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		if *format != "markdown" && *format != "html" {
 			return &exit.Error{Code: exit.Usage, Msg: fmt.Sprintf("--format takes markdown or html, not %q", *format), Valid: []string{"html", "markdown"}}
+		}
+		// Check the doc argument before the token is read.
+		if strings.TrimSpace(args[0]) == "" {
+			return exit.Usagef("give a doc URL, ID or title")
+		}
+		if _, _, err := ref.Doc(args[0]); err != nil {
+			return err
 		}
 		out := ""
 		if *outFlag != "" {
