@@ -147,7 +147,7 @@ func TestEveryLeafHasOps(t *testing.T) {
 
 func TestCheck(t *testing.T) {
 	dir := t.TempDir()
-	for _, f := range []string{skillPath, coveragePath, specPath} {
+	for _, f := range []string{skillPath, coveragePath, specPath, readmePath} {
 		b, err := os.ReadFile(filepath.Join(repoRoot, f))
 		if err != nil {
 			t.Fatal(err)
@@ -198,5 +198,50 @@ func TestCommittedFilesCurrent(t *testing.T) {
 	var errb bytes.Buffer
 	if code := run([]string{"-root", repoRoot, "-check"}, &errb, testRoot()); code != 0 {
 		t.Errorf("code %d: %s (run make skill)", code, errb.String())
+	}
+}
+
+func TestReadmeText(t *testing.T) {
+	in := "# x\n\n" + beginMark + "\n- old\n" + endMark + "\n\n## Next\n"
+	got, err := readmeText(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "# x\n\n" + beginMark + "\n" + notSupported() + "\n" + endMark + "\n\n## Next\n"
+	if got != want {
+		t.Errorf("got %q", got)
+	}
+	if !strings.HasPrefix(notSupported(), "- ") || strings.Contains(notSupported(), "##") {
+		t.Errorf("list %q", notSupported())
+	}
+	for _, bad := range []string{"no markers", beginMark + " no end", endMark + " no begin"} {
+		if _, err := readmeText(bad); err == nil {
+			t.Errorf("want an error for %q", bad)
+		}
+	}
+}
+
+func TestReadmeErrors(t *testing.T) {
+	dir := t.TempDir()
+	b, err := os.ReadFile(filepath.Join(repoRoot, specPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "api"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, specPath), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var errb bytes.Buffer
+	if code := run([]string{"-root", dir}, &errb, testRoot()); code != 1 || !strings.Contains(errb.String(), readmePath) {
+		t.Errorf("no README: code %d, %s", code, errb.String())
+	}
+	if err := os.WriteFile(filepath.Join(dir, readmePath), []byte("# x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	errb.Reset()
+	if code := run([]string{"-root", dir}, &errb, testRoot()); code != 1 || !strings.Contains(errb.String(), "markers") {
+		t.Errorf("no markers: code %d, %s", code, errb.String())
 	}
 }
