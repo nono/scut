@@ -50,7 +50,7 @@ scut story update <story>… [--state] [--workflow] [--epic] [--requester] [--ad
 
 The API does not say if a bulk write is atomic, and its errors (400, 404, 422) have no result per item. So:
 
-- A failed chunk is reported as not known. The error has the HTTP status and the API body, as other errors do. Its `suggestion` names the stories of that chunk: "these stories may be partly changed: read them with `scut story view <ids>`".
+- A failed chunk is reported as not known. The error has the HTTP status and the API body, as other errors do. Its `suggestion` names the stories of that chunk: "these stories may be partly changed, as the API does not say if a bulk write is atomic: read them with scut story view <ids>".
 - The stories of the chunks before it are printed on stdout, as an array, before the error. The chunks after it are not sent.
 - A write is not retried (as in v1: only `GET` is). A 5xx or a timeout exits 5.
 - A reply that fails a check (it leaves out a story of the chunk, or a parent is not set): exit 1. The write is saved, and the `suggestion` names each story of the chunk.

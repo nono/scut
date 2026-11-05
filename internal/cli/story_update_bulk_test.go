@@ -266,13 +266,16 @@ func TestBulkUpdateStatePerWorkflow(t *testing.T) {
 func TestBulkUpdateNoWriteOnResolveError(t *testing.T) {
 	a := newBulkAPI(t, 5429)
 	a.workflow[5431] = 7 // a workflow with no "To Do"
-	h := a.harness(map[string]http.HandlerFunc{"GET /api/v4/acme/workflows": twoToDo()})
+	h := a.harness(map[string]http.HandlerFunc{"GET /api/v4/acme/workflows": jsonHandler(listBody(
+		map[string]any{"id": 5, "name": "Standard", "workflow_states": nestedList(map[string]any{"id": 7, "name": "To Do"})},
+		map[string]any{"id": 7, "name": "Ops", "workflow_states": nestedList(map[string]any{"id": 11, "name": "Done"})},
+	))})
 	code, _, errs := h.run("story", "update", "5429", "5430", "--archive")
 	if code != 3 || !strings.Contains(errs, "5430") {
 		t.Errorf("missing story: code %d, stderr %s", code, errs)
 	}
 	code, _, errs = h.run("story", "update", "5429", "5431", "--state", "To Do")
-	if code != 3 {
+	if code != 3 || !strings.Contains(errs, `no state \"To Do\" in workflow`) {
 		t.Errorf("state not in a workflow: code %d, stderr %s", code, errs)
 	}
 	code, _, errs = h.run("story", "update", "5429", "5431", "--epic", "No such epic")

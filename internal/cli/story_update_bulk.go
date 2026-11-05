@@ -14,25 +14,25 @@ import (
 	"github.com/nono/scut/internal/transport"
 )
 
-// bulkSize is the most stories of one PATCH /stories/bulk, and of one read.
-const bulkSize = maxPageSize
+// bulkSize is the most stories of one PATCH /stories/bulk ("up to 100" in the spec).
+const bulkSize = 100
 
-// updateMany makes the change of body, u and specs to each of ids (two or
-// more, no repeats), in chunks of bulkSize. It resolves each name before the
-// first write. See docs/design/2026-11-05-bulk-design.md.
-func updateMany(ctx context.Context, d *deps, ids []int64, u updateFlags, changed func(string) bool, specs []fieldSpec, body map[string]any) error {
+// updateMany makes the change of body and u to each of ids (two or more, no
+// repeats), in chunks of bulkSize. It resolves each name before the first
+// write. See docs/design/2026-11-05-bulk-design.md.
+func updateMany(ctx context.Context, d *deps, ids []int64, u updateFlags, body map[string]any) error {
 	r := d.Resolver
 	workflows, err := storyWorkflows(ctx, d, ids)
 	if err != nil {
 		return err
 	}
 	states := map[int64]int64{} // story ID to its new state
-	if changed("state") {
-		if err := resolveStates(r, u, changed("workflow"), ids, workflows, states); err != nil {
+	if u.changed("state") {
+		if states, err = resolveStates(r, u, ids, workflows); err != nil {
 			return err
 		}
 	}
-	if err := resolveCommon(r, u, changed, specs, body); err != nil {
+	if err := resolveCommon(r, u, body); err != nil {
 		return err
 	}
 	done := storyList{}
@@ -69,8 +69,8 @@ func updateMany(ctx context.Context, d *deps, ids []int64, u updateFlags, change
 // storyWorkflows reads the workflow of each story. A story that is not there is exit 3.
 func storyWorkflows(ctx context.Context, d *deps, ids []int64) (map[int64]int64, error) {
 	out := map[int64]int64{}
-	for start := 0; start < len(ids); start += bulkSize {
-		chunk := ids[start:min(start+bulkSize, len(ids))]
+	for start := 0; start < len(ids); start += maxPageSize {
+		chunk := ids[start:min(start+maxPageSize, len(ids))]
 		q := url.Values{"ids": {joinIDs(chunk, ",")}, "filter": {"include_archived"},
 			"fields": {"id,workflow"}, "limit": {strconv.Itoa(len(chunk))}}
 		items, err := transport.PageQuery(ctx, d.Doer, "stories", q, -1)
@@ -78,20 +78,11 @@ func storyWorkflows(ctx context.Context, d *deps, ids []int64) (map[int64]int64,
 			return nil, err
 		}
 		for _, raw := range items {
-			var s struct {
-				ID       int64 `json:"id"`
-				Workflow *struct {
-					ID int64 `json:"id"`
-				} `json:"workflow"`
+			id, wf, err := storyWorkflow(raw)
+			if err != nil {
+				return nil, err
 			}
-			if err := json.Unmarshal(raw, &s); err != nil {
-				return nil, &exit.Error{Code: exit.Other, Msg: "bad story data: " + err.Error()}
-			}
-			if s.Workflow != nil {
-				out[s.ID] = s.Workflow.ID
-			} else {
-				out[s.ID] = 0
-			}
+			out[id] = wf
 		}
 	}
 	if missing := idsNotIn(ids, out); len(missing) > 0 {
@@ -100,34 +91,30 @@ func storyWorkflows(ctx context.Context, d *deps, ids []int64) (map[int64]int64,
 	return out, nil
 }
 
-// resolveStates puts in states the ID of the state u.state for each story: in
-// u.workflow if hasWorkflow, else in the workflow of the story.
-func resolveStates(r *resolve.R, u updateFlags, hasWorkflow bool, ids []int64, workflows, states map[int64]int64) error {
-	byWorkflow := map[int64]int64{}
+// resolveStates returns, for each story, the ID of the state u.state: in
+// --workflow if given, else in the workflow of the story. The resolver
+// caches the workflows, so a repeated name costs no call.
+func resolveStates(r *resolve.R, u updateFlags, ids []int64, workflows map[int64]int64) (map[int64]int64, error) {
+	var given int64
+	if u.changed("workflow") {
+		var err error
+		if given, err = r.Workflow(u.workflow); err != nil {
+			return nil, err
+		}
+	}
+	states := map[int64]int64{}
 	for _, id := range ids {
 		wf := workflows[id]
-		if hasWorkflow {
-			wf = -1 // one state for all stories
+		if u.changed("workflow") {
+			wf = given
 		}
-		sid, ok := byWorkflow[wf]
-		if !ok {
-			var err error
-			if hasWorkflow {
-				var w int64
-				if w, err = r.Workflow(u.workflow); err == nil {
-					sid, err = r.State(u.state, w, "")
-				}
-			} else {
-				sid, err = r.State(u.state, wf, "")
-			}
-			if err != nil {
-				return err
-			}
-			byWorkflow[wf] = sid
+		sid, err := r.State(u.state, wf, "")
+		if err != nil {
+			return nil, err
 		}
 		states[id] = sid
 	}
-	return nil
+	return states, nil
 }
 
 // bulkReply checks the reply of one chunk and shapes its stories, in chunk order.
@@ -153,10 +140,10 @@ func bulkReply(raw json.RawMessage, chunk []int64, body map[string]any, r *resol
 	for _, id := range chunk {
 		if err := checkParent(byID[id], body); err != nil {
 			var e *exit.Error
-			if errors.As(err, &e) {
-				e.Msg = "story " + strconv.FormatInt(id, 10) + ": " + e.Msg
+			if !errors.As(err, &e) {
+				return nil, err
 			}
-			return nil, err
+			return nil, &exit.Error{Code: e.Code, Msg: "story " + strconv.FormatInt(id, 10) + ": " + e.Msg}
 		}
 		out, err := shapeStory(byID[id], r, shapeOpts{})
 		if err != nil {

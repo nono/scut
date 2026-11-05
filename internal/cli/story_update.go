@@ -30,8 +30,11 @@ func parseFieldSpecs(list []string) ([]fieldSpec, error) {
 	return out, nil
 }
 
-// updateFlags are the flags of story update.
+// updateFlags are the flags of story update, with what RunE derives from them.
 type updateFlags struct {
+	changed func(name string) bool // cmd.Flags().Changed
+	specs   []fieldSpec            // from fields
+
 	name, state, workflow, epic, requester, descFile, parent string
 	addOwner, removeOwner, fields                            []string
 	archive, unarchive, noParent                             bool
@@ -92,8 +95,9 @@ func newStoryUpdate(env Env) *cobra.Command {
 		if len(ids) > 1 && (changed("name") || changed("description-file")) {
 			return exit.Usagef("--name and --description-file need a single story")
 		}
-		specs, err := parseFieldSpecs(u.fields)
-		if err != nil {
+		u.changed = changed
+		var err error
+		if u.specs, err = parseFieldSpecs(u.fields); err != nil {
 			return err
 		}
 		body := map[string]any{}
@@ -123,9 +127,9 @@ func newStoryUpdate(env Env) *cobra.Command {
 		}
 		return withDeps(env, func(cmd *cobra.Command, _ []string, d *deps) error {
 			if len(ids) > 1 {
-				return updateMany(cmd.Context(), d, ids, u, changed, specs, body)
+				return updateMany(cmd.Context(), d, ids, u, body)
 			}
-			return updateOne(cmd.Context(), d, ids[0], u, changed, specs, body)
+			return updateOne(cmd.Context(), d, ids[0], u, body)
 		})(cmd, args)
 	}
 	return cmd
@@ -133,8 +137,9 @@ func newStoryUpdate(env Env) *cobra.Command {
 
 // resolveCommon adds to body the names that resolve the same for each story:
 // epic, requester, owners and custom fields.
-func resolveCommon(r *resolve.R, u updateFlags, changed func(string) bool, specs []fieldSpec, body map[string]any) error {
+func resolveCommon(r *resolve.R, u updateFlags, body map[string]any) error {
 	var err error
+	changed := u.changed
 	if changed("epic") {
 		if body["epic_id"], err = r.Epic(u.epic); err != nil {
 			return err
@@ -155,9 +160,9 @@ func resolveCommon(r *resolve.R, u updateFlags, changed func(string) bool, specs
 			return err
 		}
 	}
-	if len(specs) > 0 {
-		vals := make([]map[string]string, 0, len(specs))
-		for _, s := range specs {
+	if len(u.specs) > 0 {
+		vals := make([]map[string]string, 0, len(u.specs))
+		for _, s := range u.specs {
 			fid, vid, err := r.Field(s.name, s.value)
 			if err != nil {
 				return err
@@ -169,13 +174,13 @@ func resolveCommon(r *resolve.R, u updateFlags, changed func(string) bool, specs
 	return nil
 }
 
-func updateOne(ctx context.Context, d *deps, id int64, u updateFlags, changed func(string) bool, specs []fieldSpec, body map[string]any) error {
+func updateOne(ctx context.Context, d *deps, id int64, u updateFlags, body map[string]any) error {
 	r := d.Resolver
 	path := "stories/" + strconv.FormatInt(id, 10)
-	if changed("state") {
+	if u.changed("state") {
 		var wf int64
 		var err error
-		if changed("workflow") {
+		if u.changed("workflow") {
 			if wf, err = r.Workflow(u.workflow); err != nil {
 				return err
 			}
@@ -184,16 +189,8 @@ func updateOne(ctx context.Context, d *deps, id int64, u updateFlags, changed fu
 			if err != nil {
 				return err
 			}
-			var s struct {
-				Workflow *struct {
-					ID int64 `json:"id"`
-				} `json:"workflow"`
-			}
-			if err := json.Unmarshal(raw, &s); err != nil {
-				return &exit.Error{Code: exit.Other, Msg: "bad story data: " + err.Error()}
-			}
-			if s.Workflow != nil {
-				wf = s.Workflow.ID
+			if _, wf, err = storyWorkflow(raw); err != nil {
+				return err
 			}
 		}
 		sid, err := r.State(u.state, wf, "")
@@ -202,7 +199,7 @@ func updateOne(ctx context.Context, d *deps, id int64, u updateFlags, changed fu
 		}
 		body["workflow_state_id"] = sid
 	}
-	if err := resolveCommon(r, u, changed, specs, body); err != nil {
+	if err := resolveCommon(r, u, body); err != nil {
 		return err
 	}
 	raw, err := d.Doer.Raw(ctx, "PATCH", path, nil, body)
@@ -217,6 +214,23 @@ func updateOne(ctx context.Context, d *deps, id int64, u updateFlags, changed fu
 		return err
 	}
 	return d.Out(out)
+}
+
+// storyWorkflow reads the ID of a story and of its workflow (0 for none).
+func storyWorkflow(raw json.RawMessage) (id, workflow int64, err error) {
+	var s struct {
+		ID       int64 `json:"id"`
+		Workflow *struct {
+			ID int64 `json:"id"`
+		} `json:"workflow"`
+	}
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return 0, 0, &exit.Error{Code: exit.Other, Msg: "bad story data: " + err.Error()}
+	}
+	if s.Workflow != nil {
+		workflow = s.Workflow.ID
+	}
+	return s.ID, workflow, nil
 }
 
 // checkParent fails when body sets parent_story_id (an int64, or nil for
