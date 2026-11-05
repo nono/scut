@@ -71,7 +71,10 @@ A command that does these things is a failure, even if it works:
 | Links, live | Test on 2026-11-04: the verbs are `blocks`, `duplicates`, `relates to`. `PATCH /story-links/{id}` changes the verb, and also the subject and object (swap tested). A second create of the same link gives 422 "Cannot create a duplicate Story Link." The response has `subject.id` and `object.id`, not `subject_story_id`. `DELETE` gives 204. | `relink` is one `PATCH`. A duplicate link is a success (see Links). |
 | `whoami` | The path is `/api/v4/whoami`, with no workspace slug. It gives the member, the scopes, the default workflow and the default state. | `auth login` and `auth status` use it. |
 | Names, live | "To Do" is a state in 2 workflows (Standard, Simpler Kanban). The Technical Area value is "Back end", not "Back End". | The state rule below is needed. The default in the user file is "Back end". |
-| Responses | An envelope with `entity` or `entities` and a cursor. | Print the entity or the array, not the envelope. |
+| Responses | An envelope with `entity`, or `entities` and the cursor `next_page_url`. | Print the entity or the array, not the envelope. |
+| Story shape | Spec, 2026-11-05: a Story has nested objects (`workflow`, `workflow_state`, `owners`, `epic`), not `workflow_id` or `owner_ids`. | Read IDs from the nested objects. `scut spec Story` shows the shape. |
+| State type | Spec, 2026-11-05: the nested `workflow_state` has no `type`. `WorkflowState` from `listWorkflowStatesWithinAWorkflow` has it: `backlog`, `unstarted`, `started`, `done`. The resolver cache keeps the ID and name only. | `worktree` reads the states of the workflow, not the cache. |
+| Archived | Spec, 2026-11-05: `GET /stories` takes `filter`, default `exclude_archived`. | The G8 check and `story view` send `filter=include_archived`. |
 | Docs, live | Test on 2026-11-05: `GET /documents/{id}` with no `content_format` gives no content, as the parameter text of the spec says (its summary says markdown is the default). `fields` works with `content_markdown`. A doc URL of the web app ends in base64 of `"Doc":#uuid "<id>"`. `GET /documents/search` matches words of the title. | `doc view` always sends `content_format`. It decodes the URL. |
 | Paging | Cursor pages, `limit` 1–100, default 10. | The CLI default is 25 (my call). `--limit all` pages to the end. |
 
