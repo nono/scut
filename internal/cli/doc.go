@@ -146,6 +146,15 @@ func newDocView(env Env) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// A null content is an empty doc, but a reply with no content
+			// key or no doc is not: never show it as an empty doc.
+			var keys map[string]json.RawMessage
+			if json.Unmarshal(raw, &keys) != nil || keys == nil {
+				return &exit.Error{Code: exit.Other, Msg: "no doc in the reply"}
+			}
+			if _, ok := keys[key]; !ok {
+				return &exit.Error{Code: exit.Other, Msg: fmt.Sprintf("no %s in the reply", key)}
+			}
 			l, err := shapeDocs(d, []json.RawMessage{raw})
 			if err != nil {
 				return err

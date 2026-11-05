@@ -113,6 +113,33 @@ func TestDocViewNullContent(t *testing.T) {
 	}
 }
 
+// A reply with no content key, or with no doc, is an error: it must not
+// replace the --out file with an empty one.
+func TestDocViewNoContentInReply(t *testing.T) {
+	for name, body := range map[string]string{
+		"no content key": jsonOf(map[string]any{"entity": docFixture()}),
+		"null entity":    `{"entity":null}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t, map[string]http.HandlerFunc{
+				"GET " + testDocPath:       jsonHandler(body),
+				"GET /api/v4/acme/members": membersRoute(),
+			}, "", searchEnv)
+			path := filepath.Join(t.TempDir(), "spec.md")
+			if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			code, out, errs := h.run("doc", "view", testDoc, "--out", path)
+			if code != 1 || out != "" || errs == "" {
+				t.Errorf("code %d, stdout %q, stderr %s", code, out, errs)
+			}
+			if b, _ := os.ReadFile(path); string(b) != "old" {
+				t.Errorf("file %q", b)
+			}
+		})
+	}
+}
+
 func TestDocViewOut(t *testing.T) {
 	h := newHarness(t, map[string]http.HandlerFunc{
 		"GET " + testDocPath:       docRoute(ptr("# Spec\n")),
