@@ -491,6 +491,10 @@ func TestWorktreeCancelledStart(t *testing.T) {
 	if code := cli.RunContext(ctx, cli.NewRoot(h.env), []string{"worktree", "1234", "--start"}, &errb); code != 130 {
 		t.Fatalf("code %d, stderr %s", code, errb.String())
 	}
+	// The worktree was made: the error JSON names it, so a caller can open it.
+	if wt, _ := decode(t, errb.String())["worktree"].(map[string]any); wt["branch"] != "bug/sc-1234/x" {
+		t.Errorf("stderr %s", errb.String())
+	}
 }
 
 // A branch that another run makes during the story read is used: no second branch.

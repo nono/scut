@@ -50,9 +50,6 @@ func run(ctx context.Context, dir string, args ...string) (string, error) {
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
-		if ctx.Err() != nil {
-			return "", ctx.Err()
-		}
 		msg := strings.TrimSpace(errb.String())
 		if msg == "" {
 			msg = err.Error()
@@ -205,8 +202,6 @@ func (r Repo) Add(ctx context.Context, dir string, m Match) error {
 		base := "origin/main"
 		if _, err := run(ctx, r.Main, "rev-parse", "--verify", "--quiet", "origin/HEAD"); err == nil {
 			base = "origin/HEAD"
-		} else if ctx.Err() != nil {
-			return ctx.Err()
 		}
 		// --no-track: with an upstream of main, git pull merges main, and
 		// git push fails or pushes to main, by push.default.

@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/nono/scut/internal/cli"
+	"github.com/nono/scut/internal/exit"
 	"github.com/nono/scut/internal/transport"
 )
 
@@ -70,6 +71,29 @@ func TestCancelledIs130(t *testing.T) {
 	cancel()
 	if code := cli.RunContext(ctx, root, []string{"wait"}, &errb); code != 130 {
 		t.Fatalf("code %d, want 130", code)
+	}
+}
+
+// After a cancel, an *exit.Error with code 130 is written, so the command can
+// say what it did; any other error gives 130 with no output.
+func TestCancelledWritesCancelledError(t *testing.T) {
+	for name, c := range map[string]struct {
+		err  error
+		want string
+	}{
+		"cancelled": {&exit.Error{Code: exit.Cancelled, Msg: "made x"}, `{"error":"made x"}` + "\n"},
+		"other":     {&exit.Error{Code: exit.Other, Msg: "git: signal: killed"}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var errb bytes.Buffer
+			root := cli.NewRoot(emptyEnv())
+			root.AddCommand(&cobra.Command{Use: "fail", RunE: func(*cobra.Command, []string) error { return c.err }})
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			if code := cli.RunContext(ctx, root, []string{"fail"}, &errb); code != 130 || errb.String() != c.want {
+				t.Errorf("code %d, stderr %q", code, errb.String())
+			}
+		})
 	}
 }
 

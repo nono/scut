@@ -151,15 +151,15 @@ func newWorktree(env Env) *cobra.Command {
 					started, err = startStory(ctx, d, id)
 				}
 				if err != nil {
-					if ctx.Err() != nil {
-						return ctx.Err()
-					}
 					var e *exit.Error
 					if !errors.As(err, &e) {
 						e = &exit.Error{Code: exit.Other, Msg: err.Error()}
 					}
 					c := *e
 					c.Worktree = res
+					if ctx.Err() != nil {
+						c.Code = exit.Cancelled
+					}
 					return &c
 				}
 				res.Started = &started

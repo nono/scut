@@ -234,11 +234,14 @@ func TestOpenGitMissing(t *testing.T) {
 	}
 }
 
+// A cancelled git run is a failure, not "not in a git repository".
 func TestOpenCancelled(t *testing.T) {
 	_, main := testgit.Repos(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := gitwt.Open(ctx, main); !errors.Is(err, context.Canceled) {
+	_, err := gitwt.Open(ctx, main)
+	var e *exit.Error
+	if !errors.As(err, &e) || e.Code != exit.Other {
 		t.Fatalf("err %v", err)
 	}
 }
