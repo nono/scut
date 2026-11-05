@@ -423,33 +423,11 @@ func (r *R) Epic(s string) (int64, error) {
 	if digitRe.MatchString(s) {
 		return strconv.ParseInt(s, 10, 64)
 	}
-	items, err := r.pageAll("/epics/search", url.Values{"query": {epicQuery(s)}, "limit": {pageSize}})
+	id, err := r.byName("/epics/search", url.Values{"query": {epicQuery(s)}}, "name", s, "epic", "give the epic ID")
 	if err != nil {
 		return 0, err
 	}
-	var ids, names []string
-	for _, b := range items {
-		var e entity
-		if json.Unmarshal(b, &e) != nil {
-			continue
-		}
-		names = append(names, e.Name)
-		if e.Name == s {
-			ids = append(ids, idString(e.ID))
-		}
-	}
-	switch len(ids) {
-	case 0:
-		return 0, miss(names, "no epic %q", s)
-	case 1:
-		return strconv.ParseInt(ids[0], 10, 64)
-	}
-	return 0, &exit.Error{
-		Code:       exit.Usage,
-		Msg:        fmt.Sprintf("epic name %q matches more than one epic", s),
-		Suggestion: "give the epic ID",
-		Valid:      ids,
-	}
+	return strconv.ParseInt(id, 10, 64)
 }
 
 // Doc resolves a doc ID, a doc URL (see ref.Doc) or an exact doc title.
@@ -463,34 +441,41 @@ func (r *R) Doc(s string) (string, error) {
 	if s == "" {
 		return "", exit.Usagef("give a doc URL, ID or title")
 	}
-	items, err := r.pageAll("/documents/search", url.Values{"query": {s}, "fields": {"id,title"}, "limit": {pageSize}})
+	return r.byName("/documents/search", url.Values{"query": {s}, "fields": {"id,title"}}, "title", s, "doc", "give the doc URL or ID")
+}
+
+// byName reads every page of the search at path with q, and returns the ID of
+// the one item whose key field is s. No match exits 3 with the names found;
+// more than one exits 2 with their IDs and hint. noun names the item.
+func (r *R) byName(path string, q url.Values, key, s, noun, hint string) (string, error) {
+	q.Set("limit", pageSize)
+	items, err := r.pageAll(path, q)
 	if err != nil {
 		return "", err
 	}
-	var ids, titles []string
+	var ids, names []string
 	for _, b := range items {
-		var d struct {
-			ID    string `json:"id"`
-			Title string `json:"title"`
-		}
-		if json.Unmarshal(b, &d) != nil {
+		var m map[string]json.RawMessage
+		if json.Unmarshal(b, &m) != nil {
 			continue
 		}
-		titles = append(titles, d.Title)
-		if d.Title == s {
-			ids = append(ids, d.ID)
+		var name string
+		_ = json.Unmarshal(m[key], &name) // no name: ""
+		names = append(names, name)
+		if name == s {
+			ids = append(ids, idString(m["id"]))
 		}
 	}
 	switch len(ids) {
 	case 0:
-		return "", miss(titles, "no doc %q", s)
+		return "", miss(names, "no %s %q", noun, s)
 	case 1:
 		return ids[0], nil
 	}
 	return "", &exit.Error{
 		Code:       exit.Usage,
-		Msg:        fmt.Sprintf("doc title %q matches more than one doc", s),
-		Suggestion: "give the doc URL or ID",
+		Msg:        fmt.Sprintf("%s %s %q matches more than one %s", noun, key, s, noun),
+		Suggestion: hint,
 		Valid:      ids,
 	}
 }
