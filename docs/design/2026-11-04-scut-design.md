@@ -74,7 +74,7 @@ A command that does these things is a failure, even if it works:
 | Responses | An envelope with `entity`, or `entities` and the cursor `next_page_url`. | Print the entity or the array, not the envelope. |
 | Story shape | Spec, 2026-11-05: a Story has nested objects (`workflow`, `workflow_state`, `owners`, `epic`), not `workflow_id` or `owner_ids`. | Read IDs from the nested objects. `scut spec Story` shows the shape. |
 | State type | Spec, 2026-11-05: the nested `workflow_state` has no `type`. `WorkflowState` from `listWorkflowStatesWithinAWorkflow` has it: `backlog`, `unstarted`, `started`, `done`. The resolver cache keeps the ID and name only. | `worktree` reads the states of the workflow, not the cache. |
-| Archived | Spec, 2026-11-05: `GET /stories` takes `filter`, default `exclude_archived`. | The G8 check and `story view` send `filter=include_archived`. |
+| Archived | Spec, 2026-11-05: `GET /stories` takes `filter`, default `exclude_archived`. | The G8 check, `story view`, and the read and the write of a bulk `story update` send `filter=include_archived`. The spec gives the same default for `PATCH /stories/bulk`. |
 | Docs, live | Test on 2026-11-05: `GET /documents/{id}` with no `content_format` gives no content, as the parameter text of the spec says (its summary says markdown is the default). `fields` works with `content_markdown`. A doc URL of the web app ends in base64 of `"Doc":#uuid "<id>"`. `GET /documents/search` matches words of the title. | `doc view` always sends `content_format`. It decodes the URL. |
 | Paging | Cursor pages, `limit` 1–100, default 10. | The CLI default is 25 (my call). `--limit all` pages to the end. |
 

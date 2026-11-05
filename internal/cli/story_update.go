@@ -83,20 +83,15 @@ func newStoryUpdate(env Env) *cobra.Command {
 		if !given {
 			return exit.Usagef("nothing to change: give at least one flag")
 		}
-		ids := make([]int64, 0, len(args))
-		for _, a := range args {
-			id, err := ref.Story(a)
-			if err != nil {
-				return err
-			}
-			ids = append(ids, id)
+		ids, err := storyIDs(env, args) // args is not empty, so not from git
+		if err != nil {
+			return err
 		}
 		ids = uniqueIDs(ids)
 		if len(ids) > 1 && (changed("name") || changed("description-file")) {
 			return exit.Usagef("--name and --description-file need a single story")
 		}
 		u.changed = changed
-		var err error
 		if u.specs, err = parseFieldSpecs(u.fields); err != nil {
 			return err
 		}
@@ -178,13 +173,8 @@ func updateOne(ctx context.Context, d *deps, id int64, u updateFlags, body map[s
 	r := d.Resolver
 	path := "stories/" + strconv.FormatInt(id, 10)
 	if u.changed("state") {
-		var wf int64
-		var err error
-		if u.changed("workflow") {
-			if wf, err = r.Workflow(u.workflow); err != nil {
-				return err
-			}
-		} else {
+		var wf int64 // --workflow wins in resolveStates
+		if !u.changed("workflow") {
 			raw, err := d.Doer.Raw(ctx, "GET", path, url.Values{"fields": {"workflow"}}, nil)
 			if err != nil {
 				return err
@@ -193,11 +183,11 @@ func updateOne(ctx context.Context, d *deps, id int64, u updateFlags, body map[s
 				return err
 			}
 		}
-		sid, err := r.State(u.state, wf, "")
+		states, err := resolveStates(r, u, []int64{id}, map[int64]int64{id: wf})
 		if err != nil {
 			return err
 		}
-		body["workflow_state_id"] = sid
+		body["workflow_state_id"] = states[id]
 	}
 	if err := resolveCommon(r, u, body); err != nil {
 		return err

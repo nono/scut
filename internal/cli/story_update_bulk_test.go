@@ -125,13 +125,15 @@ func (a *bulkAPI) harness(extra map[string]http.HandlerFunc) *harness {
 	return newHarness(a.t, routes, "", map[string]string{"SCUT_TOKEN": updateAuth})
 }
 
-func (a *bulkAPI) ids(write int) []int64 {
-	var out []int64
-	for _, s := range a.writes[write].stories {
-		out = append(out, int64(s["id"].(float64)))
+func idsOf(list []map[string]any) []int64 {
+	ids := make([]int64, 0, len(list))
+	for _, s := range list {
+		ids = append(ids, int64(s["id"].(float64)))
 	}
-	return out
+	return ids
 }
+
+func (a *bulkAPI) ids(write int) []int64 { return idsOf(a.writes[write].stories) }
 
 func outIDs(t *testing.T, out string) []int64 {
 	t.Helper()
@@ -139,11 +141,16 @@ func outIDs(t *testing.T, out string) []int64 {
 	if err := json.Unmarshal([]byte(out), &list); err != nil {
 		t.Fatalf("not a list: %q", out)
 	}
-	ids := make([]int64, 0, len(list))
-	for _, s := range list {
-		ids = append(ids, int64(s["id"].(float64)))
-	}
-	return ids
+	return idsOf(list)
+}
+
+// runCtx runs args on a new root with ctx, as Execute does with its signal context.
+func (h *harness) runCtx(ctx context.Context, args ...string) (code int, stdout, stderr string) {
+	root := cli.NewRoot(h.env)
+	var out, errb bytes.Buffer
+	root.SetOut(&out)
+	code = cli.RunContext(ctx, root, args, &errb)
+	return code, out.String(), errb.String()
 }
 
 // idRange returns n story IDs from 6000.
@@ -330,6 +337,9 @@ func TestBulkUpdateParentIgnored(t *testing.T) {
 	if code != 1 || !strings.Contains(errs, "the API did not set the parent") || !strings.Contains(errs, "5429") {
 		t.Errorf("code %d, stderr %s", code, errs)
 	}
+	if s, _ := decode(t, errs)["suggestion"].(string); !strings.Contains(s, "scut story view 5429 5430") {
+		t.Errorf("suggestion %q", s)
+	}
 }
 
 // Flags that fit one story only are usage errors, before the token is read.
@@ -437,14 +447,6 @@ func TestBulkUpdateSavedChunkNamed(t *testing.T) {
 	if !strings.Contains(s, "saved") || !strings.Contains(s, "scut story view 6100 6101") || !strings.Contains(s, " 6149") {
 		t.Errorf("suggestion %q", s)
 	}
-
-	b := newBulkAPI(t, 5429, 5430)
-	b.noParent = true
-	h = b.harness(nil)
-	_, _, errs = h.run("story", "update", "5429", "5430", "--parent", "5428")
-	if s, _ := decode(t, errs)["suggestion"].(string); !strings.Contains(s, "scut story view 5429 5430") {
-		t.Errorf("parent check: suggestion %q", s)
-	}
 }
 
 // A cancel during a bulk write keeps the suggestion that names the chunk.
@@ -460,14 +462,11 @@ func TestBulkUpdateCancelNamesChunk(t *testing.T) {
 		}
 	}
 	h := a.harness(nil)
-	root := cli.NewRoot(h.env)
-	var out, errb bytes.Buffer
-	root.SetOut(&out)
-	code := cli.RunContext(ctx, root, append([]string{"story", "update", "--epic", "1"}, idArgs(ids)...), &errb)
-	if code != 130 || len(outIDs(t, out.String())) != 100 {
-		t.Fatalf("code %d, stderr %s", code, errb.String())
+	code, out, errs := h.runCtx(ctx, append([]string{"story", "update", "--epic", "1"}, idArgs(ids)...)...)
+	if code != 130 || len(outIDs(t, out)) != 100 {
+		t.Fatalf("code %d, stderr %s", code, errs)
 	}
-	if s, _ := decode(t, errb.String())["suggestion"].(string); !strings.Contains(s, "may be partly changed") || !strings.Contains(s, "6100") || !strings.Contains(s, "6149") {
+	if s, _ := decode(t, errs)["suggestion"].(string); !strings.Contains(s, "may be partly changed") || !strings.Contains(s, "6100") || !strings.Contains(s, "6149") {
 		t.Errorf("suggestion %q", s)
 	}
 }
@@ -489,14 +488,11 @@ func TestBulkUpdateCancelInReplyCheck(t *testing.T) {
 		}
 		members(w, r)
 	}})
-	root := cli.NewRoot(h.env)
-	var out, errb bytes.Buffer
-	root.SetOut(&out)
-	code := cli.RunContext(ctx, root, []string{"story", "update", "5429", "5430", "--epic", "1"}, &errb)
+	code, _, errs := h.runCtx(ctx, "story", "update", "5429", "5430", "--epic", "1")
 	if code != 130 || len(a.writes) != 1 {
-		t.Fatalf("code %d, writes %d, stderr %s", code, len(a.writes), errb.String())
+		t.Fatalf("code %d, writes %d, stderr %s", code, len(a.writes), errs)
 	}
-	if s, _ := decode(t, errb.String())["suggestion"].(string); !strings.Contains(s, "saved") || !strings.Contains(s, "5429 5430") {
+	if s, _ := decode(t, errs)["suggestion"].(string); !strings.Contains(s, "saved") || !strings.Contains(s, "5429 5430") {
 		t.Errorf("suggestion %q", s)
 	}
 }
