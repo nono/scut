@@ -16,13 +16,13 @@ import (
 
 	"github.com/nono/scut/internal/cache"
 	"github.com/nono/scut/internal/exit"
+	"github.com/nono/scut/internal/ref"
 	"github.com/nono/scut/internal/transport"
 )
 
 const pageSize = "100"
 
 var (
-	uuidRe  = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 	digitRe = regexp.MustCompile(`^\d+$`)
 )
 
@@ -225,7 +225,7 @@ func (r *R) Member(name string) (string, error) {
 	if name == "@me" {
 		return r.Me()
 	}
-	if uuidRe.MatchString(name) {
+	if ref.IsUUID(name) {
 		return name, nil
 	}
 	mention := strings.TrimPrefix(name, "@")
@@ -418,36 +418,61 @@ func epicQuery(s string) string {
 	return `"` + s + `"`
 }
 
-// Epic resolves an epic ID or an exact epic name. Epics are not cached.
+// Epic resolves an epic ID or an exact epic name, trimmed. A blank one is a
+// usage error. Epics are not cached.
 func (r *R) Epic(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, exit.Usagef("give an epic ID or name")
+	}
 	if digitRe.MatchString(s) {
 		return strconv.ParseInt(s, 10, 64)
 	}
-	items, err := r.pageAll("/epics/search", url.Values{"query": {epicQuery(s)}, "limit": {pageSize}})
+	id, err := r.byName("/epics/search", url.Values{"query": {epicQuery(s)}}, "name", s, "epic", "give the epic ID")
 	if err != nil {
 		return 0, err
 	}
+	return strconv.ParseInt(id, 10, 64)
+}
+
+// DocByTitle resolves an exact doc title (see ref.Doc) to a doc ID. Docs are
+// not cached.
+func (r *R) DocByTitle(s string) (string, error) {
+	return r.byName("/documents/search", url.Values{"query": {s}, "fields": {"id,title"}}, "title", s, "doc", "give the doc URL or ID")
+}
+
+// byName reads every page of the search at path with q, and returns the ID of
+// the one item whose key field is s. No match exits 3 with the names found;
+// more than one exits 2 with their IDs and hint. noun names the item.
+func (r *R) byName(path string, q url.Values, key, s, noun, hint string) (string, error) {
+	q.Set("limit", pageSize)
+	items, err := r.pageAll(path, q)
+	if err != nil {
+		return "", err
+	}
 	var ids, names []string
 	for _, b := range items {
-		var e entity
-		if json.Unmarshal(b, &e) != nil {
+		var m map[string]json.RawMessage
+		if json.Unmarshal(b, &m) != nil {
 			continue
 		}
-		names = append(names, e.Name)
-		if e.Name == s {
-			ids = append(ids, idString(e.ID))
+		var name string
+		_ = json.Unmarshal(m[key], &name) // no name: ""
+		names = append(names, name)
+		if name == s {
+			ids = append(ids, idString(m["id"]))
 		}
 	}
 	switch len(ids) {
 	case 0:
-		return 0, miss(names, "no epic %q", s)
+		return "", miss(names, "no %s %q", noun, s)
 	case 1:
-		return strconv.ParseInt(ids[0], 10, 64)
+		return ids[0], nil
 	}
-	return 0, &exit.Error{
+	return "", &exit.Error{
 		Code:       exit.Usage,
-		Msg:        fmt.Sprintf("epic name %q matches more than one epic", s),
-		Suggestion: "give the epic ID",
+		Msg:        fmt.Sprintf("%s %s %q matches more than one %s", noun, key, s, noun),
+		Suggestion: hint,
 		Valid:      ids,
 	}
 }

@@ -28,7 +28,8 @@ v1 ships:
 ## Non-goals (v1)
 
 - Changes to the skills `file-story`, `story` and `grid-video`. They continue to use the MCP until a later change.
-- U12 (docs), U13 (history), U14 (external links).
+- U12 (docs): create and update. `doc view` and `doc search` are in (see Docs, added 2026-11-05).
+- U13 (history), U14 (external links).
 - G2: unlink a PR, branch or commit. v4 has no endpoint for it. v1 can list them as part of `story view`.
 - G12: bulk commands. v1 accepts several links in one `story link` command, as one call per link (see Links).
 - N1 `scut worktree` (see `2026-11-05-worktree-design.md`), N2 shell completion.
@@ -71,6 +72,7 @@ A command that does these things is a failure, even if it works:
 | `whoami` | The path is `/api/v4/whoami`, with no workspace slug. It gives the member, the scopes, the default workflow and the default state. | `auth login` and `auth status` use it. |
 | Names, live | "To Do" is a state in 2 workflows (Standard, Simpler Kanban). The Technical Area value is "Back end", not "Back End". | The state rule below is needed. The default in the user file is "Back end". |
 | Responses | An envelope with `entity` or `entities` and a cursor. | Print the entity or the array, not the envelope. |
+| Docs, live | Test on 2026-11-05: `GET /documents/{id}` with no `content_format` gives no content, as the parameter text of the spec says (its summary says markdown is the default). `fields` works with `content_markdown`. A doc URL of the web app ends in base64 of `"Doc":#uuid "<id>"`. `GET /documents/search` matches words of the title. | `doc view` always sends `content_format`. It decodes the URL. |
 | Paging | Cursor pages, `limit` 1–100, default 10. | The CLI default is 25 (my call). `--limit all` pages to the end. |
 
 ## Command tree (v1)
@@ -94,6 +96,7 @@ scut story relink <story> <old-verb> <story> <new-verb>
 scut story branch [<story>]
 scut story files [<story>] --out <dir>
 scut epic view <epic> · scut epic search <query> · scut epic stories <epic> · scut epic comment <epic> --body-file f|-
+scut doc view <doc> [--format markdown|html] [--out f] · scut doc search <text> [--limit N|all]
 scut team list · scut member list · scut workflow list · scut workflow states [<workflow>]
 scut field list · scut field values <field>
 scut whoami
@@ -189,6 +192,16 @@ Before `scut` parses a body, it checks the status and the `Content-Type`.
 - Help says that the search index can lag, and that `story view` reads current data.
 - Paging stops when the cursor repeats, or after 100 pages.
 
+### Docs (U12)
+
+- The use: you paste a doc URL. The agent reads a spec that a teammate wrote, then writes an explainer and a review.
+- `<doc>` is a doc URL of the web app (`…/write/<base64>`), an API doc URL (`…/documents/<id>`), a doc ID (UUID), or an exact title. Any other URL exits 2. The argument is trimmed; a blank one exits 2. Both checks run before the token is read. A title is found with `GET /documents/search` and an exact, case-sensitive match, as for epics. No match exits 3 and lists the titles found. More than one match exits 2 and lists the IDs.
+- `doc view` prints id, title, archived, creator (as a member), created_at, updated_at and the content in the key of its format: `content_markdown` (default) or `content_html` (`--format html`). Null content prints as `""`.
+- G7: a doc can be large (90k and 136k chars through the MCP). `--out <file>` writes the content to the file, which it replaces, and prints `content_file` (the absolute path) in place of the content. `-`, a directory, or a path with no parent directory exits 2 before any call. A reply with no content key, or no doc, exits 1 and does not touch the file.
+- `doc search` sends the text unchanged and prints the same fields with no content. With no text, exit 2.
+- Calls: 1 for a doc by URL or ID, plus 1 search call for each 100 docs that match a title, plus the member cache. The search is fuzzy, so a short title can match many docs; after 100 pages the lookup exits 1.
+- No `doc update` or `doc create` for now (your call, 2026-11-05). The API replaces all of the content on update.
+
 ### Agent skill
 
 - The skill is in this repo at `skills/scut/SKILL.md`, so `npx skills add nono/scut` can install it. `scut` has no command to install the skill.
@@ -201,9 +214,9 @@ Before `scut` parses a body, it checks the status and the `Content-Type`.
 ## Build and test
 
 - Commit the v4 spec (`api/shortcut.openapi.json`). It is the contract for the Prism tests, the operation check of the `scut/ops` annotations and the coverage table. No Go client is generated from it: commands shape raw JSON (decision of 2026-11-04). CI downloads the live spec and shows a diff when it changed.
-- Unit tests for each package. Contract tests run against Prism (Stoplight) in mock mode on the committed spec. They cover `story view`, `search`, `comments`, `comment`, `create`, `update` and `subtasks`, `epic view`, `search`, `stories` and `comment`, `team list`, `member list`, `workflow list` and `states`, `field list` and `values`, and `cache clear`. `story link`, `unlink`, `relink`, `branch`, `files`, `whoami`, `api` and `auth` have no Prism test. A write test checks the request body against the schema (shortcut-cli #366).
+- Unit tests for each package. Contract tests run against Prism (Stoplight) in mock mode on the committed spec. They cover `story view`, `search`, `comments`, `comment`, `create`, `update` and `subtasks`, `epic view`, `search`, `stories` and `comment`, `doc view` and `search`, `team list`, `member list`, `workflow list` and `states`, `field list` and `values`, and `cache clear`. `story link`, `unlink`, `relink`, `branch`, `files`, `whoami`, `api` and `auth` have no Prism test. A write test checks the request body against the schema (shortcut-cli #366).
 - Recorded responses (fixtures) for flows that Prism cannot model: G8 retry, paging loop, file download error page, name resolution.
-- One live smoke test, run by hand or in CI with a read-only token: `whoami`, `story view`, `story search`, `story files` and `story branch` on a story with one attachment. The story and the expected values come from `SCUT_LIVE_*` environment variables, because the repository is public.
+- One live smoke test, run by hand or in CI with a read-only token: `whoami`, `story view`, `story search`, `story files` and `story branch` on a story with one attachment, and `doc view` and `doc search` on a doc. The story and the expected values come from `SCUT_LIVE_*` environment variables, because the repository is public.
 - Generate a coverage table of the v4 endpoints that `scut` calls, and check it in CI.
 - Host: `github.com/nono/scut`, public. This is also the Go module path. CI is GitHub Actions (my call). The GitHub repo does not exist yet. Work locally until it does.
 - Release from a git tag, as a GitHub release binary for linux amd64 only (your call; other platforms later). `mise use github:nono/scut` installs them with no token, because the repo is public.

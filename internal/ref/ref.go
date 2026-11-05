@@ -1,7 +1,8 @@
-// Package ref parses story references.
+// Package ref parses story and doc references.
 package ref
 
 import (
+	"encoding/base64"
 	"net/url"
 	"os/exec"
 	"regexp"
@@ -17,7 +18,59 @@ var (
 	// letter or a digit, so misc-12 is not story 12.
 	scID     = regexp.MustCompile(`(?:^|[^A-Za-z0-9])sc-(\d+)`)
 	urlStory = regexp.MustCompile(`(?:^|/)story/(\d+)(?:/|$)`)
+	uuid     = regexp.MustCompile(`^` + uuidPattern + `$`)
+	// docKey is the decoded last part of a doc URL of the web app.
+	docKey = regexp.MustCompile(`^"Doc":#uuid "(` + uuidPattern + `)"$`)
 )
+
+const uuidPattern = `[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`
+
+// IsUUID reports whether s is a UUID.
+func IsUUID(s string) bool { return uuid.MatchString(s) }
+
+// Doc parses a doc argument. It returns the doc ID of a UUID, a doc URL of
+// the web app (…/write/<base64>) or an API doc URL (…/documents/<id>).
+// Anything else that is not a URL is a title: Doc returns it trimmed, with no
+// ID. A blank argument or any other URL is a usage error.
+func Doc(s string) (id, title string, err error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", "", exit.Usagef("give a doc URL, ID or title")
+	}
+	if uuid.MatchString(s) {
+		return strings.ToLower(s), "", nil
+	}
+	if l := strings.ToLower(s); !strings.HasPrefix(l, "http://") && !strings.HasPrefix(l, "https://") {
+		return "", s, nil
+	}
+	bad := exit.Usagef("bad doc URL %q", s)
+	u, perr := url.Parse(s)
+	if perr != nil {
+		return "", "", bad
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) < 2 {
+		return "", "", bad
+	}
+	last := parts[len(parts)-1]
+	switch parts[len(parts)-2] {
+	case "documents":
+		if uuid.MatchString(last) {
+			return strings.ToLower(last), "", nil
+		}
+	case "write":
+		// The web app puts base64 of `"Doc":#uuid "<id>"` in the URL.
+		b64 := strings.NewReplacer("-", "+", "_", "/").Replace(strings.TrimRight(last, "="))
+		dec, derr := base64.RawStdEncoding.DecodeString(b64)
+		if derr != nil {
+			return "", "", bad
+		}
+		if m := docKey.FindSubmatch(dec); m != nil {
+			return strings.ToLower(string(m[1])), "", nil
+		}
+	}
+	return "", "", bad
+}
 
 // Story returns the story ID in s: sc-5409, 5409, a story URL or a branch name.
 func Story(s string) (int64, error) {

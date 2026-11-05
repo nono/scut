@@ -57,16 +57,7 @@ func (e EpicOut) Human() string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-type epicList []EpicOut
-
-// Human joins the text forms of the epics.
-func (l epicList) Human() string {
-	parts := make([]string, len(l))
-	for i, e := range l {
-		parts[i] = e.Human()
-	}
-	return strings.Join(parts, "\n\n")
-}
+type epicList = humanList[EpicOut]
 
 // shapeEpics converts Epic entities to the compact shape.
 func shapeEpics(d *deps, raw []json.RawMessage, description bool) (epicList, error) {
@@ -148,18 +139,8 @@ func newEpicSearch(env Env) *cobra.Command {
 			return err
 		}
 		return withDeps(env, func(cmd *cobra.Command, _ []string, d *deps) error {
-			raw, stop := listPages(cmd, d, "epics/search", url.Values{"query": {args[0]}}, limit)
-			if raw == nil && stop != nil {
-				return stop
-			}
-			out, err := shapeEpics(d, raw, false)
-			if err != nil {
-				return err
-			}
-			if err := d.Out(out); err != nil {
-				return err
-			}
-			return stop // a list cut short: the items read, then the error
+			return printPages(cmd, d, "epics/search", url.Values{"query": {args[0]}}, limit,
+				func(raw []json.RawMessage) (epicList, error) { return shapeEpics(d, raw, false) })
 		})(cmd, args)
 	}
 	return cmd

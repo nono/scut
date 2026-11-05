@@ -116,6 +116,8 @@ func (o *opsRecorder) routes(t *testing.T) map[string]http.HandlerFunc {
 		"GET /api/v4/acme/epics/{id}":           jsonHandler(jsonOf(map[string]any{"entity": epic})),
 		"GET /api/v4/acme/epics/{id}/stories":   jsonHandler(listBody(story)),
 		"POST /api/v4/acme/epics/{id}/comments": created(cmt),
+		"GET /api/v4/acme/documents/search":     jsonHandler(listBody(docFixture())),
+		"GET /api/v4/acme/documents/{id}":       docRoute(ptr("# Spec")),
 	} {
 		m[k] = v
 	}
@@ -164,6 +166,9 @@ var opsCases = [][]string{
 	{"epic", "search", "x"},
 	{"epic", "stories", "Big epic"},
 	{"epic", "comment", "Big epic", "--body-file", "-"},
+	{"doc", "view", testDoc},
+	{"doc", "view", "Picking spec"},
+	{"doc", "search", "x"},
 	{"worktree", "5818", "--repo", "@repo", "--start"},
 }
 

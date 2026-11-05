@@ -36,6 +36,58 @@ func TestStoryRefBad(t *testing.T) {
 	}
 }
 
+const docID = "1b4e28ba-2fa1-41d2-883f-0016d3cca427"
+
+func TestDocRef(t *testing.T) {
+	for in, want := range map[string]string{
+		docID:                                   docID,
+		" 1B4E28BA-2FA1-41D2-883F-0016D3CCA427": docID,
+		"https://app.shortcut.com/acme/write/IkRvYyI6I3V1aWQgIjFiNGUyOGJhLTJmYTEtNDFkMi04ODNmLTAwMTZkM2NjYTQyNyI=":       docID,
+		"https://app.shortcut.com/acme/write/IkRvYyI6I3V1aWQgIjFiNGUyOGJhLTJmYTEtNDFkMi04ODNmLTAwMTZkM2NjYTQyNyI":        docID,
+		"https://app.shortcut.com/acme/write/IkRvYyI6I3V1aWQgIjFiNGUyOGJhLTJmYTEtNDFkMi04ODNmLTAwMTZkM2NjYTQyNyI=?x=1#y": docID,
+		"https://api.app.shortcut.com/api/v4/acme/documents/" + docID:                                                    docID,
+		"https://api.app.shortcut.com/api/v4/acme/documents/1B4E28BA-2FA1-41D2-883F-0016D3CCA427":                        docID,
+		"HTTPS://app.shortcut.com/acme/write/IkRvYyI6I3V1aWQgIjFiNGUyOGJhLTJmYTEtNDFkMi04ODNmLTAwMTZkM2NjYTQyNyI=":       docID,
+	} {
+		id, title, err := ref.Doc(in)
+		if err != nil || title != "" || id != want {
+			t.Errorf("%q: got %q, %q, %v; want %q", in, id, title, err, want)
+		}
+	}
+}
+
+func TestDocRefTitle(t *testing.T) {
+	for in, want := range map[string]string{
+		"Picking spec":    "Picking spec",
+		" Picking spec\n": "Picking spec", // trimmed, as an ID or a URL is
+		"1b4e28ba":        "1b4e28ba",
+		"write/x":         "write/x",
+	} {
+		id, title, err := ref.Doc(in)
+		if err != nil || id != "" || title != want {
+			t.Errorf("%q: got %q, %q, %v; want title %q", in, id, title, err, want)
+		}
+	}
+}
+
+func TestDocRefBad(t *testing.T) {
+	for _, in := range []string{
+		"https://app.shortcut.com/acme/write/bm90IGEgZG9j",                                                         // base64 of "not a doc"
+		"https://app.shortcut.com/acme/write/IkVwaWMiOiN1dWlkICIxYjRlMjhiYS0yZmExLTQxZDItODgzZi0wMDE2ZDNjY2E0Mjci", // "Epic":#uuid …
+		"https://app.shortcut.com/acme/story/12",
+		"https://api.app.shortcut.com/api/v4/acme/members/" + docID, // a UUID, but not of a doc
+		"https://app.shortcut.com/acme/write/" + docID,
+		"https://app.shortcut.com/",
+		"", " \t\n", // blank
+	} {
+		_, _, err := ref.Doc(in)
+		var e *exit.Error
+		if !errors.As(err, &e) || e.Code != exit.Usage {
+			t.Errorf("%q: got %v, want usage error", in, err)
+		}
+	}
+}
+
 func TestFromGitOutsideRepo(t *testing.T) {
 	_, err := ref.FromGit(t.TempDir())
 	var e *exit.Error

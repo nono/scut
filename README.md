@@ -71,6 +71,7 @@ scut story usage           # the commands of one noun
 scut story view 1234
 scut story search 'owner:me state:"To Do"'
 scut story create --name "Fix the login" --type bug
+scut doc view <doc URL> --out spec.md # write the markdown to a file
 scut worktree 1234 --start # find or make the git worktree of the story, and start the story
 ```
 
@@ -103,7 +104,7 @@ The skill is `skills/scut/SKILL.md`. `make skill` generates it. Do not edit it b
 ## Not supported
 
 - Unlink a PR, branch or commit from a story (the v4 API has no endpoint).
-- Docs.
+- Create or update a doc.
 - Story history.
 - Bulk commands.
 - Iterations, objectives and labels as commands.

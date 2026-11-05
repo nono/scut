@@ -46,18 +46,26 @@ func positionOrder() url.Values {
 // listStories prints the stories that path lists with query q.
 func listStories(cmd *cobra.Command, d *deps, path string, q url.Values, limit int, fieldsFlag string, fields []string) error {
 	fieldsQuery(q, fields)
+	opts := listShapeOpts(fieldsFlag, fields)
+	return printPages(cmd, d, path, q, limit,
+		func(raw []json.RawMessage) (storyList, error) { return shapeStories(d, raw, opts) })
+}
+
+// printPages prints up to limit items of a list endpoint, shaped by shape. A
+// list cut short prints the items read, then returns the error that stopped it.
+func printPages[T any](cmd *cobra.Command, d *deps, path string, q url.Values, limit int, shape func([]json.RawMessage) (T, error)) error {
 	raw, stop := listPages(cmd, d, path, q, limit)
 	if raw == nil && stop != nil {
 		return stop
 	}
-	out, err := shapeStories(d, raw, listShapeOpts(fieldsFlag, fields))
+	out, err := shape(raw)
 	if err != nil {
 		return err
 	}
 	if err := d.Out(out); err != nil {
 		return err
 	}
-	return stop // a list cut short: the items read, then the error
+	return stop
 }
 
 // listPages gets up to limit items (all with limit < 0) from a list endpoint.

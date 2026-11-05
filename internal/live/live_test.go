@@ -12,6 +12,8 @@
 //	SCUT_LIVE_FILE         the name of a file attached to the story
 //	SCUT_LIVE_FILE_SIZE    its size in bytes
 //	SCUT_LIVE_BRANCH       the expected prefix of the branch name
+//	SCUT_LIVE_DOC_URL      the web app URL of a doc that is not empty
+//	SCUT_LIVE_DOC_TITLE    its title
 //
 // A check whose variable is not set is skipped.
 package live
@@ -22,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -141,6 +144,34 @@ func TestLive(t *testing.T) {
 		}
 		if p := want(t, "SCUT_LIVE_BRANCH"); !strings.HasPrefix(v.Branch, p) {
 			t.Errorf("branch %q, want prefix %q", v.Branch, p)
+		}
+	})
+	t.Run("doc view and search", func(t *testing.T) {
+		docURL, title := want(t, "SCUT_LIVE_DOC_URL"), want(t, "SCUT_LIVE_DOC_TITLE")
+		path := filepath.Join(t.TempDir(), "doc.md")
+		var out struct {
+			ID          string `json:"id"`
+			Title       string `json:"title"`
+			ContentFile string `json:"content_file"`
+		}
+		if err := json.Unmarshal(run(t, "doc", "view", docURL, "--out", path), &out); err != nil {
+			t.Fatal(err)
+		}
+		if out.Title != title || out.ContentFile != path {
+			t.Errorf("title %q, content_file %q; want %q, %q", out.Title, out.ContentFile, title, path)
+		}
+		if fi, err := os.Stat(path); err != nil || fi.Size() == 0 {
+			t.Errorf("content file: %v", err)
+		}
+		type doc struct {
+			ID string `json:"id"`
+		}
+		var found []doc
+		if err := json.Unmarshal(run(t, "doc", "search", title, "--limit", "all"), &found); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.ContainsFunc(found, func(f doc) bool { return f.ID == out.ID }) {
+			t.Errorf("doc search %q: no doc %s in %d results", title, out.ID, len(found))
 		}
 	})
 }

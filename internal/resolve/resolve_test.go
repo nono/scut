@@ -325,16 +325,83 @@ func TestEpic(t *testing.T) {
 	if id, err := e.r.Epic("Alpha"); err != nil || id != 2 || query != `"Alpha"` {
 		t.Errorf("name: %d, %v, query %q", id, err, query)
 	}
+	// An ID or a name is trimmed; a blank one is a usage error, before any call.
+	if id, err := e.r.Epic(" 42\n"); err != nil || id != 42 {
+		t.Errorf("trim id: %d, %v", id, err)
+	}
+	if id, err := e.r.Epic(" Alpha\n"); err != nil || id != 2 || query != `"Alpha"` {
+		t.Errorf("trim name: %d, %v, query %q", id, err, query)
+	}
+	query = ""
+	_, err := e.r.Epic(" \t")
+	if _ = wantErr(t, err, exit.Usage); query != "" {
+		t.Errorf("blank made a call: query %q", query)
+	}
 	if id, err := e.r.Epic("Late"); err != nil || id != 9 {
 		t.Errorf("page 2: %d, %v", id, err)
 	}
-	_, err := e.r.Epic("Dup")
+	_, err = e.r.Epic("Dup")
 	x := wantErr(t, err, exit.Usage)
-	if !slices.Equal(x.Valid, []string{"3", "4"}) {
-		t.Errorf("valid %v", x.Valid)
+	if !slices.Equal(x.Valid, []string{"3", "4"}) || x.Msg != `epic name "Dup" matches more than one epic` ||
+		x.Suggestion != "give the epic ID" {
+		t.Errorf("got %+v", x)
 	}
 	_, err = e.r.Epic("Missing")
+	if x = wantErr(t, err, exit.NotFound); x.Msg != `no epic "Missing"` {
+		t.Errorf("msg %q", x.Msg)
+	}
+}
+
+func TestDocByTitle(t *testing.T) {
+	const (
+		a = "1b4e28ba-2fa1-41d2-883f-0016d3cca427"
+		b = "2b4e28ba-2fa1-41d2-883f-0016d3cca427"
+		c = "3b4e28ba-2fa1-41d2-883f-0016d3cca427"
+		d = "4b4e28ba-2fa1-41d2-883f-0016d3cca427"
+	)
+	var queries []string
+	e := newEnv(t, func(x *api) {
+		x.routes["GET /api/v4/acme/documents/search"] = func(w http.ResponseWriter, r *http.Request) {
+			q := r.URL.Query()
+			queries = append(queries, q.Get("query"))
+			w.Header().Set("Content-Type", "application/json")
+			if q.Get("cursor") == "p2" {
+				_ = json.NewEncoder(w).Encode(list(map[string]any{"id": d, "title": "Late"}))
+				return
+			}
+			if q.Get("query") == "Late" {
+				p1 := list(map[string]any{"id": a, "title": "Late one"})
+				p1["next_page_url"] = "http://x/api/v4/acme/documents/search?cursor=p2"
+				_ = json.NewEncoder(w).Encode(p1)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(list(
+				map[string]any{"id": a, "title": "Spec v2"},
+				map[string]any{"id": a, "title": "spec"}, // differs only in case
+				map[string]any{"id": b, "title": "Spec"},
+				map[string]any{"id": c, "title": "Dup"}, map[string]any{"id": d, "title": "Dup"}))
+		}
+	})
+	if id, err := e.r.DocByTitle("Spec"); err != nil || id != b || queries[0] != "Spec" {
+		t.Errorf("title: %s, %v, queries %v", id, err, queries)
+	}
+	// The match is case-sensitive: "SPEC" matches neither "Spec" nor "spec".
+	_, err := e.r.DocByTitle("SPEC")
 	_ = wantErr(t, err, exit.NotFound)
+	if id, err := e.r.DocByTitle("Late"); err != nil || id != d {
+		t.Errorf("page 2: %s, %v", id, err)
+	}
+	_, err = e.r.DocByTitle("Dup")
+	x := wantErr(t, err, exit.Usage)
+	if !slices.Equal(x.Valid, []string{c, d}) || x.Msg != `doc title "Dup" matches more than one doc` ||
+		x.Suggestion != "give the doc URL or ID" {
+		t.Errorf("got %+v", x)
+	}
+	_, err = e.r.DocByTitle("Missing")
+	x = wantErr(t, err, exit.NotFound)
+	if !slices.Contains(x.Valid, "Spec v2") || x.Msg != `no doc "Missing"` {
+		t.Errorf("got %+v", x)
+	}
 }
 
 func TestNames(t *testing.T) {
