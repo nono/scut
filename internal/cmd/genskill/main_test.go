@@ -126,6 +126,7 @@ func TestCoverageUnknownOp(t *testing.T) {
 // allowNoOps lists the leaf commands that call no v4 operation.
 var allowNoOps = map[string]bool{
 	"cache clear": true, // removes local files only
+	"spec":        true, // reads the embedded spec
 }
 
 func TestEveryLeafHasOps(t *testing.T) {

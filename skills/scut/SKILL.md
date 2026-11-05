@@ -47,6 +47,7 @@ Each line: command, summary, flags. Run `scut <noun> usage` for flag help.
 - `field list` List custom fields.
 - `field values` `<field>` List the values of a custom field.
 - `member list` List members.
+- `spec` `<operationId|SchemaName>` Show the shape of a v4 operation or schema. Flags: --depth int.
 - `story branch` `[<story>]` Print the suggested git branch name of a story.
 - `story comment` `<story>` Add a comment to a story. Flags: --body-file string.
 - `story comments` `<story>` List the comments of a story, oldest first. Flags: --limit string.

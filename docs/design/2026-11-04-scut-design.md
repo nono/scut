@@ -101,6 +101,7 @@ scut team list · scut member list · scut workflow list · scut workflow states
 scut field list · scut field values <field>
 scut whoami
 scut api <path> [-X METHOD] [-f key=value]… [--input file|-]
+scut spec <operationId|SchemaName> [--depth N]   (see 2026-11-05-spec-design.md)
 scut usage · scut <noun> usage
 scut auth login · scut auth status
 scut cache clear
