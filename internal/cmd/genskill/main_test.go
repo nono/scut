@@ -203,21 +203,46 @@ func TestCommittedFilesCurrent(t *testing.T) {
 }
 
 func TestReadmeText(t *testing.T) {
-	in := "# x\n\n" + beginMark + "\n- old\n" + endMark + "\n\n## Next\n"
-	got, err := readmeText(in)
+	in := "# x\n\n" + beginMark + "\n- old\n" + endMark + "\n\n## P\n\n" + permsMark + "\nold\n" + permsEnd + "\n\n## Next\n"
+	got, err := readmeText(in, "| table |")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "# x\n\n" + beginMark + "\n" + notSupported() + "\n" + endMark + "\n\n## Next\n"
+	want := "# x\n\n" + beginMark + "\n" + notSupported() + "\n" + endMark + "\n\n## P\n\n" + permsMark + "\n| table |\n" + permsEnd + "\n\n## Next\n"
 	if got != want {
 		t.Errorf("got %q", got)
 	}
 	if !strings.HasPrefix(notSupported(), "- ") || strings.Contains(notSupported(), "##") {
 		t.Errorf("list %q", notSupported())
 	}
-	for _, bad := range []string{"no markers", beginMark + " no end", endMark + " no begin"} {
-		if _, err := readmeText(bad); err == nil {
+	for _, bad := range []string{"no markers", beginMark + " no end", endMark + " no begin",
+		beginMark + endMark, permsMark + permsEnd, permsMark + " no end" + beginMark + endMark} {
+		if _, err := readmeText(bad, ""); err == nil {
 			t.Errorf("want an error for %q", bad)
+		}
+	}
+}
+
+func TestPermissionsTable(t *testing.T) {
+	root := testRoot()
+	table := permissionsText(root, loadSpec(t))
+	for _, c := range leafCommands(root) {
+		if !strings.Contains(table, "| `"+cmdPath(c)+"` |") {
+			t.Errorf("missing %q", cmdPath(c))
+		}
+	}
+	for _, want := range []string{
+		"| `story view` | no |",
+		"| `story search` | no |",
+		"| `cache clear` | no |",
+		"| `story comment` | `createStoryComment` |",
+		"| `story unlink` | `deleteStoryLink` |",
+		"| `story create` | `createStory` |",
+		"| `worktree` | `updateStory` |",
+		"| `api` | any operation; a DELETE needs `--yes` |",
+	} {
+		if !strings.Contains(table+"\n", want+"\n") {
+			t.Errorf("no %q in\n%s", want, table)
 		}
 	}
 }

@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -40,20 +41,109 @@ func TestGroupWithoutSubcommand(t *testing.T) {
 	}
 }
 
-func TestUnknownCommandIs2(t *testing.T) {
+// usageError runs args on root and returns the JSON error; it fails unless the code is 2.
+func usageError(t *testing.T, root *cobra.Command, args ...string) map[string]any {
+	t.Helper()
 	var out, errb bytes.Buffer
-	if code := cli.Execute([]string{"story"}, &out, &errb, emptyEnv()); code != 2 {
-		t.Fatalf("code %d, want 2", code)
+	root.SetOut(&out)
+	if code := cli.RunContext(context.Background(), root, args, &errb); code != 2 {
+		t.Fatalf("%v: code %d, want 2; stderr %s", args, code, errb.String())
 	}
-	if !strings.Contains(errb.String(), `"error"`) {
-		t.Errorf("stderr: %q", errb.String())
+	return decode(t, errb.String())
+}
+
+func hasValid(e map[string]any, want ...string) bool {
+	valid, _ := e["valid"].([]any)
+	for _, w := range want {
+		if !slices.Contains(valid, any(w)) {
+			return false
+		}
+	}
+	return true
+}
+
+// Errors from the command tree name the fix: the valid subcommands or flags, and how to get help.
+func TestUsageErrorsNameTheFix(t *testing.T) {
+	for _, c := range []struct {
+		args       []string
+		valid      []string
+		suggestion string
+	}{
+		{[]string{"stroy"}, []string{"story", "epic"}, `did you mean "story"?`},
+		{[]string{"--nope"}, []string{"--human", "--version"}, `see "scut --help"`},
+		{[]string{"--profile"}, nil, `see "scut --help"`},
+		{[]string{"story", "veiw"}, []string{"view", "comment"}, `did you mean "view"?`},
+		{[]string{"story", "nothing-like-it"}, []string{"view"}, `see "scut story --help"`},
+		{[]string{"story"}, []string{"view", "update"}, `see "scut story --help"`},
+		{[]string{"story", "search"}, nil, "usage: scut story search <query>"},
+		{[]string{"workflow", "states", "a", "b"}, nil, "usage: scut workflow states [<workflow>]"},
+		{[]string{"story", "view", "1", "--feilds", "id"}, []string{"--fields", "--comments", "--human"}, `see "scut story view --help"`},
+		{[]string{"story", "view", "1", "-z"}, []string{"--fields"}, `see "scut story view --help"`},
+		{[]string{"spec", "Story", "--depth", "x"}, nil, `see "scut spec --help"`},
+		// A leaf that takes no arguments: extra ones are a wrong count, not a command.
+		{[]string{"whoami", "extra"}, nil, "usage: scut whoami"},
+		{[]string{"team", "list", "x"}, nil, "usage: scut team list"},
+		// An Args check that returns its own usage error still gets the usage line.
+		{[]string{"story", "link", "1", "blocks"}, nil, "usage: scut story link <story> <verb> <story> [<verb> <story>]..."},
+		// A mistyped subcommand before a flag is an unknown command, not an unknown flag of the group.
+		{[]string{"story", "veiw", "1", "--fields", "name"}, []string{"view"}, `did you mean "view"?`},
+		{[]string{"story", "--yes"}, []string{"--human"}, `see "scut story --help"`},
+		// An empty name matches every name by prefix: no guess.
+		{[]string{"story", ""}, []string{"view"}, `see "scut story --help"`},
+	} {
+		e := usageError(t, cli.NewRoot(emptyEnv()), c.args...)
+		if !hasValid(e, c.valid...) {
+			t.Errorf("%v: valid %v, want %v", c.args, e["valid"], c.valid)
+		}
+		if c.valid == nil && e["valid"] != nil {
+			t.Errorf("%v: valid %v, want none", c.args, e["valid"])
+		}
+		if e["suggestion"] != c.suggestion {
+			t.Errorf("%v: suggestion %q, want %q", c.args, e["suggestion"], c.suggestion)
+		}
 	}
 }
 
-func TestBadFlagIs2(t *testing.T) {
-	var out, errb bytes.Buffer
-	if code := cli.Execute([]string{"--nope"}, &out, &errb, emptyEnv()); code != 2 {
-		t.Fatalf("code %d, want 2", code)
+// help on a topic that does not exist is the unknown-command error, not the root help.
+func TestHelpUnknownTopic(t *testing.T) {
+	for _, c := range []struct {
+		args       []string
+		valid      string
+		suggestion string
+	}{
+		{[]string{"help", "stroy"}, "story", `did you mean "story"?`},
+		{[]string{"help", "story", "veiw"}, "view", `did you mean "view"?`},
+	} {
+		e := usageError(t, cli.NewRoot(emptyEnv()), c.args...)
+		if !hasValid(e, c.valid) || e["suggestion"] != c.suggestion {
+			t.Errorf("%v: %v", c.args, e)
+		}
+	}
+	// Words after a leaf are its arguments, as in the command line the user wants to run.
+	h := newHarness(t, nil, "", nil)
+	for _, args := range [][]string{{"help"}, {"help", "story"}, {"help", "story", "view"}, {"help", "story", "view", "1"}, {"help", "api", "/stories"}} {
+		if code, out, errs := h.run(args...); code != 0 || out == "" || errs != "" {
+			t.Errorf("%v: code %d, stdout %d bytes, stderr %q", args, code, len(out), errs)
+		}
+	}
+}
+
+// Hidden commands, hidden flags and the help command are not in valid.
+func TestValidLeavesOutHidden(t *testing.T) {
+	root := cli.NewRoot(emptyEnv())
+	root.AddCommand(&cobra.Command{Use: "secret", Hidden: true, Run: func(*cobra.Command, []string) {}})
+	leaf := &cobra.Command{Use: "leaf", Run: func(*cobra.Command, []string) {}}
+	leaf.Flags().Bool("shown", false, "")
+	leaf.Flags().Bool("unseen", false, "")
+	_ = leaf.Flags().MarkHidden("unseen")
+	root.AddCommand(leaf)
+	e := usageError(t, root, "nothing-like-it")
+	if !hasValid(e, "leaf") || hasValid(e, "secret") || hasValid(e, "help") {
+		t.Errorf("commands: valid %v", e["valid"])
+	}
+	e = usageError(t, root, "leaf", "--nope")
+	if !hasValid(e, "--shown") || hasValid(e, "--unseen") {
+		t.Errorf("flags: valid %v", e["valid"])
 	}
 }
 

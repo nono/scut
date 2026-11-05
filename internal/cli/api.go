@@ -38,7 +38,8 @@ func newAPI(env Env) *cobra.Command {
 			"The output is the entity or the array of entities of the response.",
 		Args:        cobra.ExactArgs(1),
 		Annotations: map[string]string{OpsAnnotation: "*"},
-		RunE: withDeps(env, func(cmd *cobra.Command, args []string, d *deps) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Check the flags before the token is read.
 			var body any
 			switch {
 			case input != "" && len(fields) > 0:
@@ -76,15 +77,17 @@ func newAPI(env Env) *cobra.Command {
 			if m == "DELETE" && !yes {
 				return exit.Usagef("DELETE needs --yes")
 			}
-			out, err := d.Doer.Raw(cmd.Context(), m, args[0], nil, body)
-			if err != nil {
-				return err
-			}
-			if len(out) == 0 {
-				return nil
-			}
-			return d.Out(out)
-		}),
+			return withDeps(env, func(cmd *cobra.Command, args []string, d *deps) error {
+				out, err := d.Doer.Raw(cmd.Context(), m, args[0], nil, body)
+				if err != nil {
+					return err
+				}
+				if len(out) == 0 {
+					return nil
+				}
+				return d.Out(out)
+			})(cmd, args)
+		},
 	}
 	cmd.Flags().StringVarP(&method, "method", "X", "", "HTTP method (default GET, or POST with a body)")
 	cmd.Flags().StringArrayVarP(&fields, "field", "f", nil, "body field key=value (repeat); numbers, true, false and null stay JSON")

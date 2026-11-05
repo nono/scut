@@ -341,6 +341,11 @@ func TestViewManyLimit(t *testing.T) {
 	if code != 2 || !strings.Contains(errs, "at most 100 stories") || c.total() != 1 {
 		t.Errorf("101 IDs: code %d, stderr %s", code, errs)
 	}
+	// The count is a usage error before the token is read.
+	noToken := newHarness(t, map[string]http.HandlerFunc{}, "", nil)
+	if code, _, errs := noToken.run(args...); code != 2 || !strings.Contains(errs, "at most 100 stories") {
+		t.Errorf("101 IDs, no token: code %d, stderr %s", code, errs)
+	}
 }
 
 func TestViewTotal(t *testing.T) {

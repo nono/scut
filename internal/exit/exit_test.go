@@ -30,6 +30,16 @@ func TestWriteAllFields(t *testing.T) {
 	}
 }
 
+// A usage line keeps its < and >, so stderr reads as the help does.
+func TestWriteNoHTMLEscape(t *testing.T) {
+	var b bytes.Buffer
+	exit.Write(&b, &exit.Error{Code: exit.Usage, Msg: "m", Suggestion: "usage: scut api <path> & more"})
+	want := `{"error":"m","suggestion":"usage: scut api <path> & more"}` + "\n"
+	if b.String() != want {
+		t.Errorf("got %q, want %q", b.String(), want)
+	}
+}
+
 func TestWritePlainError(t *testing.T) {
 	var b bytes.Buffer
 	if code := exit.Write(&b, errors.New("x")); code != exit.Other {
