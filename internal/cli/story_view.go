@@ -125,8 +125,9 @@ func newStoryView(env Env) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if n := len(uniqueIDs(ids)); n > maxPageSize {
-			return exit.Usagef("story view takes at most %d stories, not %d", maxPageSize, n)
+		uniq := uniqueIDs(ids)
+		if len(uniq) > maxPageSize {
+			return exit.Usagef("story view takes at most %d stories, not %d", maxPageSize, len(uniq))
 		}
 		var fields []string
 		if *fieldsFlag != "" {
@@ -137,7 +138,7 @@ func newStoryView(env Env) *cobra.Command {
 		return withDeps(env, func(cmd *cobra.Command, _ []string, d *deps) error {
 			ctx := cmd.Context()
 			if len(ids) > 1 {
-				return viewMany(ctx, d, ids, fields)
+				return viewMany(ctx, d, uniq, fields)
 			}
 			return viewOne(ctx, d, ids[0], fields, nComments)
 		})(cmd, args)
@@ -234,8 +235,7 @@ func uniqueIDs(ids []int64) []int64 {
 
 // viewMany gets several stories in one call. It prints the stories found, in
 // argument order, then fails with exit 3 if some are missing.
-func viewMany(ctx context.Context, d *deps, ids []int64, fields []string) error {
-	uniq := uniqueIDs(ids)
+func viewMany(ctx context.Context, d *deps, uniq []int64, fields []string) error {
 	strs := make([]string, 0, len(uniq))
 	for _, id := range uniq {
 		strs = append(strs, strconv.FormatInt(id, 10))

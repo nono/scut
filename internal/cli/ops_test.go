@@ -200,7 +200,7 @@ func TestOpsAnnotationsComplete(t *testing.T) {
 				t.Fatal(err)
 			}
 			tested[c] = true
-			annotated := strings.Split(c.Annotations[cli.OpsAnnotation], ",")
+			annotated := cli.Ops(c)
 			var missing []string
 			for _, r := range rec.reqs {
 				method, path, _ := strings.Cut(r, " ")

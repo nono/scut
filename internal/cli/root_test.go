@@ -120,10 +120,10 @@ func TestHelpUnknownTopic(t *testing.T) {
 		}
 	}
 	// Words after a leaf are its arguments, as in the command line the user wants to run.
+	h := newHarness(t, nil, "", nil)
 	for _, args := range [][]string{{"help"}, {"help", "story"}, {"help", "story", "view"}, {"help", "story", "view", "1"}, {"help", "api", "/stories"}} {
-		var out, errb bytes.Buffer
-		if code := cli.Execute(args, &out, &errb, emptyEnv()); code != 0 || out.Len() == 0 || errb.Len() != 0 {
-			t.Errorf("%v: code %d, stdout %d bytes, stderr %q", args, code, out.Len(), errb.String())
+		if code, out, errs := h.run(args...); code != 0 || out == "" || errs != "" {
+			t.Errorf("%v: code %d, stdout %d bytes, stderr %q", args, code, len(out), errs)
 		}
 	}
 }

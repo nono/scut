@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -12,6 +13,18 @@ import (
 
 // OpsAnnotation is the cobra annotation key that lists the operationIds a command calls.
 const OpsAnnotation = "scut/ops"
+
+// Ops returns the operationIds of the OpsAnnotation of c: "*" for scut api,
+// none for a command that calls no operation.
+func Ops(c *cobra.Command) []string {
+	var out []string
+	for _, op := range strings.Split(c.Annotations[OpsAnnotation], ",") {
+		if op = strings.TrimSpace(op); op != "" {
+			out = append(out, op)
+		}
+	}
+	return out
+}
 
 type idName struct {
 	ID   int64  `json:"id"`

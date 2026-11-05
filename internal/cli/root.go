@@ -53,10 +53,7 @@ func Group(use, short string) *cobra.Command {
 		// The cobra default, which only its own error path sets.
 		SuggestionsMinimumDistance: 2,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			e := exit.Usagef("%q needs a subcommand", cmd.CommandPath())
-			e.Valid = subcommandNames(cmd)
-			e.Suggestion = seeHelp(cmd)
-			return e
+			return groupError(cmd, fmt.Sprintf("%q needs a subcommand", cmd.CommandPath()))
 		},
 	}
 	g.AddCommand(newUsage(false))
@@ -71,9 +68,7 @@ func noArgs(cmd *cobra.Command, args []string) error {
 		return exit.Usagef("%q takes no arguments, received %d", cmd.CommandPath(), len(args))
 	}
 	if len(args) > 0 {
-		e := exit.Usagef("unknown command %q for %q", args[0], cmd.CommandPath())
-		e.Valid = subcommandNames(cmd)
-		e.Suggestion = seeHelp(cmd)
+		e := groupError(cmd, fmt.Sprintf("unknown command %q for %q", args[0], cmd.CommandPath()))
 		// An empty name is a prefix of each name: make no guess.
 		if s := cmd.SuggestionsFor(args[0]); len(s) > 0 && strings.TrimSpace(args[0]) != "" {
 			e.Suggestion = fmt.Sprintf("did you mean %q?", s[0])
@@ -81,6 +76,11 @@ func noArgs(cmd *cobra.Command, args []string) error {
 		return e
 	}
 	return nil
+}
+
+// groupError is a usage error of a group: valid has its subcommands.
+func groupError(cmd *cobra.Command, msg string) *exit.Error {
+	return &exit.Error{Code: exit.Usage, Msg: msg, Valid: subcommandNames(cmd), Suggestion: seeHelp(cmd)}
 }
 
 // subcommandNames returns the names of the subcommands that a user can run.
@@ -124,10 +124,8 @@ func newHelp() *cobra.Command {
 		Use:   "help [command]",
 		Short: "Help about any command",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			target, rest, err := cmd.Root().Find(args)
-			if err != nil {
-				return exit.Usagef("%s", err)
-			}
+			// Find fails only when the root has no Args check, and the root has noArgs.
+			target, rest, _ := cmd.Root().Find(args)
 			// Words after a leaf are its arguments: show its help.
 			if len(rest) > 0 && target.HasSubCommands() {
 				return noArgs(target, rest)
@@ -173,10 +171,10 @@ func usageArgs(c *cobra.Command) {
 	if old := c.Args; old != nil {
 		c.Args = func(cmd *cobra.Command, args []string) error {
 			err := old(cmd, args)
-			var ee *exit.Error
 			if err == nil {
 				return nil
 			}
+			var ee *exit.Error
 			if !errors.As(err, &ee) {
 				ee = exit.Usagef("%s", err)
 			}

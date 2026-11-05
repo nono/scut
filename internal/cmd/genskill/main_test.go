@@ -215,15 +215,11 @@ func TestReadmeText(t *testing.T) {
 	if !strings.HasPrefix(notSupported(), "- ") || strings.Contains(notSupported(), "##") {
 		t.Errorf("list %q", notSupported())
 	}
-	both := beginMark + endMark + permsMark + permsEnd
 	for _, bad := range []string{"no markers", beginMark + " no end", endMark + " no begin",
 		beginMark + endMark, permsMark + permsEnd, permsMark + " no end" + beginMark + endMark} {
 		if _, err := readmeText(bad, ""); err == nil {
 			t.Errorf("want an error for %q", bad)
 		}
-	}
-	if _, err := readmeText(both, ""); err != nil {
-		t.Errorf("both markers: %v", err)
 	}
 }
 

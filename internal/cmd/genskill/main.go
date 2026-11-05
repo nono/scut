@@ -174,23 +174,12 @@ func skillText(root *cobra.Command) string {
 	return b.String()
 }
 
-// commandOps returns the operationIds of the ops annotation of c, and "*" for scut api.
-func commandOps(c *cobra.Command) []string {
-	var out []string
-	for _, op := range strings.Split(c.Annotations[cli.OpsAnnotation], ",") {
-		if op = strings.TrimSpace(op); op != "" {
-			out = append(out, op)
-		}
-	}
-	return out
-}
-
 // opsByCommand maps each operationId to the sorted command paths that call it.
 // The "*" of scut api is left out.
 func opsByCommand(root *cobra.Command) map[string][]string {
 	m := map[string][]string{}
 	for _, c := range leafCommands(root) {
-		for _, op := range commandOps(c) {
+		for _, op := range cli.Ops(c) {
 			if op != "*" {
 				m[op] = append(m[op], cmdPath(c))
 			}
@@ -298,7 +287,7 @@ func permissionsText(root *cobra.Command, spec specInfo) string {
 	b.WriteString("| Command | Writes to Shortcut |\n|---|---|\n")
 	for _, c := range leafCommands(root) {
 		var writes []string
-		for _, op := range commandOps(c) {
+		for _, op := range cli.Ops(c) {
 			switch {
 			case op == "*":
 				writes = append(writes, "any operation; a DELETE needs `--yes`")
