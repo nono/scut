@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -168,7 +167,7 @@ var opsCases = [][]string{
 	{"epic", "stories", "Big epic"},
 	{"epic", "comment", "Big epic", "--body-file", "-"},
 	{"doc", "view", testDoc},
-	{"doc", "view", "Picking spec", "--out", "@tmp/spec.md"},
+	{"doc", "view", "Picking spec"},
 	{"doc", "search", "x"},
 	{"worktree", "5818", "--repo", "@repo", "--start"},
 }
@@ -187,8 +186,6 @@ func TestOpsAnnotationsComplete(t *testing.T) {
 				switch a {
 				case "@tmp":
 					args[i] = t.TempDir()
-				case "@tmp/spec.md":
-					args[i] = filepath.Join(t.TempDir(), "spec.md")
 				case "@repo":
 					_, args[i] = testgit.Repos(t)
 				}

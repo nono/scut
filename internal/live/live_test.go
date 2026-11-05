@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -162,17 +163,14 @@ func TestLive(t *testing.T) {
 		if fi, err := os.Stat(path); err != nil || fi.Size() == 0 {
 			t.Errorf("content file: %v", err)
 		}
-		var found []struct {
+		type doc struct {
 			ID string `json:"id"`
 		}
+		var found []doc
 		if err := json.Unmarshal(run(t, "doc", "search", title, "--limit", "all"), &found); err != nil {
 			t.Fatal(err)
 		}
-		ok := false
-		for _, f := range found {
-			ok = ok || f.ID == out.ID
-		}
-		if !ok {
+		if !slices.ContainsFunc(found, func(f doc) bool { return f.ID == out.ID }) {
 			t.Errorf("doc search %q: no doc %s in %d results", title, out.ID, len(found))
 		}
 	})
