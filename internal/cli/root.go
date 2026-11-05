@@ -85,7 +85,7 @@ func NewRoot(env Env) *cobra.Command {
 	pf.String("profile", "", "settings and token profile (default \"default\")")
 	root.AddCommand(newUsage(true), newAuth(env), newWhoami(env), newAPI(env),
 		newTeamGroup(env), newMemberGroup(env), newWorkflowGroup(env), newFieldGroup(env), newCacheGroup(env),
-		storyCmd(env), newEpicGroup(env))
+		storyCmd(env), newEpicGroup(env), newWorktree(env))
 	usageArgs(root)
 	return root
 }
@@ -119,7 +119,9 @@ func Execute(args []string, stdout, stderr io.Writer, env Env) int {
 }
 
 // RunContext runs root with args and ctx. It writes any error as JSON to stderr
-// and returns the exit code. A cancelled context gives 130.
+// and returns the exit code. A cancelled context gives 130, with no output
+// unless the command returns an *exit.Error with code 130: then it is written,
+// so the command can say what it did before the cancel.
 func RunContext(ctx context.Context, root *cobra.Command, args []string, stderr io.Writer) int {
 	root.SetArgs(args)
 	root.SetErr(stderr)
@@ -127,7 +129,11 @@ func RunContext(ctx context.Context, root *cobra.Command, args []string, stderr 
 	if err == nil {
 		return int(exit.OK)
 	}
-	if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, ctx.Err())) {
+	if ctx.Err() != nil {
+		var e *exit.Error
+		if errors.As(err, &e) && e.Code == exit.Cancelled {
+			return int(exit.Write(stderr, err))
+		}
 		return int(exit.Cancelled)
 	}
 	return int(exit.Write(stderr, err))

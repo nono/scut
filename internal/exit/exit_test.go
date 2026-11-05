@@ -22,8 +22,9 @@ func TestWriteError(t *testing.T) {
 
 func TestWriteAllFields(t *testing.T) {
 	var b bytes.Buffer
-	exit.Write(&b, &exit.Error{Code: exit.Other, Msg: "m", Status: 500, API: []byte(`{"a":1}`), Suggestion: "s", Valid: []string{"v"}})
-	want := `{"error":"m","status":500,"api":{"a":1},"suggestion":"s","valid":["v"]}` + "\n"
+	exit.Write(&b, &exit.Error{Code: exit.Other, Msg: "m", Status: 500, API: []byte(`{"a":1}`), Suggestion: "s", Valid: []string{"v"},
+		Worktree: map[string]any{"dir": "/x"}})
+	want := `{"error":"m","status":500,"api":{"a":1},"suggestion":"s","valid":["v"],"worktree":{"dir":"/x"}}` + "\n"
 	if b.String() != want {
 		t.Errorf("got %q, want %q", b.String(), want)
 	}

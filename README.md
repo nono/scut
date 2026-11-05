@@ -10,6 +10,7 @@ mise use github:nono/scut
 ```
 
 Releases are for Linux amd64 only. You can also build it with `make build`.
+`scut worktree` needs git 2.36 or later.
 
 ## Log in
 
@@ -70,6 +71,7 @@ scut story usage           # the commands of one noun
 scut story view 1234
 scut story search 'owner:me state:"To Do"'
 scut story create --name "Fix the login" --type bug
+scut worktree 1234 --start # find or make the git worktree of the story, and start the story
 ```
 
 Use names, not IDs. A wrong name exits 3 and the error lists the valid names.

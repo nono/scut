@@ -31,7 +31,7 @@ v1 ships:
 - U11 (sub-task commands after create; the parent at create is in v1, G3), U12 (docs), U13 (history), U14 (external links).
 - G2: unlink a PR, branch or commit. v4 has no endpoint for it. v1 can list them as part of `story view`.
 - G12: bulk commands. v1 accepts several links in one `story link` command, as one call per link (see Links).
-- N1 `scut worktree`, N2 shell completion.
+- N1 `scut worktree` (see `2026-11-05-worktree-design.md`), N2 shell completion.
 - Iterations, objectives, labels as their own commands. The command tree must have room for them.
 
 ## Anti-goals
@@ -102,7 +102,7 @@ scut auth login · scut auth status
 scut cache clear
 ```
 
-`<story>` accepts `sc-NNNN`, `NNNN`, a story URL, or a branch name. If you do not give a story, `scut` takes it from the current git branch with the regex `sc-(\d+)`. Outside a git repo, or with no match, it exits 2 (usage) with "give a story ID".
+`<story>` accepts `sc-NNNN`, `NNNN`, a story URL, or a branch name. If you do not give a story, `scut` takes it from the current git branch with the regex `(?:^|[^A-Za-z0-9])sc-(\d+)`, so `misc-12` is not story 12. Outside a git repo, or with no match, it exits 2 (usage) with "give a story ID".
 
 `story view` with several IDs makes one `GET /stories?ids=…` call. This covers the "read 10 stories" case of G12.
 

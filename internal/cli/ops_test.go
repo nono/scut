@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/nono/scut/internal/cli"
+	"github.com/nono/scut/internal/testgit"
 )
 
 // specOp is one operation of the v4 spec, with a regexp for its path.
@@ -107,10 +108,13 @@ func (o *opsRecorder) routes(t *testing.T) map[string]http.HandlerFunc {
 		"POST /api/v4/acme/story-links":             created(jsonOf(map[string]any{"entity": linkEntity(51, 5818, "blocks", 4000)})),
 		"DELETE /api/v4/acme/story-links/{id}":      func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) },
 		"PATCH /api/v4/acme/story-links/{id}":       jsonHandler(jsonOf(map[string]any{"entity": linkEntity(50, 5818, "relates to", 9)})),
-		"GET /api/v4/acme/epics/search":             jsonHandler(listBody(epic)),
-		"GET /api/v4/acme/epics/{id}":               jsonHandler(jsonOf(map[string]any{"entity": epic})),
-		"GET /api/v4/acme/epics/{id}/stories":       jsonHandler(listBody(story)),
-		"POST /api/v4/acme/epics/{id}/comments":     created(cmt),
+		"GET /api/v4/acme/workflows/{id}/states": jsonHandler(listBody( // the states of the workflow of the story fixture
+			map[string]any{"id": 500000007, "type": "unstarted", "position": 0},
+			map[string]any{"id": 500000008, "type": "started", "position": 1})),
+		"GET /api/v4/acme/epics/search":         jsonHandler(listBody(epic)),
+		"GET /api/v4/acme/epics/{id}":           jsonHandler(jsonOf(map[string]any{"entity": epic})),
+		"GET /api/v4/acme/epics/{id}/stories":   jsonHandler(listBody(story)),
+		"POST /api/v4/acme/epics/{id}/comments": created(cmt),
 	} {
 		m[k] = v
 	}
@@ -158,6 +162,7 @@ var opsCases = [][]string{
 	{"epic", "search", "x"},
 	{"epic", "stories", "Big epic"},
 	{"epic", "comment", "Big epic", "--body-file", "-"},
+	{"worktree", "5818", "--repo", "@repo", "--start"},
 }
 
 // Each operation that a command calls is in its scut/ops annotation, so
@@ -171,8 +176,11 @@ func TestOpsAnnotationsComplete(t *testing.T) {
 			var rec opsRecorder
 			args = slices.Clone(args)
 			for i, a := range args {
-				if a == "@tmp" {
+				switch a {
+				case "@tmp":
 					args[i] = t.TempDir()
+				case "@repo":
+					_, args[i] = testgit.Repos(t)
 				}
 			}
 			h := newHarness(t, rec.routes(t), "sct_rw_acme_s3cret\n", map[string]string{"SCUT_TOKEN": "sct_rw_acme_s3cret"})

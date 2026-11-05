@@ -30,6 +30,7 @@ type Error struct {
 	API        json.RawMessage
 	Suggestion string
 	Valid      []string
+	Worktree   any           // the worktree that scut worktree found or made before the error
 	RetryAfter time.Duration // from a Retry-After header; not printed
 	NotSent    bool          // a connect failure: the request did not reach the server; not printed
 }
@@ -52,6 +53,7 @@ type wire struct {
 	API        json.RawMessage `json:"api,omitempty"`
 	Suggestion string          `json:"suggestion,omitempty"`
 	Valid      []string        `json:"valid,omitempty"`
+	Worktree   any             `json:"worktree,omitempty"`
 }
 
 // Write prints err as one JSON object on w and returns its exit code.
@@ -61,7 +63,7 @@ func Write(w io.Writer, err error) Code {
 	if !errors.As(err, &e) {
 		e = &Error{Code: Other, Msg: err.Error()}
 	}
-	b, merr := json.Marshal(wire{e.Msg, e.Status, e.API, e.Suggestion, e.Valid})
+	b, merr := json.Marshal(wire{e.Msg, e.Status, e.API, e.Suggestion, e.Valid, e.Worktree})
 	if merr != nil {
 		b = []byte(`{"error":"cannot encode error"}`)
 	}
