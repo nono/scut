@@ -159,18 +159,18 @@ func TestCheck(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	var out, errb bytes.Buffer
-	if code := run([]string{"-root", dir}, &out, &errb, testRoot()); code != 0 {
+	var errb bytes.Buffer
+	if code := run([]string{"-root", dir}, &errb, testRoot()); code != 0 {
 		t.Fatalf("generate: code %d, %s", code, errb.String())
 	}
-	if code := run([]string{"-root", dir, "-check"}, &out, &errb, testRoot()); code != 0 {
+	if code := run([]string{"-root", dir, "-check"}, &errb, testRoot()); code != 0 {
 		t.Fatalf("check after generate: code %d, %s", code, errb.String())
 	}
 	if err := os.WriteFile(filepath.Join(dir, coveragePath), []byte("old\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	errb.Reset()
-	if code := run([]string{"-root", dir, "-check"}, &out, &errb, testRoot()); code != 1 {
+	if code := run([]string{"-root", dir, "-check"}, &errb, testRoot()); code != 1 {
 		t.Fatalf("check on a stale file: code %d", code)
 	}
 	if got := errb.String(); !strings.Contains(got, coveragePath) || strings.Contains(got, skillPath) || strings.Count(got, "\n") != 1 {
@@ -195,8 +195,8 @@ func TestStoryFieldsText(t *testing.T) {
 }
 
 func TestCommittedFilesCurrent(t *testing.T) {
-	var out, errb bytes.Buffer
-	if code := run([]string{"-root", repoRoot, "-check"}, &out, &errb, testRoot()); code != 0 {
+	var errb bytes.Buffer
+	if code := run([]string{"-root", repoRoot, "-check"}, &errb, testRoot()); code != 0 {
 		t.Errorf("code %d: %s (run make skill)", code, errb.String())
 	}
 }

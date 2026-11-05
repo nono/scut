@@ -219,7 +219,7 @@ func TestExplain(t *testing.T) {
 		}
 	}
 	other := &exit.Error{Code: exit.Unavailable, Msg: "down"}
-	if got := s.Explain("team", other); got != other {
+	if got := s.Explain("team", other); got != other { //nolint:errorlint // the same error, not one that wraps it
 		t.Errorf("a failure that is not a lookup miss changed: %v", got)
 	}
 }

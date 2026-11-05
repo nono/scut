@@ -53,7 +53,7 @@ func (s *Store) Get(key string, v any) (fresh bool, err error) {
 	}
 	var e entry
 	if json.Unmarshal(b, &e) != nil || json.Unmarshal(e.Data, v) != nil {
-		return false, nil // corrupt: treat as a miss
+		return false, nil //nolint:nilerr // corrupt: treat as a miss
 	}
 	if cleared, ok := s.clearedAt(); ok && e.At.Before(cleared) {
 		return false, nil

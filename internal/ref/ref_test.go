@@ -41,7 +41,7 @@ const docID = "1b4e28ba-2fa1-41d2-883f-0016d3cca427"
 func TestDocRef(t *testing.T) {
 	for in, want := range map[string]string{
 		docID:                                   docID,
-		" 1B4E28BA-2FA1-41D2-883F-0016D3CCA427": docID,
+		" 1B4E28BA-2FA1-41D2-883F-0016D3CCA427": docID, //nolint:gocritic // the space is part of the test
 		"https://app.shortcut.com/acme/write/IkRvYyI6I3V1aWQgIjFiNGUyOGJhLTJmYTEtNDFkMi04ODNmLTAwMTZkM2NjYTQyNyI=":       docID,
 		"https://app.shortcut.com/acme/write/IkRvYyI6I3V1aWQgIjFiNGUyOGJhLTJmYTEtNDFkMi04ODNmLTAwMTZkM2NjYTQyNyI":        docID,
 		"https://app.shortcut.com/acme/write/IkRvYyI6I3V1aWQgIjFiNGUyOGJhLTJmYTEtNDFkMi04ODNmLTAwMTZkM2NjYTQyNyI=?x=1#y": docID,
