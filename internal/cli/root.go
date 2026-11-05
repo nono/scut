@@ -61,7 +61,13 @@ func Group(use, short string) *cobra.Command {
 	return g
 }
 
+// noArgs is the Args check of a command that takes no arguments. For a group,
+// an argument is an unknown subcommand. For a leaf, it is a wrong count, and
+// usageArgs adds the usage line.
 func noArgs(cmd *cobra.Command, args []string) error {
+	if len(args) > 0 && !cmd.HasSubCommands() {
+		return exit.Usagef("%q takes no arguments, received %d", cmd.CommandPath(), len(args))
+	}
 	if len(args) > 0 {
 		e := exit.Usagef("unknown command %q for %q", args[0], cmd.CommandPath())
 		e.Valid = subcommandNames(cmd)
@@ -69,7 +75,8 @@ func noArgs(cmd *cobra.Command, args []string) error {
 		if cmd.SuggestionsMinimumDistance <= 0 {
 			cmd.SuggestionsMinimumDistance = 2 // the cobra default, which only its own error path sets
 		}
-		if s := cmd.SuggestionsFor(args[0]); len(s) > 0 {
+		// An empty name is a prefix of each name: make no guess.
+		if s := cmd.SuggestionsFor(args[0]); len(s) > 0 && strings.TrimSpace(args[0]) != "" {
 			e.Suggestion = fmt.Sprintf("did you mean %q?", s[0])
 		}
 		return e
@@ -93,7 +100,18 @@ func seeHelp(cmd *cobra.Command) string {
 }
 
 // flagError is a flag parse error, with the flags of cmd in valid when the flag is unknown.
+// On a group, cobra parses the flags before it looks for the subcommand: an
+// argument before the flag is an unknown subcommand, and valid has the subcommands.
 func flagError(cmd *cobra.Command, err error) error {
+	if cmd.HasSubCommands() {
+		if a := cmd.Flags().Args(); len(a) > 0 {
+			return noArgs(cmd, a)
+		}
+		e := exit.Usagef("%s", err)
+		e.Valid = subcommandNames(cmd)
+		e.Suggestion = seeHelp(cmd)
+		return e
+	}
 	e := exit.Usagef("%s", err)
 	e.Suggestion = seeHelp(cmd)
 	if strings.HasPrefix(err.Error(), "unknown ") {
@@ -133,18 +151,23 @@ func NewRoot(env Env) *cobra.Command {
 }
 
 // usageArgs wraps the Args check of each command: a positional-argument error
-// exits 2, with the usage line as the suggestion. An *exit.Error keeps its code.
+// exits 2, with the usage line as the suggestion. An *exit.Error keeps its code,
+// and a usage error with no suggestion gets the usage line.
 func usageArgs(c *cobra.Command) {
 	if old := c.Args; old != nil {
 		c.Args = func(cmd *cobra.Command, args []string) error {
 			err := old(cmd, args)
 			var ee *exit.Error
-			if err == nil || errors.As(err, &ee) {
-				return err
+			if err == nil {
+				return nil
 			}
-			e := exit.Usagef("%s", err)
-			e.Suggestion = "usage: " + strings.TrimSuffix(cmd.UseLine(), " [flags]")
-			return e
+			if !errors.As(err, &ee) {
+				ee = exit.Usagef("%s", err)
+			}
+			if ee.Code == exit.Usage && ee.Suggestion == "" {
+				ee.Suggestion = "usage: " + strings.TrimSuffix(cmd.UseLine(), " [flags]")
+			}
+			return ee
 		}
 	}
 	for _, sub := range c.Commands() {

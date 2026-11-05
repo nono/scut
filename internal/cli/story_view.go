@@ -125,6 +125,9 @@ func newStoryView(env Env) *cobra.Command {
 		if err != nil {
 			return err
 		}
+		if n := len(uniqueIDs(ids)); n > maxPageSize {
+			return exit.Usagef("story view takes at most %d stories, not %d", maxPageSize, n)
+		}
 		var fields []string
 		if *fieldsFlag != "" {
 			if fields, err = apiFields(*fieldsFlag); err != nil {
@@ -218,19 +221,24 @@ func fetchComments(ctx context.Context, d *deps, id int64, n int) ([]CommentOut,
 	return shapeComments(raw, d.Resolver)
 }
 
-// viewMany gets several stories in one call. It prints the stories found, in
-// argument order, then fails with exit 3 if some are missing.
-func viewMany(ctx context.Context, d *deps, ids []int64, fields []string) error {
+// uniqueIDs returns ids without repeats, in argument order.
+func uniqueIDs(ids []int64) []int64 {
 	var uniq []int64
-	strs := []string{}
 	for _, id := range ids {
 		if !slices.Contains(uniq, id) {
 			uniq = append(uniq, id)
-			strs = append(strs, strconv.FormatInt(id, 10))
 		}
 	}
-	if len(uniq) > maxPageSize {
-		return exit.Usagef("story view takes at most %d stories, not %d", maxPageSize, len(uniq))
+	return uniq
+}
+
+// viewMany gets several stories in one call. It prints the stories found, in
+// argument order, then fails with exit 3 if some are missing.
+func viewMany(ctx context.Context, d *deps, ids []int64, fields []string) error {
+	uniq := uniqueIDs(ids)
+	strs := make([]string, 0, len(uniq))
+	for _, id := range uniq {
+		strs = append(strs, strconv.FormatInt(id, 10))
 	}
 	q := url.Values{"ids": {strings.Join(strs, ",")}, "filter": {"include_archived"}, "limit": {strconv.Itoa(len(uniq))}}
 	fieldsQuery(q, fields)

@@ -97,6 +97,16 @@ func TestUsageErrorsNameTheFix(t *testing.T) {
 		{[]string{"story", "view", "1", "--feilds", "id"}, []string{"--fields", "--comments", "--human"}, `see "scut story view --help"`},
 		{[]string{"story", "view", "1", "-z"}, []string{"--fields"}, `see "scut story view --help"`},
 		{[]string{"spec", "Story", "--depth", "x"}, nil, `see "scut spec --help"`},
+		// A leaf that takes no arguments: extra ones are a wrong count, not a command.
+		{[]string{"whoami", "extra"}, nil, "usage: scut whoami"},
+		{[]string{"team", "list", "x"}, nil, "usage: scut team list"},
+		// An Args check that returns its own usage error still gets the usage line.
+		{[]string{"story", "link", "1", "blocks"}, nil, "usage: scut story link <story> <verb> <story> [<verb> <story>]..."},
+		// A mistyped subcommand before a flag is an unknown command, not an unknown flag of the group.
+		{[]string{"story", "veiw", "1", "--fields", "name"}, []string{"view"}, `did you mean "view"?`},
+		{[]string{"story", "--yes"}, []string{"view", "update"}, `see "scut story --help"`},
+		// An empty name matches every name by prefix: no guess.
+		{[]string{"story", ""}, []string{"view"}, `see "scut story --help"`},
 	} {
 		e := usageError(t, c.args...)
 		if !hasValid(e, c.valid...) {
