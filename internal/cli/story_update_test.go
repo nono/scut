@@ -121,10 +121,32 @@ func TestUpdateFieldBadForm(t *testing.T) {
 	}
 }
 
+// parentPatch serves a story PATCH that records the body. With apply, the
+// reply has the parent of the body; else the reply keeps parent, as an API
+// that ignores parent_story_id does.
+func parentPatch(t *testing.T, c *calls, body *map[string]any, apply bool, parent any) http.HandlerFunc {
+	return c.wrap(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		*body = nil
+		_ = json.Unmarshal(b, body)
+		s := storyFixture(t)
+		s["parent_story"] = parent
+		if id, ok := (*body)["parent_story_id"]; ok && apply {
+			s["parent_story"] = nil
+			if id != nil {
+				s["parent_story"] = map[string]any{"id": id, "name": "Parent"}
+			}
+		}
+		jsonHandler(jsonOf(map[string]any{"entity": s}))(w, r)
+	})
+}
+
 func TestUpdateParent(t *testing.T) {
 	var c calls
 	var body map[string]any
-	h := updateHarness(t, &c, &body, nil)
+	h := updateHarness(t, &c, &body, map[string]http.HandlerFunc{
+		"PATCH " + updPath: parentPatch(t, &c, &body, true, map[string]any{"id": 4000}),
+	})
 	code, _, errs := h.run("story", "update", "5818", "--parent", "sc-5428")
 	if code != 0 || jsonOf(body) != `{"parent_story_id":5428}` {
 		t.Errorf("code %d, body %s, stderr %s", code, jsonOf(body), errs)
@@ -132,6 +154,29 @@ func TestUpdateParent(t *testing.T) {
 	code, _, errs = h.run("story", "update", "5818", "--no-parent")
 	if code != 0 || jsonOf(body) != `{"parent_story_id":null}` {
 		t.Errorf("code %d, body %s, stderr %s", code, jsonOf(body), errs)
+	}
+}
+
+// An API that ignores parent_story_id (Sub-task feature off) must not give exit 0.
+func TestUpdateParentIgnored(t *testing.T) {
+	for _, tc := range []struct {
+		flag   []string
+		parent any
+		want   string
+	}{
+		{[]string{"--parent", "5428"}, nil, "has no parent"},
+		{[]string{"--parent", "5428"}, map[string]any{"id": 4000}, "has parent 4000"},
+		{[]string{"--no-parent"}, map[string]any{"id": 4000}, "has parent 4000"},
+	} {
+		var c calls
+		var body map[string]any
+		h := updateHarness(t, &c, &body, map[string]http.HandlerFunc{
+			"PATCH " + updPath: parentPatch(t, &c, &body, false, tc.parent),
+		})
+		code, out, errs := h.run(append([]string{"story", "update", "5818"}, tc.flag...)...)
+		if code != 1 || out != "" || !strings.Contains(errs, tc.want) || !strings.Contains(errs, "Sub-task") {
+			t.Errorf("%v: code %d, stdout %s, stderr %s", tc.flag, code, out, errs)
+		}
 	}
 }
 
@@ -240,13 +285,19 @@ func TestUpdateStateWithWorkflowNoGet(t *testing.T) {
 func TestUpdateContract(t *testing.T) {
 	h := newHarness(t, nil, "", map[string]string{"SCUT_TOKEN": updateAuth})
 	h.env.APIBase = testapi.Prism(t)
-	for _, args := range [][]string{{"--name", "x", "--archive"}, {"--parent", "5428"}, {"--no-parent"}} {
-		code, out, errs := h.run(append([]string{"story", "update", "5818"}, args...)...)
-		if code != 0 {
-			t.Fatalf("%v: code %d, stderr %s", args, code, errs)
-		}
-		if _, ok := decode(t, out)["id"]; !ok {
-			t.Errorf("%v: no id: %s", args, out)
+	code, out, errs := h.run("story", "update", "5818", "--name", "x", "--archive")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if _, ok := decode(t, out)["id"]; !ok {
+		t.Errorf("no id: %s", out)
+	}
+	// Prism accepts the body, but its reply has a made-up parent, so the
+	// parent check fails. A body that Prism rejects gives another error.
+	for _, args := range [][]string{{"--parent", "5428"}, {"--no-parent"}} {
+		code, _, errs := h.run(append([]string{"story", "update", "5818"}, args...)...)
+		if code != 1 || !strings.Contains(errs, "the API did not change the parent") {
+			t.Errorf("%v: code %d, stderr %s", args, code, errs)
 		}
 	}
 }

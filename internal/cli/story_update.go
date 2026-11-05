@@ -165,6 +165,11 @@ func newStoryUpdate(env Env) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if want, ok := body["parent_story_id"]; ok {
+				if err := checkParent(raw, want); err != nil {
+					return err
+				}
+			}
 			out, err := shapeStory(raw, r, shapeOpts{Description: true})
 			if err != nil {
 				return err
@@ -173,4 +178,29 @@ func newStoryUpdate(env Env) *cobra.Command {
 		})(cmd, args)
 	}
 	return cmd
+}
+
+// checkParent fails when the story in raw does not have the parent want
+// (an int64, or nil for none). The API ignores parent_story_id when the
+// Sub-task feature of the workspace is off.
+func checkParent(raw []byte, want any) error {
+	var s struct {
+		Parent *struct {
+			ID int64 `json:"id"`
+		} `json:"parent_story"`
+	}
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return &exit.Error{Code: exit.Other, Msg: "bad story data: " + err.Error()}
+	}
+	got := "has no parent"
+	if s.Parent != nil {
+		if s.Parent.ID == want {
+			return nil
+		}
+		got = "has parent " + strconv.FormatInt(s.Parent.ID, 10)
+	} else if want == nil {
+		return nil
+	}
+	return &exit.Error{Code: exit.Other, Msg: "the API did not change the parent: the story " + got +
+		". The other changes are applied. Is the Sub-task feature of the workspace on?"}
 }
