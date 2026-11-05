@@ -46,6 +46,8 @@ func TestDocRef(t *testing.T) {
 		"https://app.shortcut.com/acme/write/IkRvYyI6I3V1aWQgIjFiNGUyOGJhLTJmYTEtNDFkMi04ODNmLTAwMTZkM2NjYTQyNyI":        docID,
 		"https://app.shortcut.com/acme/write/IkRvYyI6I3V1aWQgIjFiNGUyOGJhLTJmYTEtNDFkMi04ODNmLTAwMTZkM2NjYTQyNyI=?x=1#y": docID,
 		"https://api.app.shortcut.com/api/v4/acme/documents/" + docID:                                                    docID,
+		"https://api.app.shortcut.com/api/v4/acme/documents/1B4E28BA-2FA1-41D2-883F-0016D3CCA427":                        docID,
+		"HTTPS://app.shortcut.com/acme/write/IkRvYyI6I3V1aWQgIjFiNGUyOGJhLTJmYTEtNDFkMi04ODNmLTAwMTZkM2NjYTQyNyI=":       docID,
 	} {
 		got, ok, err := ref.Doc(in)
 		if err != nil || !ok || got != want {
@@ -68,6 +70,8 @@ func TestDocRefBadURL(t *testing.T) {
 		"https://app.shortcut.com/acme/write/bm90IGEgZG9j",                                                         // base64 of "not a doc"
 		"https://app.shortcut.com/acme/write/IkVwaWMiOiN1dWlkICIxYjRlMjhiYS0yZmExLTQxZDItODgzZi0wMDE2ZDNjY2E0Mjci", // "Epic":#uuid …
 		"https://app.shortcut.com/acme/story/12",
+		"https://api.app.shortcut.com/api/v4/acme/members/" + docID, // a UUID, but not of a doc
+		"https://app.shortcut.com/acme/write/" + docID,
 		"https://app.shortcut.com/",
 	} {
 		_, _, err := ref.Doc(in)

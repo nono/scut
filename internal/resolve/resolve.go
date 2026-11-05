@@ -23,7 +23,6 @@ import (
 const pageSize = "100"
 
 var (
-	uuidRe  = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 	digitRe = regexp.MustCompile(`^\d+$`)
 )
 
@@ -226,7 +225,7 @@ func (r *R) Member(name string) (string, error) {
 	if name == "@me" {
 		return r.Me()
 	}
-	if uuidRe.MatchString(name) {
+	if ref.IsUUID(name) {
 		return name, nil
 	}
 	mention := strings.TrimPrefix(name, "@")
