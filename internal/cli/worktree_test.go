@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -19,19 +18,11 @@ import (
 
 const wtStory = "/api/v4/acme/stories/1234"
 
-// gitRepos makes a bare origin and a clone of it with one commit, and returns
-// the path of the clone.
-func gitRepos(t *testing.T) string {
-	t.Helper()
-	_, main := testgit.Repos(t)
-	return main
-}
-
 // wtHarness is a harness with a git repo as the current directory. branch is
 // the formatted_vcs_branch_name of story 1234 ("" for no story route).
 func wtHarness(t *testing.T, c *calls, branch string, vars map[string]string) (*harness, string) {
 	t.Helper()
-	main := gitRepos(t)
+	_, main := testgit.Repos(t)
 	var routes map[string]http.HandlerFunc
 	if branch != "" {
 		routes = map[string]http.HandlerFunc{
@@ -215,7 +206,7 @@ func storyHandler(state func() int, owners []string) http.HandlerFunc {
 // startHarnessH is startHarness with the story and states handlers given.
 func startHarnessH(t *testing.T, c *calls, storyH, statesH http.HandlerFunc, patchStatus int, patch *map[string]any) (*harness, string) {
 	t.Helper()
-	h, main := wtHarness(t, c, `"bug/sc-1234/x"`, wtToken)
+	h, main := wtHarness(t, c, "", wtToken)
 	story := map[string]any{"id": 1234}
 	h.env.APIBase = testapi.Fake(t, map[string]http.HandlerFunc{
 		"GET " + wtStory:                      c.wrap(storyH),
@@ -432,14 +423,14 @@ func TestWorktreeStartRecheck(t *testing.T) {
 }
 
 func TestWorktreeHuman(t *testing.T) {
-	for name, run := range map[string]func(h *harness) (int, string, string){
-		"flag": func(h *harness) (int, string, string) { return h.run("worktree", "1234", "--human") },
-		"env":  func(h *harness) (int, string, string) { return h.run("worktree", "1234") },
-	} {
-		t.Run(name, func(t *testing.T) {
-			h, main := wtHarness(t, nil, "", map[string]string{"SCUT_OUTPUT": map[string]string{"flag": "", "env": "human"}[name]})
+	for _, tc := range []struct {
+		name, env string
+		args      []string
+	}{{"flag", "", []string{"--human"}}, {"env", "human", nil}} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, main := wtHarness(t, nil, "", map[string]string{"SCUT_OUTPUT": tc.env})
 			testgit.Git(t, main, "branch", "bug/sc-1234/x")
-			code, out, errs := run(h)
+			code, out, errs := h.run(append([]string{"worktree", "1234"}, tc.args...)...)
 			if code != 0 {
 				t.Fatalf("code %d, stderr %s", code, errs)
 			}
@@ -499,9 +490,7 @@ func TestWorktreeCancelledStart(t *testing.T) {
 
 // A branch that another run makes during the story read is used: no second branch.
 func TestWorktreeBranchMadeDuringLookup(t *testing.T) {
-	var main string
-	h, m := wtHarness(t, nil, "", wtToken)
-	main = m
+	h, main := wtHarness(t, nil, "", wtToken)
 	h.env.APIBase = testapi.Fake(t, map[string]http.HandlerFunc{
 		"GET " + wtStory: func(w http.ResponseWriter, r *http.Request) {
 			testgit.Git(t, main, "branch", "bug/sc-1234/other")
@@ -523,19 +512,10 @@ func TestWorktreeBranchMadeDuringLookup(t *testing.T) {
 // scut makes the directory before git runs, so a directory that appears
 // between the check and git worktree add cannot be one that scut did not make.
 func TestWorktreeMakesDirBeforeGit(t *testing.T) {
-	real, err := exec.LookPath("git")
-	if err != nil {
-		t.Fatal(err)
-	}
 	h, main := wtHarness(t, nil, "", nil)
 	testgit.Git(t, main, "branch", "bug/sc-1234/x")
 	dir := filepath.Join(filepath.Dir(main), "1234")
-	bin, log := t.TempDir(), filepath.Join(t.TempDir(), "log")
-	script := "#!/bin/sh\ncase \"$*\" in *\"worktree add\"*) if [ -d " + dir + " ]; then echo made >> " + log + "; fi;; esac\nexec " + real + " \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	log := testgit.WrapGit(t, `case "$*" in *"worktree add"*) if [ -d '`+dir+`' ]; then echo made >> "$LOG"; fi;; esac`)
 	if code, _, errs := h.run("worktree", "1234"); code != 0 {
 		t.Fatalf("code %d, stderr %s", code, errs)
 	}

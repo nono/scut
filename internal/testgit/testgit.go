@@ -63,6 +63,25 @@ func Repos(t *testing.T) (origin, main string) {
 	return origin, main
 }
 
+// WrapGit puts a git first on the PATH for the rest of t: it runs prelude, a
+// shell text, then the real git with the same arguments. In prelude, $LOG is
+// a file that WrapGit returns, for prelude to write to.
+func WrapGit(t *testing.T, prelude string) (log string) {
+	t.Helper()
+	real, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git not found")
+	}
+	bin := t.TempDir()
+	log = filepath.Join(t.TempDir(), "log")
+	script := "#!/bin/sh\nLOG='" + log + "'\n" + prelude + "\nexec '" + real + "' \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return log
+}
+
 // Push pushes a new branch to origin from a second clone.
 func Push(t *testing.T, origin, branch string) {
 	t.Helper()

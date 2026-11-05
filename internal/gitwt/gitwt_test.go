@@ -332,17 +332,8 @@ func TestFindBisect(t *testing.T) {
 
 // git runs in the C locale, so scut can read its messages in any locale.
 func TestRunCLocale(t *testing.T) {
-	real, err := exec.LookPath("git")
-	if err != nil {
-		t.Fatal(err)
-	}
 	_, main := testgit.Repos(t)
-	bin, log := t.TempDir(), filepath.Join(t.TempDir(), "log")
-	script := "#!/bin/sh\necho \"$LC_ALL\" >> " + log + "\nexec " + real + " \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	log := testgit.WrapGit(t, `echo "$LC_ALL" >> "$LOG"`)
 	t.Setenv("LC_ALL", "fr_FR.UTF-8")
 	open(t, main)
 	b, _ := os.ReadFile(log)

@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/nono/scut/internal/cli"
+	"github.com/nono/scut/internal/testgit"
 )
 
 // specOp is one operation of the v4 spec, with a regexp for its path.
@@ -179,7 +180,7 @@ func TestOpsAnnotationsComplete(t *testing.T) {
 				case "@tmp":
 					args[i] = t.TempDir()
 				case "@repo":
-					args[i] = gitRepos(t)
+					_, args[i] = testgit.Repos(t)
 				}
 			}
 			h := newHarness(t, rec.routes(t), "sct_rw_acme_s3cret\n", map[string]string{"SCUT_TOKEN": "sct_rw_acme_s3cret"})
