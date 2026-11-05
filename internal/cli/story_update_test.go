@@ -118,14 +118,17 @@ func TestUpdateFieldBadForm(t *testing.T) {
 
 // storyPatch serves a story PATCH that records the body in *body. The reply
 // has the parent that the body sets, as an API with the Sub-task feature on.
-// With ignored, the reply has parent, as an API with the feature off.
+// With ignored, the reply has parent, as an API with the feature off; with
+// parent omitted{}, the reply has no parent_story key.
 func storyPatch(t *testing.T, c *calls, body *map[string]any, ignored bool, parent any) http.HandlerFunc {
 	return c.wrap(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		*body = nil
 		_ = json.Unmarshal(b, body)
 		s := storyFixture(t)
-		if ignored {
+		if _, ok := parent.(omitted); ok {
+			delete(s, "parent_story")
+		} else if ignored {
 			s["parent_story"] = parent
 		} else if id, ok := (*body)["parent_story_id"]; ok && id != nil {
 			s["parent_story"] = map[string]any{"id": id, "name": "Parent"}
@@ -149,6 +152,9 @@ func TestUpdateParent(t *testing.T) {
 }
 
 // An API that ignores parent_story_id (Sub-task feature off) must not give exit 0.
+// omitted makes storyPatch leave parent_story out of the reply.
+type omitted struct{}
+
 func TestUpdateParentIgnored(t *testing.T) {
 	for _, tc := range []struct {
 		flag   []string
@@ -158,6 +164,8 @@ func TestUpdateParentIgnored(t *testing.T) {
 		{[]string{"--parent", "5428"}, nil, "has no parent"},
 		{[]string{"--parent", "5428"}, map[string]any{"id": 4000}, "has parent 4000"},
 		{[]string{"--no-parent"}, map[string]any{"id": 4000}, "has parent 4000"},
+		{[]string{"--parent", "5428"}, omitted{}, "the reply has no parent_story"},
+		{[]string{"--no-parent"}, omitted{}, "the reply has no parent_story"},
 	} {
 		var c calls
 		var body map[string]any
@@ -165,7 +173,8 @@ func TestUpdateParentIgnored(t *testing.T) {
 			"PATCH " + updPath: storyPatch(t, &c, &body, true, tc.parent),
 		})
 		code, out, errs := h.run(append([]string{"story", "update", "5818"}, tc.flag...)...)
-		if code != 1 || out != "" || !strings.Contains(errs, tc.want) || !strings.Contains(errs, "Sub-task") {
+		_, gone := tc.parent.(omitted)
+		if code != 1 || out != "" || !strings.Contains(errs, tc.want) || gone == strings.Contains(errs, "Sub-task") {
 			t.Errorf("%v: code %d, stdout %s, stderr %s", tc.flag, code, out, errs)
 		}
 	}

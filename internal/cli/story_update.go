@@ -186,24 +186,31 @@ func checkParent(raw []byte, body map[string]any) error {
 	if !ok {
 		return nil
 	}
-	var s struct {
-		Parent *struct {
-			ID int64 `json:"id"`
-		} `json:"parent_story"`
+	var s map[string]json.RawMessage
+	var parent *struct {
+		ID int64 `json:"id"`
 	}
-	if err := json.Unmarshal(raw, &s); err != nil {
+	err := json.Unmarshal(raw, &s)
+	if p, ok := s["parent_story"]; err == nil && ok {
+		err = json.Unmarshal(p, &parent)
+	} else if err == nil {
+		// The Story schema requires no field: do not take a missing key as no parent.
+		return &exit.Error{Code: exit.Other, Msg: "the reply has no parent_story, so scut cannot check the parent." +
+			" The write is saved. Read the story with scut story view --fields parent_story."}
+	}
+	if err != nil {
 		return &exit.Error{Code: exit.Other, Msg: "bad story data: " + err.Error()}
 	}
 	var got any
-	if s.Parent != nil {
-		got = s.Parent.ID
+	if parent != nil {
+		got = parent.ID
 	}
 	if got == want {
 		return nil
 	}
 	has := "has no parent"
-	if s.Parent != nil {
-		has = "has parent " + strconv.FormatInt(s.Parent.ID, 10)
+	if parent != nil {
+		has = "has parent " + strconv.FormatInt(parent.ID, 10)
 	}
 	return &exit.Error{Code: exit.Other, Msg: "the API did not set the parent: the story " + has +
 		". The rest of the write is saved. Is the Sub-task feature of the workspace on?"}
