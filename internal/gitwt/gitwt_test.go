@@ -236,6 +236,10 @@ func TestAdd(t *testing.T) {
 	if up := git(t, filepath.Join(filepath.Dir(main), "remote"), "rev-parse", "--abbrev-ref", "@{upstream}"); up != "origin/bug/sc-2/r" {
 		t.Errorf("upstream %q", up)
 	}
+	// A new branch must not track its base: git pull and git push would use main.
+	if out, err := exec.Command("git", "-C", filepath.Join(filepath.Dir(main), "new"), "rev-parse", "--abbrev-ref", "@{upstream}").CombinedOutput(); err == nil {
+		t.Errorf("new branch has upstream %s", out)
+	}
 }
 
 func TestGitErrorHasStderr(t *testing.T) {

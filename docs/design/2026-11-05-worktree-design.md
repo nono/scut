@@ -44,7 +44,7 @@ scut worktree [<story>] [--repo <path>] [--dir <path>] [--branch <name>] [--star
 
 ### Repository
 
-`git -C <repo> rev-parse --path-format=absolute --git-common-dir` gives the common git directory. The main worktree is the first entry of `git worktree list --porcelain`. Outside a git repository, exit 2 (usage).
+The main worktree is the first entry of `git -C <repo> worktree list --porcelain`, from any worktree of the repository. Outside a git repository, exit 2 (usage).
 
 ### Branch match
 
@@ -72,7 +72,7 @@ When no source matches, `--branch` gives the name of the new branch, and step 3 
 1. `git fetch origin`.
 2. Check `refs/remotes/origin/*` again. A match there gives `from: remote`. This finds a branch that another person pushed after the last fetch.
 3. Else read the story (`GET /stories/{id}`, field `formatted_vcs_branch_name`). Null gives exit 3, as `story branch` does. Strip a trailing `-` or `/`, as `story branch` does. A name with no `sc-<id>` in it is exit 3 with the suggestion to use `--branch`, because the next run would not find the branch.
-4. `git worktree add -b <name> <dir> origin/HEAD`, or `origin/main` when `origin/HEAD` is not set. `from: new`.
+4. `git worktree add --no-track -b <name> <dir> origin/HEAD`, or `origin/main` when `origin/HEAD` is not set. `from: new`. With no `--no-track`, the new branch tracks main, and `git pull` and `git push` use main.
 
 ### Directory
 
@@ -101,7 +101,7 @@ If the git part worked and the Shortcut part fails, the worktree stays. The comm
 {"story":1234,"branch":"bug/sc-1234/slug","dir":"/home/u/ts/1234","created":true,"from":"new"}
 ```
 
-With `--start`, the output also has `"started": true` when the state changed, else `false`. `--human` prints the directory and the branch.
+With `--start`, the output also has `"started": true` when the state changed, else `false`. `--human` or `SCUT_OUTPUT=human` prints the directory and the branch. The `output` key of a config file has no effect: it is read only when the command calls the API, so the format would change between runs.
 
 ## Shell function
 

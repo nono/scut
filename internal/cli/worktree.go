@@ -158,9 +158,8 @@ func newWorktree(env Env) *cobra.Command {
 					return &c
 				}
 			}
-			if d != nil {
-				return d.Out(res)
-			}
+			// Not d.Out: the output setting of a config file is read only when
+			// the API is called, so the format would depend on the path.
 			human, _ := cmd.Flags().GetBool("human")
 			human = human || env.Getenv("SCUT_OUTPUT") == "human"
 			return output.Print(cmd.OutOrStdout(), res, human)

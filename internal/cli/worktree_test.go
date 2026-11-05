@@ -324,3 +324,48 @@ func TestWorktreeStartAPIDown(t *testing.T) {
 		t.Errorf("stderr %s", errs)
 	}
 }
+
+// The output format must not depend on whether the run called the API: a
+// config file output setting is not read on the path with no API call.
+func TestWorktreeOutputSameOnBothPaths(t *testing.T) {
+	h, _ := wtHarness(t, &calls{}, `"bug/sc-1234/x"`, wtToken)
+	cfg := filepath.Join(h.env.Getenv("XDG_CONFIG_HOME"), "scut")
+	if err := os.MkdirAll(cfg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "config.toml"), []byte("output = \"human\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 2 {
+		code, out, errs := h.run("worktree", "1234")
+		if code != 0 {
+			t.Fatalf("run %d: code %d, stderr %s", i, code, errs)
+		}
+		decode(t, out)
+	}
+}
+
+// No fetch when a branch exists: an origin that cannot be reached must not matter.
+func TestWorktreeLocalNoFetch(t *testing.T) {
+	h, main := wtHarness(t, nil, "", nil)
+	gitT(t, main, "branch", "bug/sc-1234/x")
+	gitT(t, main, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
+	if code, _, errs := h.run("worktree", "1234"); code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+}
+
+func TestWorktreeFoundAfterFetch(t *testing.T) {
+	h, main := wtHarness(t, nil, "", nil)
+	other := filepath.Join(t.TempDir(), "other")
+	gitT(t, filepath.Dir(other), "clone", "-q", gitT(t, main, "remote", "get-url", "origin"), other)
+	gitT(t, other, "switch", "-q", "-c", "bug/sc-1234/x")
+	gitT(t, other, "push", "-q", "origin", "bug/sc-1234/x")
+	code, out, errs := h.run("worktree", "1234")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if m := decode(t, out); m["from"] != "remote" || m["branch"] != "bug/sc-1234/x" {
+		t.Errorf("out %s", out)
+	}
+}

@@ -167,7 +167,8 @@ func (r Repo) Add(ctx context.Context, dir string, m Match, base string) error {
 	case Remote:
 		args = append(args, "--track", "-b", m.Branch, dir, "origin/"+m.Branch)
 	case New:
-		args = append(args, "-b", m.Branch, dir, base)
+		// --no-track: with an upstream of main, git pull and git push use main.
+		args = append(args, "--no-track", "-b", m.Branch, dir, base)
 	default:
 		return &exit.Error{Code: exit.Other, Msg: fmt.Sprintf("cannot add a worktree from source %q", m.Source)}
 	}
