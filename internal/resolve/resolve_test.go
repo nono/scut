@@ -337,6 +337,58 @@ func TestEpic(t *testing.T) {
 	_ = wantErr(t, err, exit.NotFound)
 }
 
+func TestDoc(t *testing.T) {
+	const (
+		a = "1b4e28ba-2fa1-41d2-883f-0016d3cca427"
+		b = "2b4e28ba-2fa1-41d2-883f-0016d3cca427"
+		c = "3b4e28ba-2fa1-41d2-883f-0016d3cca427"
+		d = "4b4e28ba-2fa1-41d2-883f-0016d3cca427"
+	)
+	var queries []string
+	e := newEnv(t, func(x *api) {
+		x.routes["GET /api/v4/acme/documents/search"] = func(w http.ResponseWriter, r *http.Request) {
+			q := r.URL.Query()
+			queries = append(queries, q.Get("query"))
+			w.Header().Set("Content-Type", "application/json")
+			if q.Get("cursor") == "p2" {
+				_ = json.NewEncoder(w).Encode(list(map[string]any{"id": d, "title": "Late"}))
+				return
+			}
+			if q.Get("query") == "Late" {
+				p1 := list(map[string]any{"id": a, "title": "Late one"})
+				p1["next_page_url"] = "http://x/api/v4/acme/documents/search?cursor=p2"
+				_ = json.NewEncoder(w).Encode(p1)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(list(
+				map[string]any{"id": a, "title": "Spec v2"},
+				map[string]any{"id": b, "title": "Spec"},
+				map[string]any{"id": c, "title": "Dup"}, map[string]any{"id": d, "title": "Dup"}))
+		}
+	})
+	if id, err := e.r.Doc(a); err != nil || id != a || len(queries) != 0 {
+		t.Errorf("id: %s, %v, queries %v", id, err, queries)
+	}
+	if id, err := e.r.Doc("Spec"); err != nil || id != b || queries[0] != "Spec" {
+		t.Errorf("title: %s, %v, queries %v", id, err, queries)
+	}
+	if id, err := e.r.Doc("Late"); err != nil || id != d {
+		t.Errorf("page 2: %s, %v", id, err)
+	}
+	_, err := e.r.Doc("Dup")
+	x := wantErr(t, err, exit.Usage)
+	if !slices.Equal(x.Valid, []string{c, d}) {
+		t.Errorf("valid %v", x.Valid)
+	}
+	_, err = e.r.Doc("Missing")
+	x = wantErr(t, err, exit.NotFound)
+	if !slices.Contains(x.Valid, "Spec v2") {
+		t.Errorf("valid %v", x.Valid)
+	}
+	_, err = e.r.Doc("https://app.shortcut.com/acme/write/bm90IGEgZG9j")
+	_ = wantErr(t, err, exit.Usage)
+}
+
 func TestNames(t *testing.T) {
 	e := newEnv(t, nil)
 	got, err := e.r.Names("workflows", "500004015", "1")

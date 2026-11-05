@@ -37,6 +37,8 @@ jobs:
           SCUT_LIVE_FILE: ${{ vars.SCUT_LIVE_FILE }}
           SCUT_LIVE_FILE_SIZE: ${{ vars.SCUT_LIVE_FILE_SIZE }}
           SCUT_LIVE_BRANCH: ${{ vars.SCUT_LIVE_BRANCH }}
+          SCUT_LIVE_DOC_URL: ${{ vars.SCUT_LIVE_DOC_URL }}
+          SCUT_LIVE_DOC_TITLE: ${{ vars.SCUT_LIVE_DOC_TITLE }}
 
   spec-drift:
     runs-on: ubuntu-latest

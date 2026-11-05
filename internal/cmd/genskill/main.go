@@ -31,7 +31,7 @@ const (
 var skillHead string
 
 const frontmatter = "---\nname: scut\n" +
-	"description: Use when a task reads or changes Shortcut stories, epics, comments, links or attachments, or needs a Shortcut ID or branch name.\n---\n\n"
+	"description: Use when a task reads or changes Shortcut stories, epics, comments, links or attachments, reads a Shortcut doc, or needs a Shortcut ID or branch name.\n---\n\n"
 
 func main() {
 	env := cli.Env{Getenv: func(string) string { return "" }}

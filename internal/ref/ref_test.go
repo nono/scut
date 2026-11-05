@@ -36,6 +36,48 @@ func TestStoryRefBad(t *testing.T) {
 	}
 }
 
+const docID = "1b4e28ba-2fa1-41d2-883f-0016d3cca427"
+
+func TestDocRef(t *testing.T) {
+	for in, want := range map[string]string{
+		docID:                                   docID,
+		" 1B4E28BA-2FA1-41D2-883F-0016D3CCA427": docID,
+		"https://app.shortcut.com/acme/write/IkRvYyI6I3V1aWQgIjFiNGUyOGJhLTJmYTEtNDFkMi04ODNmLTAwMTZkM2NjYTQyNyI=":       docID,
+		"https://app.shortcut.com/acme/write/IkRvYyI6I3V1aWQgIjFiNGUyOGJhLTJmYTEtNDFkMi04ODNmLTAwMTZkM2NjYTQyNyI":        docID,
+		"https://app.shortcut.com/acme/write/IkRvYyI6I3V1aWQgIjFiNGUyOGJhLTJmYTEtNDFkMi04ODNmLTAwMTZkM2NjYTQyNyI=?x=1#y": docID,
+		"https://api.app.shortcut.com/api/v4/acme/documents/" + docID:                                                    docID,
+	} {
+		got, ok, err := ref.Doc(in)
+		if err != nil || !ok || got != want {
+			t.Errorf("%q: got %q, %v, %v; want %q", in, got, ok, err, want)
+		}
+	}
+}
+
+func TestDocRefTitle(t *testing.T) {
+	for _, in := range []string{"Picking spec", "1b4e28ba", "write/x"} {
+		got, ok, err := ref.Doc(in)
+		if err != nil || ok || got != "" {
+			t.Errorf("%q: got %q, %v, %v; want a title", in, got, ok, err)
+		}
+	}
+}
+
+func TestDocRefBadURL(t *testing.T) {
+	for _, in := range []string{
+		"https://app.shortcut.com/acme/write/bm90IGEgZG9j",                                                         // base64 of "not a doc"
+		"https://app.shortcut.com/acme/write/IkVwaWMiOiN1dWlkICIxYjRlMjhiYS0yZmExLTQxZDItODgzZi0wMDE2ZDNjY2E0Mjci", // "Epic":#uuid …
+		"https://app.shortcut.com/acme/story/12",
+		"https://app.shortcut.com/",
+	} {
+		_, _, err := ref.Doc(in)
+		var e *exit.Error
+		if !errors.As(err, &e) || e.Code != exit.Usage {
+			t.Errorf("%q: got %v, want usage error", in, err)
+		}
+	}
+}
+
 func TestFromGitOutsideRepo(t *testing.T) {
 	_, err := ref.FromGit(t.TempDir())
 	var e *exit.Error

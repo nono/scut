@@ -57,7 +57,7 @@ func TestSkillNotSupported(t *testing.T) {
 	}
 	sec, _, _ = strings.Cut(sec, "\n## ")
 	sec = strings.ToLower(sec)
-	for _, want := range []string{"pr", "branch", "docs", "history", "bulk"} {
+	for _, want := range []string{"pr", "branch", "update a doc", "history", "bulk"} {
 		if !strings.Contains(sec, want) {
 			t.Errorf("Not supported lacks %q", want)
 		}
@@ -67,7 +67,7 @@ func TestSkillNotSupported(t *testing.T) {
 func TestSkillFrontmatterAndHead(t *testing.T) {
 	text := skillText(testRoot())
 	for _, want := range []string{
-		"---\nname: scut\ndescription: Use when a task reads or changes Shortcut stories, epics, comments, links or attachments, or needs a Shortcut ID or branch name.\n---\n",
+		"---\nname: scut\ndescription: Use when a task reads or changes Shortcut stories, epics, comments, links or attachments, reads a Shortcut doc, or needs a Shortcut ID or branch name.\n---\n",
 		"scut usage", "--body-file", "--description-file", "130", "suggestion", "story search", "scut api",
 	} {
 		if !strings.Contains(text, want) {

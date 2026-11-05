@@ -16,6 +16,7 @@ import (
 
 	"github.com/nono/scut/internal/cache"
 	"github.com/nono/scut/internal/exit"
+	"github.com/nono/scut/internal/ref"
 	"github.com/nono/scut/internal/transport"
 )
 
@@ -448,6 +449,45 @@ func (r *R) Epic(s string) (int64, error) {
 		Code:       exit.Usage,
 		Msg:        fmt.Sprintf("epic name %q matches more than one epic", s),
 		Suggestion: "give the epic ID",
+		Valid:      ids,
+	}
+}
+
+// Doc resolves a doc ID, a doc URL (see ref.Doc) or an exact doc title.
+// Docs are not cached.
+func (r *R) Doc(s string) (string, error) {
+	id, ok, err := ref.Doc(s)
+	if err != nil || ok {
+		return id, err
+	}
+	items, err := r.pageAll("/documents/search", url.Values{"query": {s}, "fields": {"id,title"}, "limit": {pageSize}})
+	if err != nil {
+		return "", err
+	}
+	var ids, titles []string
+	for _, b := range items {
+		var d struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}
+		if json.Unmarshal(b, &d) != nil {
+			continue
+		}
+		titles = append(titles, d.Title)
+		if d.Title == s {
+			ids = append(ids, d.ID)
+		}
+	}
+	switch len(ids) {
+	case 0:
+		return "", miss(titles, "no doc %q", s)
+	case 1:
+		return ids[0], nil
+	}
+	return "", &exit.Error{
+		Code:       exit.Usage,
+		Msg:        fmt.Sprintf("doc title %q matches more than one doc", s),
+		Suggestion: "give the doc URL or ID",
 		Valid:      ids,
 	}
 }

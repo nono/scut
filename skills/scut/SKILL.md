@@ -1,6 +1,6 @@
 ---
 name: scut
-description: Use when a task reads or changes Shortcut stories, epics, comments, links or attachments, or needs a Shortcut ID or branch name.
+description: Use when a task reads or changes Shortcut stories, epics, comments, links or attachments, reads a Shortcut doc, or needs a Shortcut ID or branch name.
 ---
 
 # scut
@@ -16,6 +16,7 @@ description: Use when a task reads or changes Shortcut stories, epics, comments,
 - Pass long text with `--body-file` or `--description-file`. Give a file, or `-` for stdin.
 - Use names, not IDs: teams, states, members (`@me`), fields (`--field "Name=Value"`). A wrong name exits 3 and `valid` lists the right ones.
 - A story is an ID (`1234`, `sc-1234`), a URL, or a branch name.
+- A doc is a doc URL, a doc ID or an exact title. A doc can be large: `doc view --out <file>` writes the content to a file, so read the file in parts.
 - `story search` takes the Shortcut query syntax unchanged. It can lag. Use `story view` for current data.
 - Searches and comment lists give 25 items. Use `--limit N` or `--limit all`. Lookup lists give all items.
 - Global flags: `--profile <name>` picks a workspace profile, `--token-file <path>` reads the token from a file, `--human` prints text.
@@ -24,7 +25,7 @@ description: Use when a task reads or changes Shortcut stories, epics, comments,
 ## Not supported
 
 - Unlink a PR, branch or commit from a story (the v4 API has no endpoint).
-- Docs.
+- Create or update a doc.
 - Story history.
 - Bulk commands.
 - Iterations, objectives and labels as commands.
@@ -37,6 +38,8 @@ Each line: command, summary, flags. Run `scut <noun> usage` for flag help.
 - `auth login` Read a token from stdin and store it in the keyring.
 - `auth status` Show the workspace, scopes and source of the token.
 - `cache clear` Remove the cache of this workspace.
+- `doc search` `<text>` Search docs by title. Flags: --limit string.
+- `doc view` `<doc>` Show a doc and its content, by URL, ID or exact title. Flags: --format string, --out string.
 - `epic comment` `<epic>` Add a comment to an epic. Flags: --body-file string.
 - `epic search` `<query>` Search epics. Flags: --limit string.
 - `epic stories` `<epic>` List the stories of an epic, in position order. Flags: --fields string, --limit string.
