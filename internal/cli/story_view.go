@@ -236,11 +236,7 @@ func uniqueIDs(ids []int64) []int64 {
 // viewMany gets several stories in one call. It prints the stories found, in
 // argument order, then fails with exit 3 if some are missing.
 func viewMany(ctx context.Context, d *deps, uniq []int64, fields []string) error {
-	strs := make([]string, 0, len(uniq))
-	for _, id := range uniq {
-		strs = append(strs, strconv.FormatInt(id, 10))
-	}
-	q := url.Values{"ids": {strings.Join(strs, ",")}, "filter": {"include_archived"}, "limit": {strconv.Itoa(len(uniq))}}
+	q := url.Values{"ids": {joinIDs(uniq, ",")}, "filter": {"include_archived"}, "limit": {strconv.Itoa(len(uniq))}}
 	fieldsQuery(q, fields)
 	raw, err := transport.PageQuery(ctx, d.Doer, "stories", q, -1)
 	if err != nil {
@@ -256,19 +252,16 @@ func viewMany(ctx context.Context, d *deps, uniq []int64, fields []string) error
 		byID[s.ID] = s
 	}
 	out := make(storyList, 0, len(uniq))
-	var missing []string
 	for _, id := range uniq {
 		if s, ok := byID[id]; ok {
 			out = append(out, s)
-		} else {
-			missing = append(missing, strconv.FormatInt(id, 10))
 		}
 	}
 	if err := d.Out(out); err != nil {
 		return err
 	}
-	if len(missing) > 0 {
-		return exit.NotFoundf("no story %s", strings.Join(missing, ", "))
+	if missing := idsNotIn(uniq, byID); len(missing) > 0 {
+		return exit.NotFoundf("no story %s", joinIDs(missing, ", "))
 	}
 	return nil
 }

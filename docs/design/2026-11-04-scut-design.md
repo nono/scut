@@ -31,7 +31,7 @@ v1 ships:
 - U12 (docs): create and update. `doc view` and `doc search` are in (see Docs, added 2026-11-05).
 - U13 (history), U14 (external links).
 - G2: unlink a PR, branch or commit. v4 has no endpoint for it. v1 can list them as part of `story view`.
-- G12: bulk commands. v1 accepts several links in one `story link` command, as one call per link (see Links).
+- G12: bulk commands. v1 accepts several links in one `story link` command, as one call per link (see Links). `story update` on several stories is in (see `2026-11-05-bulk-design.md`).
 - N1 `scut worktree` (see `2026-11-05-worktree-design.md`), N2 shell completion.
 - Iterations, objectives, labels as their own commands. The command tree must have room for them.
 
@@ -63,7 +63,7 @@ A command that does these things is a failure, even if it works:
 |---|---|---|
 | Attachment download | Test on a story with one attachment: `Authorization: Bearer` gives 400 from the storage backend ("Only one auth mechanism allowed"). `Shortcut-Token: <token>` header and `?token=` give 200 and the full file. No auth gives 401. | Send `Shortcut-Token`, never `Bearer`, to the file host. Do not use `?token=`. |
 | Find by `external_id` | No endpoint or search operator filters on it. `GET /stories` takes `order_by=created_at`, `order_dir`, `fields`, `ids`, `limit`, `cursor`. | Make the G8 check with `GET /stories?order_by=created_at&order_dir=desc&fields=id,external_id,…`. This reads current data, not the search index. |
-| Bulk | Atomicity is not stated. Errors are 400, 404 and 422, with no per-item result. | v1 does not use bulk endpoints. |
+| Bulk | Atomicity is not stated. Errors are 400, 404 and 422, with no per-item result. | `story update` with several stories uses `PATCH /stories/bulk`, and treats a failed call as not known (see `2026-11-05-bulk-design.md`). No other command uses a bulk endpoint. |
 | Branch name | `formatted_vcs_branch_name` is "built from the Workspace's branch name format. Null if the Workspace has no branch name format." | On null, exit 3 (not found) with a message. Do not make up a name. |
 | G8 lookup, live | Test on 2026-11-04: right after each of 2 creates (201 in 0.5–0.7 s), the newest-stories call found the `external_id`. | The G8 check works with no wait. |
 | Updates | `PATCH` with `_add` / `_remove` fields (`owner_ids_add`, `label_ids_remove`). | Map `--add-owner` / `--remove-owner` to these. A set flag (`--owners`) replaces the set. |
@@ -74,7 +74,7 @@ A command that does these things is a failure, even if it works:
 | Responses | An envelope with `entity`, or `entities` and the cursor `next_page_url`. | Print the entity or the array, not the envelope. |
 | Story shape | Spec, 2026-11-05: a Story has nested objects (`workflow`, `workflow_state`, `owners`, `epic`), not `workflow_id` or `owner_ids`. | Read IDs from the nested objects. `scut spec Story` shows the shape. |
 | State type | Spec, 2026-11-05: the nested `workflow_state` has no `type`. `WorkflowState` from `listWorkflowStatesWithinAWorkflow` has it: `backlog`, `unstarted`, `started`, `done`. The resolver cache keeps the ID and name only. | `worktree` reads the states of the workflow, not the cache. |
-| Archived | Spec, 2026-11-05: `GET /stories` takes `filter`, default `exclude_archived`. | The G8 check and `story view` send `filter=include_archived`. |
+| Archived | Spec, 2026-11-05: `GET /stories` takes `filter`, default `exclude_archived`. | The G8 check, `story view`, and the read and the write of a bulk `story update` send `filter=include_archived`. The spec gives the same default for `PATCH /stories/bulk`. |
 | Docs, live | Test on 2026-11-05: `GET /documents/{id}` with no `content_format` gives no content, as the parameter text of the spec says (its summary says markdown is the default). `fields` works with `content_markdown`. A doc URL of the web app ends in base64 of `"Doc":#uuid "<id>"`. `GET /documents/search` matches words of the title. | `doc view` always sends `content_format`. It decodes the URL. |
 | Paging | Cursor pages, `limit` 1–100, default 10. | The CLI default is 25 (my call). `--limit all` pages to the end. |
 
@@ -88,7 +88,7 @@ scut story search <query> [--limit N|all] [--fields f,…]
 scut story create --name … [--type] [--team] [--workflow] [--state] [--epic] [--parent <story>]
                   [--owner …] [--requester …] [--label …] [--estimate N] [--field "Name=Value"]…
                   [--description-file f|-] [--link "<verb> <story>"]… [--external-link URL]…
-scut story update <story> [--name] [--state] [--epic] [--requester] [--add-owner …] [--remove-owner …]
+scut story update <story>… [--name] [--state] [--epic] [--requester] [--add-owner …] [--remove-owner …]
                   [--field "Name=Value"]… [--description-file f|-] [--archive|--unarchive] [--parent <story>|--no-parent]
 scut story subtasks [<story>] [--limit N|all] [--fields f,…]
 scut story comment <story> --body-file f|-
