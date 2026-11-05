@@ -107,7 +107,6 @@ The skill is `skills/scut/SKILL.md`. `make skill` generates it. Do not edit it b
 - Story history.
 - Bulk commands.
 - Iterations, objectives and labels as commands.
-- Sub-task commands after `story create`.
 
 ## Development
 

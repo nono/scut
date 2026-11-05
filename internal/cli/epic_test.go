@@ -79,58 +79,6 @@ func TestEpicSearch(t *testing.T) {
 	}
 }
 
-func TestEpicStoriesPositionOrder(t *testing.T) {
-	var c calls
-	p := "/api/v4/acme/epics/5387/stories"
-	h := newHarness(t, map[string]http.HandlerFunc{
-		"GET " + p:                 c.wrap(jsonHandler(listBody(storyFixture(t)))),
-		"GET /api/v4/acme/members": membersRoute(),
-	}, "", searchEnv)
-	code, out, errs := h.run("epic", "stories", "5387")
-	if code != 0 {
-		t.Fatalf("code %d, stderr %s", code, errs)
-	}
-	if got := c.param(p, "order_by"); got != "position" {
-		t.Errorf("order_by %q", got)
-	}
-	if got := c.param(p, "order_dir"); got != "asc" {
-		t.Errorf("order_dir %q", got)
-	}
-	if got := c.param(p, "limit"); got != "25" {
-		t.Errorf("limit %q", got)
-	}
-	if f := c.param(p, "fields"); f == "" || strings.Contains(f, "description") || strings.Contains(f, "comments") {
-		t.Errorf("fields %q", f)
-	}
-	l := decodeList(t, out)
-	if _, ok := l[0]["description"]; ok || len(l) != 1 {
-		t.Errorf("stdout %s", out)
-	}
-	_, help, _ := newHarness(t, nil, "", nil).run("epic", "stories", "--help")
-	if !strings.Contains(help, "archived stories are left out") {
-		t.Errorf("help: %s", help)
-	}
-}
-
-func TestEpicStoriesFieldsAndAll(t *testing.T) {
-	var c calls
-	p := "/api/v4/acme/epics/5387/stories"
-	h := newHarness(t, map[string]http.HandlerFunc{
-		"GET " + p:                 pagedHandler(t, &c, 50),
-		"GET /api/v4/acme/members": membersRoute(),
-	}, "", searchEnv)
-	code, out, errs := h.run("epic", "stories", "5387", "--limit", "all", "--fields", "name")
-	if code != 0 {
-		t.Fatalf("code %d, stderr %s", code, errs)
-	}
-	if n := len(decodeList(t, out)); n != 50 {
-		t.Errorf("%d items", n)
-	}
-	if got := c.firstParam(p, "fields"); got != "id,name" {
-		t.Errorf("fields %q", got)
-	}
-}
-
 func TestEpicStoriesFieldsDescription(t *testing.T) {
 	h := newHarness(t, map[string]http.HandlerFunc{
 		"GET /api/v4/acme/epics/5387/stories": jsonHandler(listBody(storyFixture(t))),

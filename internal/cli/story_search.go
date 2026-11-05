@@ -38,6 +38,28 @@ func pageSize(limit int) int {
 	return min(maxPageSize, limit)
 }
 
+// positionOrder is the query of a story list in position order.
+func positionOrder() url.Values {
+	return url.Values{"order_by": {"position"}, "order_dir": {"asc"}}
+}
+
+// listStories prints the stories that path lists with query q.
+func listStories(cmd *cobra.Command, d *deps, path string, q url.Values, limit int, fieldsFlag string, fields []string) error {
+	fieldsQuery(q, fields)
+	raw, stop := listPages(cmd, d, path, q, limit)
+	if raw == nil && stop != nil {
+		return stop
+	}
+	out, err := shapeStories(d, raw, listShapeOpts(fieldsFlag, fields))
+	if err != nil {
+		return err
+	}
+	if err := d.Out(out); err != nil {
+		return err
+	}
+	return stop // a list cut short: the items read, then the error
+}
+
 // listPages gets up to limit items (all with limit < 0) from a list endpoint.
 func listPages(cmd *cobra.Command, d *deps, path string, q url.Values, limit int) ([]json.RawMessage, error) {
 	q.Set("limit", strconv.Itoa(pageSize(limit)))
@@ -109,20 +131,7 @@ func newStorySearch(env Env) *cobra.Command {
 			return err
 		}
 		return withDeps(env, func(cmd *cobra.Command, _ []string, d *deps) error {
-			q := url.Values{"query": {args[0]}}
-			fieldsQuery(q, fields)
-			raw, stop := listPages(cmd, d, "stories/search", q, limit)
-			if raw == nil && stop != nil {
-				return stop
-			}
-			out, err := shapeStories(d, raw, listShapeOpts(*fieldsFlag, fields))
-			if err != nil {
-				return err
-			}
-			if err := d.Out(out); err != nil {
-				return err
-			}
-			return stop // a list cut short: the items read, then the error
+			return listStories(cmd, d, "stories/search", url.Values{"query": {args[0]}}, limit, *fieldsFlag, fields)
 		})(cmd, args)
 	}
 	return cmd

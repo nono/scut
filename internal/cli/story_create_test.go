@@ -67,9 +67,13 @@ func (f *createFake) create(t *testing.T, c *calls) http.HandlerFunc {
 			_, _ = io.WriteString(w, `{"message":"boom"}`)
 			return
 		}
+		st := storyFixture(t)
+		if id, ok := m["parent_story_id"]; ok { // the Sub-task feature is on
+			st["parent_story"] = map[string]any{"id": id, "name": "Parent"}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
-		_, _ = io.WriteString(w, jsonOf(map[string]any{"entity": storyFixture(t)}))
+		_, _ = io.WriteString(w, jsonOf(map[string]any{"entity": st}))
 	})
 }
 
@@ -162,6 +166,27 @@ func TestCreateOneCall(t *testing.T) {
 	m := decode(t, out)
 	if m["id"] != float64(5818) || m["description"] == nil {
 		t.Errorf("out %s", out)
+	}
+}
+
+// An API that ignores parent_story_id (Sub-task feature off) makes the story
+// with no parent: exit 1, with the ID of the story.
+func TestCreateParentIgnored(t *testing.T) {
+	var c calls
+	f := &createFake{replies: []http.HandlerFunc{func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		_, _ = io.WriteString(w, jsonOf(map[string]any{"entity": storyFixture(t)}))
+	}}}
+	h := createHarness(t, f, &c, nil)
+	code, out, errs := h.run("story", "create", "--name", "x", "--team", "Software Dev", "--state", "To Do", "--parent", "5000")
+	if code != 1 || decode(t, out)["id"] != float64(5818) ||
+		!strings.Contains(errs, "the API did not set the parent: the story has no parent") ||
+		!strings.Contains(errs, "the story was created") {
+		t.Errorf("code %d, stdout %s, stderr %s", code, out, errs)
+	}
+	if c.count(createPath) != 1 {
+		t.Errorf("calls %v", c.paths)
 	}
 }
 

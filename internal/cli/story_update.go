@@ -46,17 +46,22 @@ func newStoryUpdate(env Env) *cobra.Command {
 	descFile := f.String("description-file", "", "read the description from this file; - is stdin")
 	archive := f.Bool("archive", false, "archive the story")
 	unarchive := f.Bool("unarchive", false, "unarchive the story")
+	parent := f.String("parent", "", "make the story a sub-task of this story")
+	noParent := f.Bool("no-parent", false, "make the story a normal story, not a sub-task")
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		changed := cmd.Flags().Changed
 		if *archive && *unarchive {
 			return exit.Usagef("--archive and --unarchive conflict")
 		}
+		if changed("parent") && *noParent {
+			return exit.Usagef("--parent and --no-parent conflict")
+		}
 		if changed("workflow") && !changed("state") {
 			return exit.Usagef("--workflow needs --state")
 		}
-		given := *archive || *unarchive
-		for _, n := range []string{"name", "state", "epic", "requester", "add-owner", "remove-owner", "field", "description-file"} {
+		given := *archive || *unarchive || *noParent
+		for _, n := range []string{"name", "state", "epic", "requester", "add-owner", "remove-owner", "field", "description-file", "parent"} {
 			given = given || changed(n)
 		}
 		if !given {
@@ -81,6 +86,14 @@ func newStoryUpdate(env Env) *cobra.Command {
 		}
 		if *archive || *unarchive {
 			body["archived"] = *archive
+		}
+		if changed("parent") {
+			if body["parent_story_id"], err = ref.Story(*parent); err != nil {
+				return err
+			}
+		}
+		if *noParent {
+			body["parent_story_id"] = nil
 		}
 		return withDeps(env, func(cmd *cobra.Command, _ []string, d *deps) error {
 			ctx := cmd.Context()
@@ -152,6 +165,9 @@ func newStoryUpdate(env Env) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := checkParent(raw, body); err != nil {
+				return err
+			}
 			out, err := shapeStory(raw, r, shapeOpts{Description: true})
 			if err != nil {
 				return err
@@ -160,4 +176,42 @@ func newStoryUpdate(env Env) *cobra.Command {
 		})(cmd, args)
 	}
 	return cmd
+}
+
+// checkParent fails when body sets parent_story_id (an int64, or nil for
+// none) and the story in raw, the reply to body, has another parent. The API
+// ignores parent_story_id when the Sub-task feature of the workspace is off.
+func checkParent(raw []byte, body map[string]any) error {
+	want, ok := body["parent_story_id"]
+	if !ok {
+		return nil
+	}
+	var s map[string]json.RawMessage
+	var parent *struct {
+		ID int64 `json:"id"`
+	}
+	err := json.Unmarshal(raw, &s)
+	if p, ok := s["parent_story"]; err == nil && ok {
+		err = json.Unmarshal(p, &parent)
+	} else if err == nil {
+		// The Story schema requires no field: do not take a missing key as no parent.
+		return &exit.Error{Code: exit.Other, Msg: "the reply has no parent_story, so scut cannot check the parent." +
+			" The write is saved. Read the story with scut story view --fields parent_story."}
+	}
+	if err != nil {
+		return &exit.Error{Code: exit.Other, Msg: "bad story data: " + err.Error()}
+	}
+	var got any
+	if parent != nil {
+		got = parent.ID
+	}
+	if got == want {
+		return nil
+	}
+	has := "has no parent"
+	if parent != nil {
+		has = "has parent " + strconv.FormatInt(parent.ID, 10)
+	}
+	return &exit.Error{Code: exit.Other, Msg: "the API did not set the parent: the story " + has +
+		". The rest of the write is saved. Is the Sub-task feature of the workspace on?"}
 }

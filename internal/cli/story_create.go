@@ -204,6 +204,9 @@ func newStoryCreate(env Env) *cobra.Command {
 				return err
 			}
 			if err == nil {
+				err = checkParent(raw, body)
+			}
+			if err == nil {
 				var out StoryOut
 				if out, err = shapeStory(raw, r, shapeOpts{Description: true}); err == nil {
 					return d.Out(out)
