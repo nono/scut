@@ -166,14 +166,22 @@ func TestDocViewOut(t *testing.T) {
 	}
 }
 
+// A bad --out is a usage error, found before any call.
 func TestDocViewOutError(t *testing.T) {
+	var c calls
 	h := newHarness(t, map[string]http.HandlerFunc{
-		"GET " + testDocPath:       docRoute(ptr("# Spec\n")),
-		"GET /api/v4/acme/members": membersRoute(),
+		"GET " + testDocPath:       c.wrap(docRoute(ptr("# Spec\n"))),
+		"GET /api/v4/acme/members": c.wrap(membersRoute()),
 	}, "", searchEnv)
-	code, out, errs := h.run("doc", "view", testDoc, "--out", filepath.Join(t.TempDir(), "no", "spec.md"))
-	if code != 1 || out != "" || !strings.Contains(errs, "spec.md") {
-		t.Errorf("code %d, stdout %q, stderr %s", code, out, errs)
+	dir := t.TempDir()
+	for _, out := range []string{filepath.Join(dir, "no", "spec.md"), dir, "-"} {
+		code, stdout, errs := h.run("doc", "view", testDoc, "--out", out)
+		if code != 2 || stdout != "" || !strings.Contains(errs, "--out") {
+			t.Errorf("%s: code %d, stdout %q, stderr %s", out, code, stdout, errs)
+		}
+	}
+	if n := c.total(); n != 0 {
+		t.Errorf("%d calls, want 0", n)
 	}
 }
 
@@ -209,6 +217,8 @@ func TestDocViewErrors(t *testing.T) {
 		{[]string{"doc", "view", "https://app.shortcut.com/acme/write/bm90IGEgZG9j"}, 2},
 		{[]string{"doc", "view"}, 2},
 		{[]string{"doc", "search"}, 2},
+		{[]string{"doc", "search", ""}, 2},
+		{[]string{"doc", "search", "  "}, 2},
 		{[]string{"doc", "search", "x", "--limit", "0"}, 2},
 	} {
 		if code, out, errs := h.run(c.args...); code != c.code || out != "" {

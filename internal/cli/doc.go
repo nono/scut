@@ -128,11 +128,10 @@ func newDocView(env Env) *cobra.Command {
 		}
 		out := ""
 		if *outFlag != "" {
-			abs, err := filepath.Abs(*outFlag)
-			if err != nil {
-				return exit.Usagef("bad --out %q: %v", *outFlag, err)
+			var err error
+			if out, err = checkOutFile(*outFlag); err != nil {
+				return err
 			}
-			out = abs
 		}
 		return withDeps(env, func(cmd *cobra.Command, _ []string, d *deps) error {
 			id, err := d.Resolver.Doc(args[0])
@@ -178,6 +177,25 @@ func newDocView(env Env) *cobra.Command {
 		})(cmd, args)
 	}
 	return cmd
+}
+
+// checkOutFile returns the absolute path of the --out file. It fails, before
+// any call, when the path is "-", is a directory, or has no parent directory.
+func checkOutFile(path string) (string, error) {
+	if path == "-" {
+		return "", exit.Usagef("--out takes a file name; leave out --out to print the content")
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", exit.Usagef("bad --out %q: %v", path, err)
+	}
+	if fi, err := os.Stat(abs); err == nil && fi.IsDir() {
+		return "", exit.Usagef("--out %q is a directory", path)
+	}
+	if fi, err := os.Stat(filepath.Dir(abs)); err != nil || !fi.IsDir() {
+		return "", exit.Usagef("--out %q: the directory %s does not exist", path, filepath.Dir(abs))
+	}
+	return abs, nil
 }
 
 func newDocSearch(env Env) *cobra.Command {
