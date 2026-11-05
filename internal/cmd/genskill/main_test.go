@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
 	"github.com/nono/scut/internal/cli"
 )
@@ -18,6 +19,12 @@ const repoRoot = "../../.."
 
 func testRoot() *cobra.Command {
 	return cli.NewRoot(cli.Env{Getenv: func(string) string { return "" }})
+}
+
+// testSkill is the SKILL.md text of the real command tree and spec.
+func testSkill(t *testing.T) string {
+	t.Helper()
+	return skillText(testRoot(), loadSpec(t))
 }
 
 func loadSpec(t *testing.T) specInfo {
@@ -31,7 +38,7 @@ func loadSpec(t *testing.T) specInfo {
 
 func TestSkillHasEachCommand(t *testing.T) {
 	root := testRoot()
-	text := skillText(root)
+	text := testSkill(t)
 	leaves := leafCommands(root)
 	if len(leaves) < 20 {
 		t.Fatalf("only %d leaf commands", len(leaves))
@@ -44,13 +51,13 @@ func TestSkillHasEachCommand(t *testing.T) {
 }
 
 func TestSkillNoMCP(t *testing.T) {
-	if strings.Contains(skillText(testRoot()), "MCP") {
+	if strings.Contains(testSkill(t), "MCP") {
 		t.Error("the skill mentions MCP")
 	}
 }
 
 func TestSkillNotSupported(t *testing.T) {
-	text := skillText(testRoot())
+	text := testSkill(t)
 	_, sec, ok := strings.Cut(text, "## Not supported")
 	if !ok {
 		t.Fatal("no Not supported section")
@@ -65,10 +72,11 @@ func TestSkillNotSupported(t *testing.T) {
 }
 
 func TestSkillFrontmatterAndHead(t *testing.T) {
-	text := skillText(testRoot())
+	text := testSkill(t)
 	for _, want := range []string{
-		"---\nname: scut\ndescription: Use when a task reads or changes Shortcut stories, epics, comments, links or attachments, reads a Shortcut doc, or needs a Shortcut ID or branch name.\n---\n",
 		"scut usage", "--body-file", "--description-file", "130", "suggestion", "story search", "scut api",
+		// Item 7 of the skill design: the rules on risky writes.
+		"Never add `--yes` yourself", "only when the user asks",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing %q", want)
@@ -76,15 +84,108 @@ func TestSkillFrontmatterAndHead(t *testing.T) {
 	}
 }
 
+// The frontmatter is YAML that a strict parser reads, with the description
+// and allowed-tools as they are generated.
+func TestSkillFrontmatterParses(t *testing.T) {
+	spec := loadSpec(t)
+	text := skillText(testRoot(), spec)
+	body, ok := strings.CutPrefix(text, "---\n")
+	fm, _, ok2 := strings.Cut(body, "\n---\n")
+	if !ok || !ok2 {
+		t.Fatalf("no frontmatter in %q", text[:min(len(text), 200)])
+	}
+	var m map[string]string
+	if err := yaml.Unmarshal([]byte(fm), &m); err != nil {
+		t.Fatalf("frontmatter is not valid YAML: %v", err)
+	}
+	if m["name"] != "scut" || m["description"] != description || m["allowed-tools"] != allowedTools(testRoot(), spec) || len(m) != 3 {
+		t.Errorf("frontmatter %v", m)
+	}
+	for _, want := range []string{"sc-1234", "app.shortcut.com", "ticket", "sub-task", "In Review"} {
+		if !strings.Contains(m["description"], want) {
+			t.Errorf("description lacks %q", want)
+		}
+	}
+}
+
+// A command with no ops annotation is not a read: allowed-tools leaves it out,
+// unless it is on the named list of local reads.
+func TestAllowedToolsFailsClosed(t *testing.T) {
+	root := testRoot()
+	root.AddCommand(&cobra.Command{Use: "newcmd", Run: func(*cobra.Command, []string) {}})
+	out := &cobra.Command{Use: "newout", Annotations: map[string]string{cli.OpsAnnotation: "getStory"}, Run: func(*cobra.Command, []string) {}}
+	out.Flags().String("out", "", "")
+	root.AddCommand(out)
+	got := allowedTools(root, loadSpec(t))
+	if strings.Contains(got, "newcmd") {
+		t.Errorf("a command with no ops is allowed: %q", got)
+	}
+	if strings.Contains(got, "newout") {
+		t.Errorf("a command with --out is allowed: %q", got)
+	}
+}
+
+// allowed-tools lists the commands that make no write to Shortcut, to the
+// keyring or to a path that the caller gives. Reads also write the cache.
+func TestSkillAllowedTools(t *testing.T) {
+	spec := loadSpec(t)
+	line := allowedTools(testRoot(), spec) // TestSkillFrontmatterParses checks that the skill holds it
+	for _, want := range []string{"Bash(scut story view:*)", "Bash(scut story search:*)", "Bash(scut usage:*)", "Bash(scut story usage:*)", "Bash(scut spec:*)", "Bash(scut whoami:*)"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("allowed-tools lacks %s: %q", want, line)
+		}
+	}
+	for _, bad := range []string{"story update", "story create", "story comment:", "story link", "story unlink", "worktree", "scut api", "auth login", "cache clear", "epic comment", "doc view", "story files"} {
+		if strings.Contains(line, bad) {
+			t.Errorf("allowed-tools has %q: %q", bad, line)
+		}
+	}
+	// The lists above cover the commands of today; this loop guards the ones added later.
+	for _, c := range leafCommands(testRoot()) {
+		if !strings.Contains(line, "Bash(scut "+cmdPath(c)+":*)") {
+			continue
+		}
+		for _, op := range cli.Ops(c) {
+			if spec.methods[op] != "GET" {
+				t.Errorf("%s is allowed but calls %s %s", cmdPath(c), spec.methods[op], op)
+			}
+		}
+	}
+}
+
+// The command list gives flag names, not cobra types; a repeatable flag ends in "…".
+func TestSkillFlagNames(t *testing.T) {
+	text := testSkill(t)
+	for _, bad := range []string{"stringArray", " string,", " string.", " int."} {
+		if strings.Contains(text, bad) {
+			t.Errorf("has %q", bad)
+		}
+	}
+	for _, want := range []string{"--add-owner …", "--archive", "--depth"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("lacks %q", want)
+		}
+	}
+}
+
+// The skill loads into the context of each task that needs Shortcut: keep it short.
+// The command list grows with the commands, so the limits are on the
+// hand-written head and on each command line, not on the whole file.
 func TestSkillSize(t *testing.T) {
-	if n := len(skillText(testRoot())); n >= 6000 {
-		t.Errorf("SKILL.md has %d characters, want under 6000", n)
+	if n := len(skillHead); n >= 6000 {
+		t.Errorf("skill_head.md has %d characters, want under 6000", n)
+	}
+	_, list, _ := strings.Cut(testSkill(t), skillHead)
+	for _, l := range strings.Split(list, "\n") {
+		if len(l) >= 300 {
+			t.Errorf("command line of %d characters, want under 300: %q", len(l), l)
+		}
 	}
 }
 
 func TestSkillStable(t *testing.T) {
-	first := skillText(testRoot())
-	if first != skillText(testRoot()) {
+	first := testSkill(t)
+	if first != testSkill(t) {
 		t.Error("output differs between runs")
 	}
 }
@@ -232,14 +333,16 @@ func TestPermissionsTable(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"| `story view` | no |",
-		"| `story search` | no |",
-		"| `cache clear` | no |",
-		"| `story comment` | `createStoryComment` |",
-		"| `story unlink` | `deleteStoryLink` |",
-		"| `story create` | `createStory` |",
-		"| `worktree` | `updateStory` |",
-		"| `api` | any operation; a DELETE needs `--yes` |",
+		"| `story view` | no | yes |",
+		"| `story search` | no | yes |",
+		"| `cache clear` | no | no |",
+		"| `story comment` | `createStoryComment` | no |",
+		"| `story unlink` | `deleteStoryLink` | no |",
+		"| `story create` | `createStory` | no |",
+		"| `worktree` | `updateStory` | no |",
+		"| `api` | any operation; a DELETE needs `--yes` | no |",
+		"| `doc view` | no | no |",
+		"| `spec` | no | yes |",
 	} {
 		if !strings.Contains(table+"\n", want+"\n") {
 			t.Errorf("no %q in\n%s", want, table)

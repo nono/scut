@@ -4,19 +4,61 @@
 
 ## Rules
 
-- Run `scut usage` first. Then run `scut <noun> usage` for the noun you need.
+- Run `scut usage` first. Then run `scut <noun> usage` for the noun you need. Do not guess a command or a flag.
 - Output is JSON on stdout. An error is one JSON object on stderr: `error`, `status`, `api`, `suggestion`, `valid`.
-- Exit codes: 0 ok, 1 other, 2 usage, 3 not found, 4 auth, 5 unavailable, 130 cancelled.
-- Exit 5 means a write may have taken effect. For `story create`, read the `suggestion` before you retry.
-- Pass long text with `--body-file` or `--description-file`. Give a file, or `-` for stdin.
-- Use names, not IDs: teams, states, members (`@me`), fields (`--field "Name=Value"`). A wrong name exits 3 and `valid` lists the right ones.
-- A story is an ID (`1234`, `sc-1234`), a URL, or a branch name.
-- To make the same change to several stories, give them all to one `story update` (for example, sub-tasks: `story update 12 13 14 --parent 11`). If it fails, the `suggestion` names the stories of the failed call and says if they may be changed.
-- A doc is a doc URL, a doc ID or an exact title. A doc can be large: `doc view --out <file>` writes the content to a file, so read the file in parts.
-- `story search` takes the Shortcut query syntax unchanged. It can lag. Use `story view` for current data.
+- Use names, not IDs: teams, states, members (`@me`), epics, fields (`--field "Name=Value"`).
+- A story is an ID (`1234`, `sc-1234`), a URL, or a branch name. With no story, `story view`, `story branch`, `story files`, `story subtasks` and `worktree` use the story of the current git branch.
+- Put global flags after the command: `scut story view 12 --human`. Global flags: `--profile <name>` (workspace profile), `--token-file <path>`, `--human` (text output).
+
+## When a command fails
+
+| Exit | Meaning | Do this |
+|---|---|---|
+| 2 | Usage error, or the API refused a request (HTTP 400). | Pick from `valid`, or do the `suggestion`. A noun with no command is an error. A command that sends several writes (`story link` with several pairs, `story update` on several stories) can have done some: read stdout, and the `suggestion` names the stories that may be changed. |
+| 3 | Not found. | Check the ID. For a name, pick from `valid`. |
+| 4 | No token, a bad token, or a missing scope. | Do not retry. A read-only token (see `scut auth status`) cannot write: stop. If `SCUT_TOKEN`, `--token-file` or `token_file` in the config is set, ask the user to fix it: `auth login` writes only the keyring. Else ask the user to run `scut auth login` in a terminal (token from https://app.shortcut.com/settings/account/api-tokens). |
+| 5 | Shortcut is unavailable. | Retry later. A write may have taken effect: read the `suggestion` first. For `story create`, it says if the story exists. |
+| 1 | Other error. | Read `error` and `api`. |
+| 130 | Cancelled. | Read the `suggestion`, if any. |
+
+- If the shell says `scut: command not found`, tell the user to install it with `mise use github:nono/scut`. Do not install it yourself.
+
+## Common tasks
+
+```sh
+scut story view
+scut story view 12 13 14 --fields id,name,state  # several stories in one call, few fields
+scut story search '!is:done owner:me' --fields id,name,state
+scut story create --type bug --name "Login fails" --state "To Do" --description-file d.md
+scut story update 12 --state "In Review" --add-owner @me
+scut story update 13 14 15 --parent 12  # make sub-tasks of 12
+scut story comment 12 --body-file note.md
+scut story link 12 blocks 13 relates-to 14
+scut story files 12 --out ./files  # download the attachments
+scut story branch 12  # the git branch name
+scut worktree 12 --start  # find or make the worktree, and start the story
+```
+
+## Output size
+
+- `story view`, `story search`, `story subtasks` and `epic stories` take `--fields`.
 - Searches and comment lists give 25 items. Use `--limit N` or `--limit all`. Lookup lists give all items.
-- Global flags: `--profile <name>` picks a workspace profile, `--token-file <path>` reads the token from a file, `--human` prints text.
+- `story search` takes the Shortcut query syntax unchanged. It can lag: use `story view` for current data.
+- A doc is a doc URL, a doc ID or an exact title. A doc can be large: `doc view --out <file>` writes the content to a file, so read the file in parts.
+
+## Long text
+
+Write the text to a file with your file tool. Then pass `--description-file <file>` or `--body-file <file>`, or `-` for stdin. Do not put markdown in a shell argument: the shell can break its newlines and quotes.
+
+## Writes
+
+- Archive, unlink, `--no-parent`, or a change of parent: only when the user asks.
+- Never add `--yes` yourself. `scut api -X DELETE` needs it.
+
+## Missing features
+
 - If a feature is missing, say so. Do not work around it with `scut api`, unless the user asks.
+- When the user asks for `scut api`, first run `scut spec <operationId>` (for example `scut spec getStory`) to get the method, the path and the body. A path is relative to the workspace: `scut api stories/12/story-links`.
 
 ## Not supported
 
@@ -28,5 +70,5 @@
 
 ## Commands
 
-Each line: command, summary, flags. Run `scut <noun> usage` for flag help.
+Each line: command, summary, flags. A flag that ends in `…` is repeatable. Run `scut <noun> usage` for flag help.
 

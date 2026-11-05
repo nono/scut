@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -43,8 +44,73 @@ const (
 //go:embed skill_head.md
 var skillHead string
 
-const frontmatter = "---\nname: scut\n" +
-	"description: Use when a task reads or changes Shortcut stories, epics, comments, links or attachments, reads a Shortcut doc, or needs a Shortcut ID or branch name.\n---\n\n"
+const description = "Use when a task reads or changes Shortcut stories, epics, comments, links or attachments: " +
+	"a story ID such as sc-1234, an app.shortcut.com URL, a git branch with sc-NNNN in it, a ticket or bug to file, " +
+	"a sub-task, a state change such as \"move it to In Review\", a Shortcut doc, or the branch name of a story."
+
+// localWrites are commands that call only GET operations but write the
+// keyring: they stay out of allowed-tools. A command with an --out flag, or
+// with no ops annotation (cache clear), stays out too, with no entry here.
+var localWrites = map[string]bool{
+	"auth login": true,
+}
+
+// localReads are commands that call no operation and only read: the only
+// commands with no ops annotation that allowed-tools lists. A new command
+// with no annotation stays out, so that it asks for permission.
+var localReads = map[string]bool{
+	"spec": true, // reads the embedded spec
+}
+
+// shortcutWrites returns the operations of c that write to Shortcut: each
+// one that is not GET, and for scut api ("*") any operation.
+func shortcutWrites(c *cobra.Command, spec specInfo) []string {
+	var writes []string
+	for _, op := range cli.Ops(c) {
+		switch {
+		case op == "*":
+			writes = append(writes, "any operation; a DELETE needs `--yes`")
+		case spec.methods[op] != "GET":
+			writes = append(writes, "`"+op+"`")
+		}
+	}
+	return writes
+}
+
+// allowed reports if allowed-tools lists c: it writes nothing other than the
+// cache, and it has an ops annotation or is a local read. A rule matches the
+// start of the command, so it cannot leave out a flag: a command with --out,
+// which writes a file at a path that the caller gives, is not allowed.
+func allowed(c *cobra.Command, spec specInfo) bool {
+	p := cmdPath(c)
+	return !localWrites[p] && c.Flags().Lookup("out") == nil && len(shortcutWrites(c, spec)) == 0 &&
+		(len(cli.Ops(c)) > 0 || localReads[p])
+}
+
+// allowedTools is the allowed-tools value: the usage commands and each
+// allowed command, so that an agent can read without a permission prompt
+// and each write still asks.
+func allowedTools(root *cobra.Command, spec specInfo) string {
+	rules := []string{"Bash(scut usage:*)"}
+	for _, c := range root.Commands() {
+		if c.HasSubCommands() {
+			rules = append(rules, "Bash(scut "+c.Name()+" usage:*)")
+		}
+	}
+	for _, c := range leafCommands(root) {
+		if allowed(c, spec) {
+			rules = append(rules, "Bash(scut "+cmdPath(c)+":*)")
+		}
+	}
+	sort.Strings(rules)
+	return strings.Join(rules, ", ")
+}
+
+func frontmatter(root *cobra.Command, spec specInfo) string {
+	// Quoted: a plain YAML value cannot hold ": ". A Go quoted string is a valid YAML double-quoted string.
+	return "---\nname: scut\ndescription: " + strconv.Quote(description) +
+		"\nallowed-tools: " + strconv.Quote(allowedTools(root, spec)) + "\n---\n\n"
+}
 
 func main() {
 	env := cli.Env{Getenv: func(string) string { return "" }}
@@ -80,7 +146,7 @@ func run(args []string, stderr io.Writer, root *cobra.Command) int {
 		return 1
 	}
 	files := []struct{ path, text string }{
-		{skillPath, skillText(root)},
+		{skillPath, skillText(root, spec)},
 		{coveragePath, cov},
 		{fieldsPath, storyFieldsText(spec)},
 		{readmePath, readmeNew},
@@ -144,9 +210,9 @@ func cmdPath(c *cobra.Command) string {
 	return strings.TrimPrefix(c.CommandPath(), c.Root().Name()+" ")
 }
 
-func skillText(root *cobra.Command) string {
+func skillText(root *cobra.Command, spec specInfo) string {
 	var b strings.Builder
-	b.WriteString(frontmatter)
+	b.WriteString(frontmatter(root, spec))
 	b.WriteString(skillHead)
 	for _, c := range leafCommands(root) {
 		fmt.Fprintf(&b, "- `%s`", cmdPath(c))
@@ -160,8 +226,8 @@ func skillText(root *cobra.Command) string {
 				return
 			}
 			s := "--" + f.Name
-			if t := f.Value.Type(); t != "bool" {
-				s += " " + t
+			if _, ok := f.Value.(pflag.SliceValue); ok {
+				s += " …" // repeatable
 			}
 			flags = append(flags, s)
 		})
@@ -280,26 +346,22 @@ func notSupported() string {
 }
 
 // permissionsText is the README table that tells, for each command, the
-// operations that write to Shortcut: the operations that are not GET.
+// operations that write to Shortcut (the operations that are not GET), and
+// if the skill's allowed-tools lists it.
 // coverageText has already checked that each operationId is in the spec.
 func permissionsText(root *cobra.Command, spec specInfo) string {
 	var b strings.Builder
-	b.WriteString("| Command | Writes to Shortcut |\n|---|---|\n")
+	b.WriteString("| Command | Writes to Shortcut | In the skill's allowed-tools |\n|---|---|---|\n")
 	for _, c := range leafCommands(root) {
-		var writes []string
-		for _, op := range cli.Ops(c) {
-			switch {
-			case op == "*":
-				writes = append(writes, "any operation; a DELETE needs `--yes`")
-			case spec.methods[op] != "GET":
-				writes = append(writes, "`"+op+"`")
-			}
-		}
 		w := "no"
-		if len(writes) > 0 {
+		if writes := shortcutWrites(c, spec); len(writes) > 0 {
 			w = strings.Join(writes, ", ")
 		}
-		fmt.Fprintf(&b, "| `%s` | %s |\n", cmdPath(c), w)
+		in := "no"
+		if allowed(c, spec) {
+			in = "yes"
+		}
+		fmt.Fprintf(&b, "| `%s` | %s | %s |\n", cmdPath(c), w, in)
 	}
 	return strings.TrimSuffix(b.String(), "\n")
 }
