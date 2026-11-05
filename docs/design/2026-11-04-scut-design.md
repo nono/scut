@@ -220,7 +220,8 @@ A command checks its flags and arguments before it reads the token, so such a us
 - The skill is in this repo at `skills/scut/SKILL.md`, so `npx skills add nono/scut` can install it. `scut` has no command to install the skill.
 - The command reference in `SKILL.md` is generated from the command tree by a dev tool (`go run ./internal/cmd/genskill`). CI fails if the committed file differs from the generated one, so the reference cannot drift from `--help`.
 - `scut usage` prints about 400 bytes (about 100 tokens): the nouns and one line each. `scut <noun> usage` prints that noun's commands and flags.
-- The skill says: use `scut`; read `scut usage` first; JSON output; exit codes; write long text to a file and pass `--body-file`.
+- The skill says: use `scut`; read `scut usage` first; JSON output; what to do for each exit code; common tasks; write long text to a file and pass `--body-file`; which writes need the user to ask.
+- Its `allowed-tools` (generated, added 2026-11-05) lists each command that calls only `GET` operations and writes no local state, so reads need no permission prompt and each write still asks.
 - The skill does not mention the MCP.
 - The skill has a "Not supported" list (for example: unlink a PR or branch, docs, history, bulk). It tells the agent to say that the feature is missing, and not to work around it with `scut api` unless the user asks.
 

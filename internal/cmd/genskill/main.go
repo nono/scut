@@ -43,8 +43,46 @@ const (
 //go:embed skill_head.md
 var skillHead string
 
-const frontmatter = "---\nname: scut\n" +
-	"description: Use when a task reads or changes Shortcut stories, epics, comments, links or attachments, reads a Shortcut doc, or needs a Shortcut ID or branch name.\n---\n\n"
+const description = "Use when a task reads or changes Shortcut stories, epics, comments, links or attachments: " +
+	"a story ID such as sc-1234, an app.shortcut.com URL, a git branch with sc-NNNN in it, a ticket or bug to file, " +
+	"a sub-task, a state change such as \"move it to In Review\", a Shortcut doc, or the branch name of a story."
+
+// localWrites are commands that call only GET operations but change local
+// state that the agent did not name: they stay out of allowed-tools.
+// A rule matches the start of the command, so it cannot leave out a flag such as --out.
+var localWrites = map[string]bool{
+	"auth login":  true, // stores the token in the keyring
+	"cache clear": true, // removes the cache
+	"doc view":    true, // --out replaces a file at any path
+	"story files": true, // --out writes files to any directory
+}
+
+// allowedTools is the allowed-tools value: each command that makes no write,
+// so that an agent can read without a permission prompt and each write still asks.
+func allowedTools(root *cobra.Command, spec specInfo) string {
+	rules := []string{"Bash(scut usage:*)"}
+	for _, c := range root.Commands() {
+		if c.HasSubCommands() && !skipCmd(c) {
+			rules = append(rules, "Bash(scut "+c.Name()+" usage:*)")
+		}
+	}
+	for _, c := range leafCommands(root) {
+		ops := cli.Ops(c)
+		read := !localWrites[cmdPath(c)]
+		for _, op := range ops {
+			read = read && op != "*" && spec.methods[op] == "GET"
+		}
+		if read {
+			rules = append(rules, "Bash(scut "+cmdPath(c)+":*)")
+		}
+	}
+	sort.Strings(rules)
+	return strings.Join(rules, ", ")
+}
+
+func frontmatter(root *cobra.Command, spec specInfo) string {
+	return "---\nname: scut\ndescription: " + description + "\nallowed-tools: " + allowedTools(root, spec) + "\n---\n\n"
+}
 
 func main() {
 	env := cli.Env{Getenv: func(string) string { return "" }}
@@ -80,7 +118,7 @@ func run(args []string, stderr io.Writer, root *cobra.Command) int {
 		return 1
 	}
 	files := []struct{ path, text string }{
-		{skillPath, skillText(root)},
+		{skillPath, skillText(root, spec)},
 		{coveragePath, cov},
 		{fieldsPath, storyFieldsText(spec)},
 		{readmePath, readmeNew},
@@ -144,9 +182,9 @@ func cmdPath(c *cobra.Command) string {
 	return strings.TrimPrefix(c.CommandPath(), c.Root().Name()+" ")
 }
 
-func skillText(root *cobra.Command) string {
+func skillText(root *cobra.Command, spec specInfo) string {
 	var b strings.Builder
-	b.WriteString(frontmatter)
+	b.WriteString(frontmatter(root, spec))
 	b.WriteString(skillHead)
 	for _, c := range leafCommands(root) {
 		fmt.Fprintf(&b, "- `%s`", cmdPath(c))
@@ -160,8 +198,8 @@ func skillText(root *cobra.Command) string {
 				return
 			}
 			s := "--" + f.Name
-			if t := f.Value.Type(); t != "bool" {
-				s += " " + t
+			if strings.HasSuffix(f.Value.Type(), "Array") || strings.HasSuffix(f.Value.Type(), "Slice") {
+				s += " …" // repeatable
 			}
 			flags = append(flags, s)
 		})

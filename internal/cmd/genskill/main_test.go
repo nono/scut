@@ -31,7 +31,7 @@ func loadSpec(t *testing.T) specInfo {
 
 func TestSkillHasEachCommand(t *testing.T) {
 	root := testRoot()
-	text := skillText(root)
+	text := skillText(root, loadSpec(t))
 	leaves := leafCommands(root)
 	if len(leaves) < 20 {
 		t.Fatalf("only %d leaf commands", len(leaves))
@@ -44,13 +44,13 @@ func TestSkillHasEachCommand(t *testing.T) {
 }
 
 func TestSkillNoMCP(t *testing.T) {
-	if strings.Contains(skillText(testRoot()), "MCP") {
+	if strings.Contains(skillText(testRoot(), loadSpec(t)), "MCP") {
 		t.Error("the skill mentions MCP")
 	}
 }
 
 func TestSkillNotSupported(t *testing.T) {
-	text := skillText(testRoot())
+	text := skillText(testRoot(), loadSpec(t))
 	_, sec, ok := strings.Cut(text, "## Not supported")
 	if !ok {
 		t.Fatal("no Not supported section")
@@ -65,9 +65,10 @@ func TestSkillNotSupported(t *testing.T) {
 }
 
 func TestSkillFrontmatterAndHead(t *testing.T) {
-	text := skillText(testRoot())
+	text := skillText(testRoot(), loadSpec(t))
 	for _, want := range []string{
-		"---\nname: scut\ndescription: Use when a task reads or changes Shortcut stories, epics, comments, links or attachments, reads a Shortcut doc, or needs a Shortcut ID or branch name.\n---\n",
+		"---\nname: scut\ndescription: Use when a task reads or changes Shortcut stories, epics, comments, links or attachments",
+		"sc-1234", "app.shortcut.com", "ticket", "sub-task", "In Review",
 		"scut usage", "--body-file", "--description-file", "130", "suggestion", "story search", "scut api",
 	} {
 		if !strings.Contains(text, want) {
@@ -76,15 +77,64 @@ func TestSkillFrontmatterAndHead(t *testing.T) {
 	}
 }
 
+// allowed-tools lists the commands that make no write: no write to Shortcut,
+// to the keyring or to the cache.
+func TestSkillAllowedTools(t *testing.T) {
+	spec := loadSpec(t)
+	text := skillText(testRoot(), spec)
+	line := ""
+	for _, l := range strings.Split(text, "\n") {
+		if strings.HasPrefix(l, "allowed-tools: ") {
+			line = l
+		}
+	}
+	for _, want := range []string{"Bash(scut story view:*)", "Bash(scut story search:*)", "Bash(scut usage:*)", "Bash(scut story usage:*)", "Bash(scut spec:*)", "Bash(scut whoami:*)"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("allowed-tools lacks %s: %q", want, line)
+		}
+	}
+	for _, bad := range []string{"story update", "story create", "story comment:", "story link", "story unlink", "worktree", "scut api", "auth login", "cache clear", "epic comment", "doc view", "story files"} {
+		if strings.Contains(line, bad) {
+			t.Errorf("allowed-tools has %q: %q", bad, line)
+		}
+	}
+	for _, c := range leafCommands(testRoot()) {
+		if !strings.Contains(line, "Bash(scut "+cmdPath(c)+":*)") {
+			continue
+		}
+		for _, op := range cli.Ops(c) {
+			if spec.methods[op] != "GET" {
+				t.Errorf("%s is allowed but calls %s %s", cmdPath(c), spec.methods[op], op)
+			}
+		}
+	}
+}
+
+// The command list gives flag names, not cobra types; a repeatable flag ends in "…".
+func TestSkillFlagNames(t *testing.T) {
+	text := skillText(testRoot(), loadSpec(t))
+	for _, bad := range []string{"stringArray", " string,", " string.", " int."} {
+		if strings.Contains(text, bad) {
+			t.Errorf("has %q", bad)
+		}
+	}
+	for _, want := range []string{"--add-owner …", "--archive", "--depth"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("lacks %q", want)
+		}
+	}
+}
+
+// The skill loads into the context of each task that needs Shortcut: keep it short.
 func TestSkillSize(t *testing.T) {
-	if n := len(skillText(testRoot())); n >= 6000 {
-		t.Errorf("SKILL.md has %d characters, want under 6000", n)
+	if n := len(skillText(testRoot(), loadSpec(t))); n >= 8500 {
+		t.Errorf("SKILL.md has %d characters, want under 8500", n)
 	}
 }
 
 func TestSkillStable(t *testing.T) {
-	first := skillText(testRoot())
-	if first != skillText(testRoot()) {
+	first := skillText(testRoot(), loadSpec(t))
+	if first != skillText(testRoot(), loadSpec(t)) {
 		t.Error("output differs between runs")
 	}
 }
