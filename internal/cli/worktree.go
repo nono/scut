@@ -39,7 +39,7 @@ func newWorktree(env Env) *cobra.Command {
 		Short: "Find or make the git worktree of a story",
 		Long: "Find or make the git worktree of a story. The branch is the first that has sc-<id>: " +
 			"in a worktree, a local branch, a branch on origin (after a fetch if none is found), " +
-			"else a new branch with the name that Shortcut suggests, from origin/HEAD.",
+			"else a new branch with the name that Shortcut suggests, from origin/HEAD (else origin/main).",
 		Args:        cobra.MaximumNArgs(1),
 		Annotations: map[string]string{OpsAnnotation: "getStory,listWorkflowStatesWithinAWorkflow,getWhoami,updateStory"},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -56,7 +56,6 @@ func newWorktree(env Env) *cobra.Command {
 				if d == nil {
 					var err error
 					if d, err = newDeps(cmd, env); err != nil {
-						d = nil
 						return nil, err
 					}
 				}
@@ -108,15 +107,11 @@ func newWorktree(env Env) *cobra.Command {
 			switch {
 			case ms == nil:
 			case branch != "":
-				found := false
-				for _, x := range ms {
-					if x.Branch == branch {
-						m, found = x, true
-					}
-				}
-				if !found {
+				i := slices.IndexFunc(ms, func(x gitwt.Match) bool { return x.Branch == branch })
+				if i < 0 {
 					return &exit.Error{Code: exit.Usage, Msg: fmt.Sprintf("--branch %q is not a branch of sc-%d", branch, id), Valid: branchNames(ms)}
 				}
+				m = ms[i]
 			case len(ms) > 1:
 				return &exit.Error{Code: exit.Usage, Msg: fmt.Sprintf("more than one branch for sc-%d", id),
 					Suggestion: "give --branch", Valid: branchNames(ms)}
@@ -142,31 +137,22 @@ func newWorktree(env Env) *cobra.Command {
 				} else if err != nil {
 					return &exit.Error{Code: exit.Other, Msg: err.Error()}
 				}
-				base := ""
-				if m.Source == gitwt.New {
-					if base, err = r.Base(ctx); err != nil {
-						_ = os.Remove(dir)
-						return err
-					}
-				}
-				if err := r.Add(ctx, dir, m, base); err != nil {
+				if err := r.Add(ctx, dir, m); err != nil {
 					_ = os.Remove(dir)
 					return err
 				}
 				res.Dir, res.Created = dir, true
 			}
 			if start {
+				started := false
 				d, err := api()
 				if err == nil {
-					var started bool
 					started, err = startStory(ctx, d, id)
-					res.Started = &started
 				}
 				if err != nil {
 					if ctx.Err() != nil {
 						return ctx.Err()
 					}
-					res.Started = nil
 					var e *exit.Error
 					if !errors.As(err, &e) {
 						e = &exit.Error{Code: exit.Other, Msg: err.Error()}
@@ -175,6 +161,7 @@ func newWorktree(env Env) *cobra.Command {
 					c.Worktree = res
 					return &c
 				}
+				res.Started = &started
 			}
 			// Not d.Out: the output setting of a config file is read only when
 			// the API is called, so the format would depend on the path.

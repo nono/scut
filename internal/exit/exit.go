@@ -30,7 +30,7 @@ type Error struct {
 	API        json.RawMessage
 	Suggestion string
 	Valid      []string
-	Worktree   any           // the worktree that scut worktree made before the error
+	Worktree   any           // the worktree that scut worktree found or made before the error
 	RetryAfter time.Duration // from a Retry-After header; not printed
 	NotSent    bool          // a connect failure: the request did not reach the server; not printed
 }

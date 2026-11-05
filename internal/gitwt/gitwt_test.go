@@ -12,45 +12,8 @@ import (
 
 	"github.com/nono/scut/internal/exit"
 	"github.com/nono/scut/internal/gitwt"
+	"github.com/nono/scut/internal/testgit"
 )
-
-func git(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
-	return strings.TrimSpace(string(out))
-}
-
-// newRepos makes a bare origin and a clone of it at <tmp>/main, with one commit on main.
-func newRepos(t *testing.T) (origin, main string) {
-	t.Helper()
-	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	tmp, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	origin = filepath.Join(tmp, "origin.git")
-	main = filepath.Join(tmp, "main")
-	git(t, tmp, "init", "-q", "--bare", "-b", "main", origin)
-	git(t, tmp, "clone", "-q", origin, main)
-	git(t, main, "commit", "-q", "--allow-empty", "-m", "init")
-	git(t, main, "push", "-q", "origin", "main")
-	git(t, main, "remote", "set-head", "origin", "main")
-	return origin, main
-}
-
-// pushFromOther pushes branch to origin from a second clone.
-func pushFromOther(t *testing.T, origin, branch string) {
-	t.Helper()
-	other := filepath.Join(t.TempDir(), "other")
-	git(t, filepath.Dir(other), "clone", "-q", origin, other)
-	git(t, other, "switch", "-q", "-c", branch)
-	git(t, other, "push", "-q", "origin", branch)
-}
 
 func open(t *testing.T, dir string) gitwt.Repo {
 	t.Helper()
@@ -83,9 +46,9 @@ func TestHasID(t *testing.T) {
 }
 
 func TestOpenFromLinkedWorktreeSubdir(t *testing.T) {
-	_, main := newRepos(t)
+	_, main := testgit.Repos(t)
 	other := filepath.Join(filepath.Dir(main), "other")
-	git(t, main, "worktree", "add", "-q", "--detach", other)
+	testgit.Git(t, main, "worktree", "add", "-q", "--detach", other)
 	if err := os.Mkdir(filepath.Join(other, "sub"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -108,8 +71,8 @@ func TestOpenOutsideRepo(t *testing.T) {
 }
 
 func TestFindWorktreeInMain(t *testing.T) {
-	_, main := newRepos(t)
-	git(t, main, "switch", "-q", "-c", "bug/sc-1234/x")
+	_, main := testgit.Repos(t)
+	testgit.Git(t, main, "switch", "-q", "-c", "bug/sc-1234/x")
 	want := []gitwt.Match{{Branch: "bug/sc-1234/x", Dir: main, Source: gitwt.Worktree}}
 	if got := find(t, open(t, main), 1234); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v", got)
@@ -117,17 +80,17 @@ func TestFindWorktreeInMain(t *testing.T) {
 }
 
 func TestFindSkipsDetached(t *testing.T) {
-	_, main := newRepos(t)
-	git(t, main, "worktree", "add", "-q", "--detach", filepath.Join(filepath.Dir(main), "d"))
+	_, main := testgit.Repos(t)
+	testgit.Git(t, main, "worktree", "add", "-q", "--detach", filepath.Join(filepath.Dir(main), "d"))
 	if got := find(t, open(t, main), 1234); got != nil {
 		t.Errorf("got %+v", got)
 	}
 }
 
 func TestFindPrunable(t *testing.T) {
-	_, main := newRepos(t)
+	_, main := testgit.Repos(t)
 	dir := filepath.Join(filepath.Dir(main), "1234")
-	git(t, main, "worktree", "add", "-q", "-b", "bug/sc-1234/x", dir)
+	testgit.Git(t, main, "worktree", "add", "-q", "-b", "bug/sc-1234/x", dir)
 	if err := os.RemoveAll(dir); err != nil {
 		t.Fatal(err)
 	}
@@ -138,8 +101,8 @@ func TestFindPrunable(t *testing.T) {
 }
 
 func TestFindLocal(t *testing.T) {
-	_, main := newRepos(t)
-	git(t, main, "branch", "bug/sc-1234/x")
+	_, main := testgit.Repos(t)
+	testgit.Git(t, main, "branch", "bug/sc-1234/x")
 	want := []gitwt.Match{{Branch: "bug/sc-1234/x", Source: gitwt.Local}}
 	if got := find(t, open(t, main), 1234); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v", got)
@@ -147,9 +110,9 @@ func TestFindLocal(t *testing.T) {
 }
 
 func TestFindRemote(t *testing.T) {
-	origin, main := newRepos(t)
-	pushFromOther(t, origin, "bug/sc-1234/x")
-	git(t, main, "fetch", "-q", "origin")
+	origin, main := testgit.Repos(t)
+	testgit.Push(t, origin, "bug/sc-1234/x")
+	testgit.Git(t, main, "fetch", "-q", "origin")
 	want := []gitwt.Match{{Branch: "bug/sc-1234/x", Source: gitwt.Remote}}
 	if got := find(t, open(t, main), 1234); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v", got)
@@ -157,9 +120,9 @@ func TestFindRemote(t *testing.T) {
 }
 
 func TestFindLocalAndRemoteSameName(t *testing.T) {
-	_, main := newRepos(t)
-	git(t, main, "branch", "bug/sc-1234/x")
-	git(t, main, "push", "-q", "origin", "bug/sc-1234/x")
+	_, main := testgit.Repos(t)
+	testgit.Git(t, main, "branch", "bug/sc-1234/x")
+	testgit.Git(t, main, "push", "-q", "origin", "bug/sc-1234/x")
 	want := []gitwt.Match{{Branch: "bug/sc-1234/x", Source: gitwt.Local}}
 	if got := find(t, open(t, main), 1234); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v", got)
@@ -167,9 +130,9 @@ func TestFindLocalAndRemoteSameName(t *testing.T) {
 }
 
 func TestFindTwoLocal(t *testing.T) {
-	_, main := newRepos(t)
-	git(t, main, "branch", "bug/sc-1234/b")
-	git(t, main, "branch", "bug/sc-1234/a")
+	_, main := testgit.Repos(t)
+	testgit.Git(t, main, "branch", "bug/sc-1234/b")
+	testgit.Git(t, main, "branch", "bug/sc-1234/a")
 	want := []gitwt.Match{{Branch: "bug/sc-1234/a", Source: gitwt.Local}, {Branch: "bug/sc-1234/b", Source: gitwt.Local}}
 	if got := find(t, open(t, main), 1234); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v", got)
@@ -177,10 +140,10 @@ func TestFindTwoLocal(t *testing.T) {
 }
 
 func TestFindSourceOrder(t *testing.T) {
-	origin, main := newRepos(t)
-	pushFromOther(t, origin, "bug/sc-1234/b")
-	git(t, main, "fetch", "-q", "origin")
-	git(t, main, "branch", "bug/sc-1234/a")
+	origin, main := testgit.Repos(t)
+	testgit.Push(t, origin, "bug/sc-1234/b")
+	testgit.Git(t, main, "fetch", "-q", "origin")
+	testgit.Git(t, main, "branch", "bug/sc-1234/a")
 	want := []gitwt.Match{{Branch: "bug/sc-1234/a", Source: gitwt.Local}}
 	if got := find(t, open(t, main), 1234); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v", got)
@@ -188,8 +151,8 @@ func TestFindSourceOrder(t *testing.T) {
 }
 
 func TestFetchFindsNewRemote(t *testing.T) {
-	origin, main := newRepos(t)
-	pushFromOther(t, origin, "bug/sc-1234/x")
+	origin, main := testgit.Repos(t)
+	testgit.Push(t, origin, "bug/sc-1234/x")
 	r := open(t, main)
 	if got := find(t, r, 1234); got != nil {
 		t.Fatalf("before fetch: %+v", got)
@@ -203,23 +166,38 @@ func TestFetchFindsNewRemote(t *testing.T) {
 	}
 }
 
-func TestBase(t *testing.T) {
-	_, main := newRepos(t)
+// A new branch starts at origin/HEAD, else at origin/main.
+func TestAddNewBase(t *testing.T) {
+	origin, main := testgit.Repos(t)
+	other := filepath.Join(t.TempDir(), "other")
+	testgit.Git(t, filepath.Dir(other), "clone", "-q", origin, other)
+	testgit.Git(t, other, "switch", "-q", "-c", "dev")
+	testgit.Git(t, other, "commit", "-q", "--allow-empty", "-m", "dev")
+	testgit.Git(t, other, "push", "-q", "origin", "dev")
+	testgit.Git(t, main, "fetch", "-q", "origin")
+	testgit.Git(t, main, "remote", "set-head", "origin", "dev")
 	r := open(t, main)
-	if b, err := r.Base(context.Background()); err != nil || b != "origin/HEAD" {
-		t.Errorf("base %q, %v", b, err)
+	add := func(name string) string {
+		dir := filepath.Join(filepath.Dir(main), name)
+		if err := r.Add(context.Background(), dir, gitwt.Match{Branch: "bug/sc-1/" + name, Source: gitwt.New}); err != nil {
+			t.Fatal(err)
+		}
+		return testgit.Git(t, dir, "rev-parse", "HEAD")
 	}
-	git(t, main, "remote", "set-head", "origin", "-d")
-	if b, err := r.Base(context.Background()); err != nil || b != "origin/main" {
-		t.Errorf("base %q, %v", b, err)
+	if got, want := add("head"), testgit.Git(t, main, "rev-parse", "origin/dev"); got != want {
+		t.Errorf("with origin/HEAD: %s, want origin/dev %s", got, want)
+	}
+	testgit.Git(t, main, "remote", "set-head", "origin", "-d")
+	if got, want := add("fallback"), testgit.Git(t, main, "rev-parse", "origin/main"); got != want {
+		t.Errorf("without origin/HEAD: %s, want origin/main %s", got, want)
 	}
 }
 
 func TestAdd(t *testing.T) {
-	origin, main := newRepos(t)
-	git(t, main, "branch", "bug/sc-1/l")
-	pushFromOther(t, origin, "bug/sc-2/r")
-	git(t, main, "fetch", "-q", "origin")
+	origin, main := testgit.Repos(t)
+	testgit.Git(t, main, "branch", "bug/sc-1/l")
+	testgit.Push(t, origin, "bug/sc-2/r")
+	testgit.Git(t, main, "fetch", "-q", "origin")
 	r := open(t, main)
 	for _, m := range []gitwt.Match{
 		{Branch: "bug/sc-1/l", Source: gitwt.Local},
@@ -227,29 +205,30 @@ func TestAdd(t *testing.T) {
 		{Branch: "bug/sc-3/n", Source: gitwt.New},
 	} {
 		dir := filepath.Join(filepath.Dir(main), string(m.Source))
-		if err := r.Add(context.Background(), dir, m, "origin/HEAD"); err != nil {
+		if err := r.Add(context.Background(), dir, m); err != nil {
 			t.Fatalf("%s: %v", m.Source, err)
 		}
-		if got := git(t, dir, "branch", "--show-current"); got != m.Branch {
+		if got := testgit.Git(t, dir, "branch", "--show-current"); got != m.Branch {
 			t.Errorf("%s: branch %q", m.Source, got)
 		}
 	}
-	if up := git(t, filepath.Join(filepath.Dir(main), "remote"), "rev-parse", "--abbrev-ref", "@{upstream}"); up != "origin/bug/sc-2/r" {
+	if up := testgit.Git(t, filepath.Join(filepath.Dir(main), "remote"), "rev-parse", "--abbrev-ref", "@{upstream}"); up != "origin/bug/sc-2/r" {
 		t.Errorf("upstream %q", up)
 	}
-	// A new branch must not track its base: git pull and git push would use main.
+	// A new branch must not track its base: git pull would merge main, and
+	// git push would fail or push to main, by push.default.
 	if out, err := exec.Command("git", "-C", filepath.Join(filepath.Dir(main), "new"), "rev-parse", "--abbrev-ref", "@{upstream}").CombinedOutput(); err == nil {
 		t.Errorf("new branch has upstream %s", out)
 	}
 }
 
 func TestGitErrorHasStderr(t *testing.T) {
-	_, main := newRepos(t)
+	_, main := testgit.Repos(t)
 	file := filepath.Join(t.TempDir(), "f")
 	if err := os.WriteFile(file, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := open(t, main).Add(context.Background(), filepath.Join(file, "wt"), gitwt.Match{Branch: "bug/sc-1/x", Source: gitwt.New}, "origin/HEAD")
+	err := open(t, main).Add(context.Background(), filepath.Join(file, "wt"), gitwt.Match{Branch: "bug/sc-1/x", Source: gitwt.New})
 	var e *exit.Error
 	if !errors.As(err, &e) || e.Code != exit.Other || !strings.Contains(e.Msg, "git worktree add") || !strings.Contains(e.Msg, "Not a directory") {
 		t.Fatalf("err %v", err)
@@ -258,7 +237,7 @@ func TestGitErrorHasStderr(t *testing.T) {
 
 // A git that cannot run is a git failure (exit 1), not "not in a git repository".
 func TestOpenGitMissing(t *testing.T) {
-	_, main := newRepos(t)
+	_, main := testgit.Repos(t)
 	t.Setenv("PATH", t.TempDir())
 	_, err := gitwt.Open(context.Background(), main)
 	var e *exit.Error
@@ -268,7 +247,7 @@ func TestOpenGitMissing(t *testing.T) {
 }
 
 func TestOpenCancelled(t *testing.T) {
-	_, main := newRepos(t)
+	_, main := testgit.Repos(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := gitwt.Open(ctx, main); !errors.Is(err, context.Canceled) {
@@ -277,8 +256,8 @@ func TestOpenCancelled(t *testing.T) {
 }
 
 func TestFindUnicodeSpace(t *testing.T) {
-	_, main := newRepos(t)
-	git(t, main, "branch", "bug/sc-1234/a\u00a0b")
+	_, main := testgit.Repos(t)
+	testgit.Git(t, main, "branch", "bug/sc-1234/a\u00a0b")
 	want := []gitwt.Match{{Branch: "bug/sc-1234/a\u00a0b", Source: gitwt.Local}}
 	if got := find(t, open(t, main), 1234); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v", got)
@@ -286,9 +265,9 @@ func TestFindUnicodeSpace(t *testing.T) {
 }
 
 func TestFindNewlinePath(t *testing.T) {
-	_, main := newRepos(t)
+	_, main := testgit.Repos(t)
 	dir := filepath.Join(filepath.Dir(main), "a\nb")
-	git(t, main, "worktree", "add", "-q", "-b", "bug/sc-1234/x", dir)
+	testgit.Git(t, main, "worktree", "add", "-q", "-b", "bug/sc-1234/x", dir)
 	want := []gitwt.Match{{Branch: "bug/sc-1234/x", Dir: dir, Source: gitwt.Worktree}}
 	if got := find(t, open(t, main), 1234); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v", got)
@@ -301,18 +280,18 @@ func commit(t *testing.T, dir, s string) {
 	if err := os.WriteFile(filepath.Join(dir, "f"), []byte(s), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	git(t, dir, "add", "f")
-	git(t, dir, "commit", "-q", "-m", s)
+	testgit.Git(t, dir, "add", "f")
+	testgit.Git(t, dir, "commit", "-q", "-m", s)
 }
 
 // A worktree in a rebase is detached; its branch is in rebase-merge/head-name.
 func TestFindRebase(t *testing.T) {
-	_, main := newRepos(t)
+	_, main := testgit.Repos(t)
 	dir := filepath.Join(filepath.Dir(main), "1234")
-	git(t, main, "worktree", "add", "-q", "-b", "bug/sc-1234/x", dir)
+	testgit.Git(t, main, "worktree", "add", "-q", "-b", "bug/sc-1234/x", dir)
 	commit(t, dir, "a")
-	git(t, main, "branch", "other", "main")
-	git(t, main, "worktree", "add", "-q", filepath.Join(filepath.Dir(main), "o"), "other")
+	testgit.Git(t, main, "branch", "other", "main")
+	testgit.Git(t, main, "worktree", "add", "-q", filepath.Join(filepath.Dir(main), "o"), "other")
 	commit(t, filepath.Join(filepath.Dir(main), "o"), "b")
 	cmd := exec.Command("git", "-C", dir, "-c", "user.name=t", "-c", "user.email=t@example.com", "rebase", "other")
 	if out, err := cmd.CombinedOutput(); err == nil {
@@ -326,13 +305,13 @@ func TestFindRebase(t *testing.T) {
 
 // A worktree in a bisect is detached; its branch is in BISECT_START.
 func TestFindBisect(t *testing.T) {
-	_, main := newRepos(t)
+	_, main := testgit.Repos(t)
 	dir := filepath.Join(filepath.Dir(main), "1234")
-	git(t, main, "worktree", "add", "-q", "-b", "bug/sc-1234/x", dir)
+	testgit.Git(t, main, "worktree", "add", "-q", "-b", "bug/sc-1234/x", dir)
 	commit(t, dir, "a")
 	commit(t, dir, "b")
 	commit(t, dir, "c")
-	git(t, dir, "bisect", "start", "HEAD", "HEAD~3")
+	testgit.Git(t, dir, "bisect", "start", "HEAD", "HEAD~3")
 	want := []gitwt.Match{{Branch: "bug/sc-1234/x", Dir: dir, Source: gitwt.Worktree}}
 	if got := find(t, open(t, main), 1234); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v", got)

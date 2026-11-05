@@ -21,7 +21,8 @@ import (
 // Source tells where the branch of a story was found.
 type Source string
 
-// The sources, in the order Find looks at them.
+// The sources. Find looks at Worktree, Local and Remote, in this order; New
+// is a branch that the caller makes when Find returns none.
 const (
 	Worktree Source = "worktree"
 	Local    Source = "local"
@@ -169,18 +170,14 @@ func (r Repo) Find(ctx context.Context, id int64) ([]Match, error) {
 		if err != nil {
 			return nil, err
 		}
-		var names []string
-		// A ref name can hold a Unicode space, but not a newline.
+		// for-each-ref sorts by ref name. A ref name can hold a Unicode space,
+		// but not a newline.
+		var ms []Match
 		for _, ref := range strings.Split(strings.TrimSuffix(out, "\n"), "\n") {
 			name := strings.TrimPrefix(ref, s.prefix+"/")
 			if name != "HEAD" && HasID(name, id) {
-				names = append(names, name)
+				ms = append(ms, Match{Branch: name, Source: s.src})
 			}
-		}
-		slices.Sort(names)
-		var ms []Match
-		for _, n := range slices.Compact(names) {
-			ms = append(ms, Match{Branch: n, Source: s.src})
 		}
 		if ms != nil {
 			return ms, nil
@@ -213,16 +210,9 @@ func (r Repo) Fetch(ctx context.Context) error {
 	return err
 }
 
-// Base is the start point of a new branch: origin/HEAD, else origin/main.
-func (r Repo) Base(ctx context.Context) (string, error) {
-	if _, err := run(ctx, r.Main, "rev-parse", "--verify", "--quiet", "origin/HEAD"); err == nil {
-		return "origin/HEAD", nil
-	}
-	return "origin/main", nil
-}
-
-// Add adds a worktree in dir for m. base is the start point of a New branch.
-func (r Repo) Add(ctx context.Context, dir string, m Match, base string) error {
+// Add adds a worktree in dir for m. A New branch starts at origin/HEAD, else
+// at origin/main.
+func (r Repo) Add(ctx context.Context, dir string, m Match) error {
 	args := []string{"worktree", "add", "--quiet"}
 	switch m.Source {
 	case Local:
@@ -230,7 +220,14 @@ func (r Repo) Add(ctx context.Context, dir string, m Match, base string) error {
 	case Remote:
 		args = append(args, "--track", "-b", m.Branch, dir, "origin/"+m.Branch)
 	case New:
-		// --no-track: with an upstream of main, git pull and git push use main.
+		base := "origin/main"
+		if _, err := run(ctx, r.Main, "rev-parse", "--verify", "--quiet", "origin/HEAD"); err == nil {
+			base = "origin/HEAD"
+		} else if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		// --no-track: with an upstream of main, git pull merges main, and
+		// git push fails or pushes to main, by push.default.
 		args = append(args, "--no-track", "-b", m.Branch, dir, base)
 	default:
 		return &exit.Error{Code: exit.Other, Msg: fmt.Sprintf("cannot add a worktree from source %q", m.Source)}

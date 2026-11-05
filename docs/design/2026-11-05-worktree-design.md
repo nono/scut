@@ -72,7 +72,7 @@ When no source matches, `--branch` gives the name of the new branch, and step 3 
 1. `git fetch origin`.
 2. Check `refs/remotes/origin/*` again. A match there gives `from: remote`. This finds a branch that another person pushed after the last fetch.
 3. Else read the story (`GET /stories/{id}`, field `formatted_vcs_branch_name`). Null gives exit 3, as `story branch` does. Strip a trailing `-` or `/`, as `story branch` does. A name with no `sc-<id>` in it is exit 3 with the suggestion to use `--branch`, because the next run would not find the branch. Then look at the sources again: another run can make a branch of the story during the story read, and a match now is used instead of a new branch.
-4. `git worktree add --no-track -b <name> <dir> origin/HEAD`, or `origin/main` when `origin/HEAD` is not set. `from: new`. With no `--no-track`, the new branch tracks main, and `git pull` and `git push` use main.
+4. `git worktree add --no-track -b <name> <dir> origin/HEAD`, or `origin/main` when `origin/HEAD` is not set. `from: new`. With no `--no-track`, the new branch tracks main: `git pull` merges main, and `git push` fails or pushes to main, by `push.default`.
 
 ### Directory
 
@@ -120,9 +120,9 @@ story() {
 
 ## Tests
 
-- Unit tests on temporary git repositories: a bare repository as `origin`, a clone as the main worktree. One test for each `from` value, for `sc-12` against `sc-123`, for more than one match with and without `--branch`, for a directory in use, for a prunable worktree, for a branch found only after the fetch, for no fetch when a branch exists, and for a call from a worktree that is not main.
+- Unit tests on temporary git repositories from `internal/testgit`: a bare repository as `origin`, a clone as the main worktree. One test for each `from` value, for `sc-12` against `sc-123`, for more than one match with and without `--branch`, for a directory in use, for a prunable worktree, for a branch found only after the fetch, for no fetch when a branch exists, and for a call from a worktree that is not main.
 - `--start` against an `httptest` server, as in `internal/cli/story_update_test.go`: unstarted moves, started does not, `@me` already an owner, the Shortcut failure after the git part.
-- `usage`, the skill reference and the README list the new command. `make check-skill` covers the drift.
+- `usage`, the skill reference and the README list the new command. `make check-skill` covers the drift of the skill reference and `docs/coverage.md`. No check covers the README.
 
 ## Calls made by the designer
 

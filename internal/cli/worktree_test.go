@@ -14,36 +14,16 @@ import (
 
 	"github.com/nono/scut/internal/cli"
 	"github.com/nono/scut/internal/testapi"
+	"github.com/nono/scut/internal/testgit"
 )
 
 const wtStory = "/api/v4/acme/stories/1234"
 
-func gitT(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
-	return strings.TrimSpace(string(out))
-}
-
-// gitRepos makes a bare origin and a clone at <tmp>/main with one commit. It
-// returns the path of the clone.
+// gitRepos makes a bare origin and a clone of it with one commit, and returns
+// the path of the clone.
 func gitRepos(t *testing.T) string {
 	t.Helper()
-	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	tmp, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	origin, main := filepath.Join(tmp, "origin.git"), filepath.Join(tmp, "main")
-	gitT(t, tmp, "init", "-q", "--bare", "-b", "main", origin)
-	gitT(t, tmp, "clone", "-q", origin, main)
-	gitT(t, main, "commit", "-q", "--allow-empty", "-m", "init")
-	gitT(t, main, "push", "-q", "origin", "main")
-	gitT(t, main, "remote", "set-head", "origin", "main")
+	_, main := testgit.Repos(t)
 	return main
 }
 
@@ -77,7 +57,7 @@ func TestWorktreeNew(t *testing.T) {
 	if got := jsonOf(decode(t, out)); got != want {
 		t.Errorf("out %s", got)
 	}
-	if b := gitT(t, dir, "branch", "--show-current"); b != "bug/sc-1234/x" {
+	if b := testgit.Git(t, dir, "branch", "--show-current"); b != "bug/sc-1234/x" {
 		t.Errorf("branch %q", b)
 	}
 	if got := c.param(wtStory, "fields"); got != "formatted_vcs_branch_name" {
@@ -87,7 +67,7 @@ func TestWorktreeNew(t *testing.T) {
 
 func TestWorktreeLocalNoToken(t *testing.T) {
 	h, main := wtHarness(t, nil, "", nil)
-	gitT(t, main, "branch", "bug/sc-1234/x")
+	testgit.Git(t, main, "branch", "bug/sc-1234/x")
 	code, out, errs := h.run("worktree", "sc-1234")
 	if code != 0 {
 		t.Fatalf("code %d, stderr %s", code, errs)
@@ -119,7 +99,7 @@ func TestWorktreeExisting(t *testing.T) {
 
 func TestWorktreeRelativeDir(t *testing.T) {
 	h, main := wtHarness(t, nil, "", nil)
-	gitT(t, main, "branch", "bug/sc-1234/x")
+	testgit.Git(t, main, "branch", "bug/sc-1234/x")
 	code, out, errs := h.run("worktree", "1234", "--dir", "../x")
 	if code != 0 {
 		t.Fatalf("code %d, stderr %s", code, errs)
@@ -131,8 +111,8 @@ func TestWorktreeRelativeDir(t *testing.T) {
 
 func TestWorktreeTwoMatches(t *testing.T) {
 	h, main := wtHarness(t, nil, "", nil)
-	gitT(t, main, "branch", "bug/sc-1234/a")
-	gitT(t, main, "branch", "bug/sc-1234/b")
+	testgit.Git(t, main, "branch", "bug/sc-1234/a")
+	testgit.Git(t, main, "branch", "bug/sc-1234/b")
 	code, _, errs := h.run("worktree", "1234")
 	if code != 2 || !strings.Contains(errs, `"valid":["bug/sc-1234/a","bug/sc-1234/b"]`) {
 		t.Fatalf("code %d, stderr %s", code, errs)
@@ -177,7 +157,7 @@ func TestWorktreeNullBranchName(t *testing.T) {
 
 func TestWorktreeDirInUse(t *testing.T) {
 	h, main := wtHarness(t, nil, "", nil)
-	gitT(t, main, "branch", "bug/sc-1234/x")
+	testgit.Git(t, main, "branch", "bug/sc-1234/x")
 	dir := filepath.Join(filepath.Dir(main), "1234")
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -193,7 +173,7 @@ func TestWorktreeDirInUse(t *testing.T) {
 func TestWorktreePrunable(t *testing.T) {
 	h, main := wtHarness(t, nil, "", nil)
 	dir := filepath.Join(filepath.Dir(main), "1234")
-	gitT(t, main, "worktree", "add", "-q", "-b", "bug/sc-1234/x", dir)
+	testgit.Git(t, main, "worktree", "add", "-q", "-b", "bug/sc-1234/x", dir)
 	if err := os.RemoveAll(dir); err != nil {
 		t.Fatal(err)
 	}
@@ -368,8 +348,8 @@ func TestWorktreeOutputSameOnBothPaths(t *testing.T) {
 // No fetch when a branch exists: an origin that cannot be reached must not matter.
 func TestWorktreeLocalNoFetch(t *testing.T) {
 	h, main := wtHarness(t, nil, "", nil)
-	gitT(t, main, "branch", "bug/sc-1234/x")
-	gitT(t, main, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
+	testgit.Git(t, main, "branch", "bug/sc-1234/x")
+	testgit.Git(t, main, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
 	if code, _, errs := h.run("worktree", "1234"); code != 0 {
 		t.Fatalf("code %d, stderr %s", code, errs)
 	}
@@ -377,10 +357,7 @@ func TestWorktreeLocalNoFetch(t *testing.T) {
 
 func TestWorktreeFoundAfterFetch(t *testing.T) {
 	h, main := wtHarness(t, nil, "", nil)
-	other := filepath.Join(t.TempDir(), "other")
-	gitT(t, filepath.Dir(other), "clone", "-q", gitT(t, main, "remote", "get-url", "origin"), other)
-	gitT(t, other, "switch", "-q", "-c", "bug/sc-1234/x")
-	gitT(t, other, "push", "-q", "origin", "bug/sc-1234/x")
+	testgit.Push(t, testgit.Git(t, main, "remote", "get-url", "origin"), "bug/sc-1234/x")
 	code, out, errs := h.run("worktree", "1234")
 	if code != 0 {
 		t.Fatalf("code %d, stderr %s", code, errs)
@@ -461,7 +438,7 @@ func TestWorktreeHuman(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			h, main := wtHarness(t, nil, "", map[string]string{"SCUT_OUTPUT": map[string]string{"flag": "", "env": "human"}[name]})
-			gitT(t, main, "branch", "bug/sc-1234/x")
+			testgit.Git(t, main, "branch", "bug/sc-1234/x")
 			code, out, errs := run(h)
 			if code != 0 {
 				t.Fatalf("code %d, stderr %s", code, errs)
@@ -477,7 +454,7 @@ func TestWorktreeHuman(t *testing.T) {
 func TestWorktreeExistingElsewhere(t *testing.T) {
 	h, main := wtHarness(t, nil, "", nil)
 	dir := filepath.Join(filepath.Dir(main), "elsewhere")
-	gitT(t, main, "worktree", "add", "-q", "-b", "bug/sc-1234/x", dir)
+	testgit.Git(t, main, "worktree", "add", "-q", "-b", "bug/sc-1234/x", dir)
 	code, out, errs := h.run("worktree", "1234", "--dir", "../other")
 	if code != 0 {
 		t.Fatalf("code %d, stderr %s", code, errs)
@@ -523,7 +500,7 @@ func TestWorktreeBranchMadeDuringLookup(t *testing.T) {
 	main = m
 	h.env.APIBase = testapi.Fake(t, map[string]http.HandlerFunc{
 		"GET " + wtStory: func(w http.ResponseWriter, r *http.Request) {
-			gitT(t, main, "branch", "bug/sc-1234/other")
+			testgit.Git(t, main, "branch", "bug/sc-1234/other")
 			jsonHandler(`{"id":1234,"formatted_vcs_branch_name":"bug/sc-1234/suggested"}`)(w, r)
 		},
 	})
@@ -534,7 +511,7 @@ func TestWorktreeBranchMadeDuringLookup(t *testing.T) {
 	if m := decode(t, out); m["branch"] != "bug/sc-1234/other" || m["from"] != "local" {
 		t.Errorf("out %s", out)
 	}
-	if got := gitT(t, main, "branch", "--list", "bug/sc-1234/*"); strings.Contains(got, "suggested") {
+	if got := testgit.Git(t, main, "branch", "--list", "bug/sc-1234/*"); strings.Contains(got, "suggested") {
 		t.Errorf("second branch: %s", got)
 	}
 }
@@ -547,7 +524,7 @@ func TestWorktreeMakesDirBeforeGit(t *testing.T) {
 		t.Fatal(err)
 	}
 	h, main := wtHarness(t, nil, "", nil)
-	gitT(t, main, "branch", "bug/sc-1234/x")
+	testgit.Git(t, main, "branch", "bug/sc-1234/x")
 	dir := filepath.Join(filepath.Dir(main), "1234")
 	bin, log := t.TempDir(), filepath.Join(t.TempDir(), "log")
 	script := "#!/bin/sh\ncase \"$*\" in *\"worktree add\"*) if [ -d " + dir + " ]; then echo made >> " + log + "; fi;; esac\nexec " + real + " \"$@\"\n"
