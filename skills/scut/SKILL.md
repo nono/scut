@@ -1,7 +1,7 @@
 ---
 name: scut
-description: Use when a task reads or changes Shortcut stories, epics, comments, links or attachments: a story ID such as sc-1234, an app.shortcut.com URL, a git branch with sc-NNNN in it, a ticket or bug to file, a sub-task, a state change such as "move it to In Review", a Shortcut doc, or the branch name of a story.
-allowed-tools: Bash(scut auth status:*), Bash(scut auth usage:*), Bash(scut cache usage:*), Bash(scut doc search:*), Bash(scut doc usage:*), Bash(scut epic search:*), Bash(scut epic stories:*), Bash(scut epic usage:*), Bash(scut epic view:*), Bash(scut field list:*), Bash(scut field usage:*), Bash(scut field values:*), Bash(scut member list:*), Bash(scut member usage:*), Bash(scut spec:*), Bash(scut story branch:*), Bash(scut story comments:*), Bash(scut story search:*), Bash(scut story subtasks:*), Bash(scut story usage:*), Bash(scut story view:*), Bash(scut team list:*), Bash(scut team usage:*), Bash(scut usage:*), Bash(scut whoami:*), Bash(scut workflow list:*), Bash(scut workflow states:*), Bash(scut workflow usage:*)
+description: "Use when a task reads or changes Shortcut stories, epics, comments, links or attachments: a story ID such as sc-1234, an app.shortcut.com URL, a git branch with sc-NNNN in it, a ticket or bug to file, a sub-task, a state change such as \"move it to In Review\", a Shortcut doc, or the branch name of a story."
+allowed-tools: "Bash(scut auth status:*), Bash(scut auth usage:*), Bash(scut cache usage:*), Bash(scut doc search:*), Bash(scut doc usage:*), Bash(scut epic search:*), Bash(scut epic stories:*), Bash(scut epic usage:*), Bash(scut epic view:*), Bash(scut field list:*), Bash(scut field usage:*), Bash(scut field values:*), Bash(scut member list:*), Bash(scut member usage:*), Bash(scut spec:*), Bash(scut story branch:*), Bash(scut story comments:*), Bash(scut story search:*), Bash(scut story subtasks:*), Bash(scut story usage:*), Bash(scut story view:*), Bash(scut team list:*), Bash(scut team usage:*), Bash(scut usage:*), Bash(scut whoami:*), Bash(scut workflow list:*), Bash(scut workflow states:*), Bash(scut workflow usage:*)"
 ---
 
 # scut
@@ -20,9 +20,9 @@ allowed-tools: Bash(scut auth status:*), Bash(scut auth usage:*), Bash(scut cach
 
 | Exit | Meaning | Do this |
 |---|---|---|
-| 2 | Usage error. Nothing was sent. | Pick from `valid`, or do the `suggestion`. A noun with no command is an error. |
+| 2 | Usage error, or the API refused a request (HTTP 400). | Pick from `valid`, or do the `suggestion`. A noun with no command is an error. A command that sends several writes (`story link` with several pairs, `story update` on several stories) can have done some: read stdout first. |
 | 3 | Not found. | Check the ID. For a name, pick from `valid`. |
-| 4 | No token, a bad token, or a missing scope. | Do not retry. Ask the user to run `scut auth login < token.txt` in a terminal, with a token from https://app.shortcut.com/settings/account/api-tokens. |
+| 4 | No token, a bad token, or a missing scope. | Do not retry. If `error` names `SCUT_TOKEN` or a token file, ask the user to fix it. If `scut auth status` shows a read-only token, stop: the write needs another token. Else ask the user to run `scut auth login` in a terminal: it asks for a token from https://app.shortcut.com/settings/account/api-tokens, with no echo. |
 | 5 | Shortcut is unavailable. | Retry later. A write may have taken effect: read the `suggestion` first. For `story create`, it says if the story exists. |
 | 1 | Other error. | Read `error` and `api`. |
 | 130 | Cancelled. | Read the `suggestion`, if any. |

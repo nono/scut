@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
 	"github.com/nono/scut/internal/cli"
 )
@@ -67,13 +68,52 @@ func TestSkillNotSupported(t *testing.T) {
 func TestSkillFrontmatterAndHead(t *testing.T) {
 	text := skillText(testRoot(), loadSpec(t))
 	for _, want := range []string{
-		"---\nname: scut\ndescription: Use when a task reads or changes Shortcut stories, epics, comments, links or attachments",
-		"sc-1234", "app.shortcut.com", "ticket", "sub-task", "In Review",
+		"---\nname: scut\n",
 		"scut usage", "--body-file", "--description-file", "130", "suggestion", "story search", "scut api",
+		// Item 7 of the skill design: the rules on risky writes.
+		"Never add `--yes` yourself", "only when the user asks",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing %q", want)
 		}
+	}
+}
+
+// The frontmatter is YAML that a strict parser reads, with the description
+// and allowed-tools as they are generated.
+func TestSkillFrontmatterParses(t *testing.T) {
+	spec := loadSpec(t)
+	text := skillText(testRoot(), spec)
+	body, ok := strings.CutPrefix(text, "---\n")
+	fm, _, ok2 := strings.Cut(body, "\n---\n")
+	if !ok || !ok2 {
+		t.Fatalf("no frontmatter in %q", text[:min(len(text), 200)])
+	}
+	var m map[string]string
+	if err := yaml.Unmarshal([]byte(fm), &m); err != nil {
+		t.Fatalf("frontmatter is not valid YAML: %v", err)
+	}
+	if m["name"] != "scut" || m["description"] != description || m["allowed-tools"] != allowedTools(testRoot(), spec) || len(m) != 3 {
+		t.Errorf("frontmatter %v", m)
+	}
+	for _, want := range []string{"sc-1234", "app.shortcut.com", "ticket", "sub-task", "In Review"} {
+		if !strings.Contains(m["description"], want) {
+			t.Errorf("description lacks %q", want)
+		}
+	}
+}
+
+// A command with no ops annotation is not a read: allowed-tools leaves it out,
+// unless it is on the named list of local reads.
+func TestAllowedToolsFailsClosed(t *testing.T) {
+	root := testRoot()
+	root.AddCommand(&cobra.Command{Use: "newcmd", Run: func(*cobra.Command, []string) {}})
+	got := allowedTools(root, loadSpec(t))
+	if strings.Contains(got, "newcmd") {
+		t.Errorf("a command with no ops is allowed: %q", got)
+	}
+	if !strings.Contains(got, "Bash(scut spec:*)") {
+		t.Errorf("spec is not allowed: %q", got)
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -57,6 +58,13 @@ var localWrites = map[string]bool{
 	"story files": true, // --out writes files to any directory
 }
 
+// localReads are commands that call no operation and only read: the only
+// commands with no ops annotation that allowed-tools lists. A new command
+// with no annotation stays out, so that it asks for permission.
+var localReads = map[string]bool{
+	"spec": true, // reads the embedded spec
+}
+
 // allowedTools is the allowed-tools value: each command that makes no write,
 // so that an agent can read without a permission prompt and each write still asks.
 func allowedTools(root *cobra.Command, spec specInfo) string {
@@ -68,7 +76,7 @@ func allowedTools(root *cobra.Command, spec specInfo) string {
 	}
 	for _, c := range leafCommands(root) {
 		ops := cli.Ops(c)
-		read := !localWrites[cmdPath(c)]
+		read := !localWrites[cmdPath(c)] && (len(ops) > 0 || localReads[cmdPath(c)])
 		for _, op := range ops {
 			read = read && op != "*" && spec.methods[op] == "GET"
 		}
@@ -81,7 +89,9 @@ func allowedTools(root *cobra.Command, spec specInfo) string {
 }
 
 func frontmatter(root *cobra.Command, spec specInfo) string {
-	return "---\nname: scut\ndescription: " + description + "\nallowed-tools: " + allowedTools(root, spec) + "\n---\n\n"
+	// Quoted: a plain YAML value cannot hold ": ". A Go quoted string is a valid YAML double-quoted string.
+	return "---\nname: scut\ndescription: " + strconv.Quote(description) +
+		"\nallowed-tools: " + strconv.Quote(allowedTools(root, spec)) + "\n---\n\n"
 }
 
 func main() {
