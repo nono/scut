@@ -57,16 +57,7 @@ func (e EpicOut) Human() string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-type epicList []EpicOut
-
-// Human joins the text forms of the epics.
-func (l epicList) Human() string {
-	parts := make([]string, len(l))
-	for i, e := range l {
-		parts[i] = e.Human()
-	}
-	return strings.Join(parts, "\n\n")
-}
+type epicList = humanList[EpicOut]
 
 // shapeEpics converts Epic entities to the compact shape.
 func shapeEpics(d *deps, raw []json.RawMessage, description bool) (epicList, error) {

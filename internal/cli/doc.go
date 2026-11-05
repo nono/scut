@@ -66,16 +66,7 @@ func (o DocOut) Human() string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-type docList []DocOut
-
-// Human joins the text forms of the docs.
-func (l docList) Human() string {
-	parts := make([]string, len(l))
-	for i, o := range l {
-		parts[i] = o.Human()
-	}
-	return strings.Join(parts, "\n\n")
-}
+type docList = humanList[DocOut]
 
 // shapeDocs converts Doc entities to the compact shape. The content keys stay
 // as the API sent them.

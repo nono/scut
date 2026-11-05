@@ -412,14 +412,16 @@ func (m memberOut) label() string {
 	return m.ID
 }
 
-// storyList is several stories; its text form separates them by a blank line.
-type storyList []StoryOut
+// humanList is several items; its text form separates them by a blank line.
+type humanList[T interface{ Human() string }] []T
 
-// Human joins the text forms of the stories.
-func (l storyList) Human() string {
+// Human joins the text forms of the items.
+func (l humanList[T]) Human() string {
 	parts := make([]string, len(l))
-	for i, s := range l {
-		parts[i] = s.Human()
+	for i, x := range l {
+		parts[i] = x.Human()
 	}
 	return strings.Join(parts, "\n\n")
 }
+
+type storyList = humanList[StoryOut]
