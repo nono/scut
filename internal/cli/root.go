@@ -4,13 +4,16 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/nono/scut/internal/config"
 	"github.com/nono/scut/internal/exit"
@@ -48,7 +51,10 @@ func Group(use, short string) *cobra.Command {
 		Short: short,
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return exit.Usagef("%q needs a subcommand; see \"%s --help\"", cmd.CommandPath(), cmd.CommandPath())
+			e := exit.Usagef("%q needs a subcommand", cmd.CommandPath())
+			e.Valid = subcommandNames(cmd)
+			e.Suggestion = seeHelp(cmd)
+			return e
 		},
 	}
 	g.AddCommand(newUsage(false))
@@ -57,9 +63,47 @@ func Group(use, short string) *cobra.Command {
 
 func noArgs(cmd *cobra.Command, args []string) error {
 	if len(args) > 0 {
-		return exit.Usagef("unknown command %q for %q", args[0], cmd.CommandPath())
+		e := exit.Usagef("unknown command %q for %q", args[0], cmd.CommandPath())
+		e.Valid = subcommandNames(cmd)
+		e.Suggestion = seeHelp(cmd)
+		if cmd.SuggestionsMinimumDistance <= 0 {
+			cmd.SuggestionsMinimumDistance = 2 // the cobra default, which only its own error path sets
+		}
+		if s := cmd.SuggestionsFor(args[0]); len(s) > 0 {
+			e.Suggestion = fmt.Sprintf("did you mean %q?", s[0])
+		}
+		return e
 	}
 	return nil
+}
+
+// subcommandNames returns the names of the subcommands that a user can run.
+func subcommandNames(cmd *cobra.Command) []string {
+	var out []string
+	for _, c := range cmd.Commands() {
+		if c.IsAvailableCommand() && c.Name() != "help" {
+			out = append(out, c.Name())
+		}
+	}
+	return out
+}
+
+func seeHelp(cmd *cobra.Command) string {
+	return fmt.Sprintf("see %q", cmd.CommandPath()+" --help")
+}
+
+// flagError is a flag parse error, with the flags of cmd in valid when the flag is unknown.
+func flagError(cmd *cobra.Command, err error) error {
+	e := exit.Usagef("%s", err)
+	e.Suggestion = seeHelp(cmd)
+	if strings.HasPrefix(err.Error(), "unknown ") {
+		cmd.Flags().VisitAll(func(f *pflag.Flag) {
+			if !f.Hidden {
+				e.Valid = append(e.Valid, "--"+f.Name)
+			}
+		})
+	}
+	return e
 }
 
 // NewRoot returns the root command with all subcommands.
@@ -75,9 +119,7 @@ func NewRoot(env Env) *cobra.Command {
 			return cmd.Help()
 		},
 	}
-	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
-		return exit.Usagef("%s", err)
-	})
+	root.SetFlagErrorFunc(flagError)
 	root.CompletionOptions.DisableDefaultCmd = true
 	pf := root.PersistentFlags()
 	pf.Bool("human", false, "print text instead of JSON")
@@ -91,7 +133,7 @@ func NewRoot(env Env) *cobra.Command {
 }
 
 // usageArgs wraps the Args check of each command: a positional-argument error
-// exits 2. An *exit.Error keeps its code.
+// exits 2, with the usage line as the suggestion. An *exit.Error keeps its code.
 func usageArgs(c *cobra.Command) {
 	if old := c.Args; old != nil {
 		c.Args = func(cmd *cobra.Command, args []string) error {
@@ -100,7 +142,9 @@ func usageArgs(c *cobra.Command) {
 			if err == nil || errors.As(err, &ee) {
 				return err
 			}
-			return exit.Usagef("%s", err)
+			e := exit.Usagef("%s", err)
+			e.Suggestion = "usage: " + strings.TrimSuffix(cmd.UseLine(), " [flags]")
+			return e
 		}
 	}
 	for _, sub := range c.Commands() {

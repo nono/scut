@@ -144,6 +144,22 @@ func TestAPIBadMethod(t *testing.T) {
 	}
 }
 
+// A usage error exits 2 before the token is read, so it does not hide behind an auth error.
+func TestAPIUsageNeedsNoToken(t *testing.T) {
+	h := newHarness(t, map[string]http.HandlerFunc{}, `{bad`, nil)
+	for _, args := range [][]string{
+		{"api", "-X", "FETCH", "/stories"},
+		{"api", "-X", "delete", "/story-links/1"},
+		{"api", "/stories", "-f", "nokey"},
+		{"api", "/stories", "--input", "-"},
+		{"api", "/stories", "--input", "-", "-f", "a=b"},
+	} {
+		if code, _, errs := h.run(args...); code != 2 {
+			t.Errorf("%v: code %d, want 2; stderr %s", args, code, errs)
+		}
+	}
+}
+
 func TestAPINotFound(t *testing.T) {
 	h := newHarness(t, map[string]http.HandlerFunc{
 		"/": func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNotFound) },

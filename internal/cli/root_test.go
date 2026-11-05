@@ -57,6 +57,68 @@ func TestBadFlagIs2(t *testing.T) {
 	}
 }
 
+// usageError runs args and returns the JSON error; it fails unless the code is 2.
+func usageError(t *testing.T, args ...string) map[string]any {
+	t.Helper()
+	var out, errb bytes.Buffer
+	if code := cli.Execute(args, &out, &errb, emptyEnv()); code != 2 {
+		t.Fatalf("%v: code %d, want 2; stderr %s", args, code, errb.String())
+	}
+	return decode(t, errb.String())
+}
+
+func hasValid(e map[string]any, want ...string) bool {
+	valid, _ := e["valid"].([]any)
+	for _, w := range want {
+		found := false
+		for _, v := range valid {
+			found = found || v == w
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+// Errors from the command tree name the fix: the valid subcommands or flags, and how to get help.
+func TestUsageErrorsNameTheFix(t *testing.T) {
+	for _, c := range []struct {
+		args       []string
+		valid      []string
+		suggestion string
+	}{
+		{[]string{"stroy"}, []string{"story", "epic"}, `did you mean "story"?`},
+		{[]string{"story", "veiw"}, []string{"view", "comment"}, `did you mean "view"?`},
+		{[]string{"story", "nothing-like-it"}, []string{"view"}, `see "scut story --help"`},
+		{[]string{"story"}, []string{"view", "update"}, `see "scut story --help"`},
+		{[]string{"story", "search"}, nil, "usage: scut story search <query>"},
+		{[]string{"workflow", "states", "a", "b"}, nil, "usage: scut workflow states [<workflow>]"},
+		{[]string{"story", "view", "1", "--feilds", "id"}, []string{"--fields", "--comments", "--human"}, `see "scut story view --help"`},
+		{[]string{"story", "view", "1", "-z"}, []string{"--fields"}, `see "scut story view --help"`},
+		{[]string{"spec", "Story", "--depth", "x"}, nil, `see "scut spec --help"`},
+	} {
+		e := usageError(t, c.args...)
+		if !hasValid(e, c.valid...) {
+			t.Errorf("%v: valid %v, want %v", c.args, e["valid"], c.valid)
+		}
+		if c.valid == nil && e["valid"] != nil {
+			t.Errorf("%v: valid %v, want none", c.args, e["valid"])
+		}
+		if e["suggestion"] != c.suggestion {
+			t.Errorf("%v: suggestion %q, want %q", c.args, e["suggestion"], c.suggestion)
+		}
+	}
+}
+
+// Hidden commands and the help command are not in valid.
+func TestUnknownCommandValidLeavesOutHelp(t *testing.T) {
+	e := usageError(t, "nothing-like-it")
+	if hasValid(e, "help") {
+		t.Errorf("valid %v has help", e["valid"])
+	}
+}
+
 func TestCancelledIs130(t *testing.T) {
 	var errb bytes.Buffer
 	root := cli.NewRoot(emptyEnv())
