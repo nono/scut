@@ -471,3 +471,32 @@ func TestBulkUpdateCancelNamesChunk(t *testing.T) {
 		t.Errorf("suggestion %q", s)
 	}
 }
+
+// A cancel after a chunk is saved, during its reply check, keeps the
+// suggestion that the chunk is saved.
+func TestBulkUpdateCancelInReplyCheck(t *testing.T) {
+	a := newBulkAPI(t, 5429, 5430)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	members := lookupRoutes()["GET /api/v4/acme/members"]
+	h := a.harness(map[string]http.HandlerFunc{"GET /api/v4/acme/members": func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		written := len(a.writes) > 0
+		a.mu.Unlock()
+		if written {
+			cancel()
+			time.Sleep(200 * time.Millisecond)
+		}
+		members(w, r)
+	}})
+	root := cli.NewRoot(h.env)
+	var out, errb bytes.Buffer
+	root.SetOut(&out)
+	code := cli.RunContext(ctx, root, []string{"story", "update", "5429", "5430", "--epic", "1"}, &errb)
+	if code != 130 || len(a.writes) != 1 {
+		t.Fatalf("code %d, writes %d, stderr %s", code, len(a.writes), errb.String())
+	}
+	if s, _ := decode(t, errb.String())["suggestion"].(string); !strings.Contains(s, "saved") || !strings.Contains(s, "5429 5430") {
+		t.Errorf("suggestion %q", s)
+	}
+}

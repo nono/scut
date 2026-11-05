@@ -55,7 +55,7 @@ The API does not say if a bulk write is atomic, and its errors (400, 404, 422) h
 - A write is not retried (as in v1: only `GET` is). A 5xx or a timeout exits 5.
 - A reply that fails a check (it leaves out a story of the chunk, or a parent is not set): exit 1. The write is saved, and the `suggestion` names each story of the chunk.
 - A write that was not sent (a dial failure or a bad certificate): the `suggestion` says that the stories of the chunk are not changed.
-- A cancel (Ctrl-C) during a write: exit 130, and the error keeps the `suggestion` that names the chunk, as `story create` does. A cancel between two writes: exit 130, and the `suggestion` names the stories that are not sent.
+- A cancel (Ctrl-C) during a write: exit 130, and the error keeps the `suggestion` that names the chunk, as `story create` does. A cancel between two writes: exit 130, and the `suggestion` names the stories that are not sent. A cancel after a write, during the check of its reply: exit 130, and the `suggestion` says that the chunk is saved.
 - Not checked: another client can move a story to another workflow between the read of step 2 and the write. `--state` then sends a state of the old workflow, and the API can move the story back. The one-story path has the same gap between its read and its write; the bulk path makes it longer only past 100 stories. Use `--workflow` when the workflow can change.
 
 ## Calls

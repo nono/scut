@@ -35,13 +35,7 @@ func updateMany(ctx context.Context, d *deps, ids []int64, u updateFlags, body m
 	if err := resolveCommon(r, u, body); err != nil {
 		return err
 	}
-	done := storyList{}
-	for start := 0; start < len(ids); start += bulkSize {
-		chunk := ids[start:min(start+bulkSize, len(ids))]
-		if ctx.Err() != nil {
-			return partial(d, done, &exit.Error{Code: exit.Cancelled, Msg: "cancelled",
-				Suggestion: "no write was sent for stories " + joinIDs(ids[start:], " ") + ": they are not changed"})
-		}
+	done, err := writeChunks(ctx, ids, func(chunk []int64) (storyList, error) {
 		items := make([]map[string]any, 0, len(chunk))
 		for _, id := range chunk {
 			item := maps.Clone(body)
@@ -55,15 +49,37 @@ func updateMany(ctx context.Context, d *deps, ids []int64, u updateFlags, body m
 		q := url.Values{"limit": {strconv.Itoa(len(chunk))}, "filter": {"include_archived"}}
 		raw, err := d.Doer.Raw(ctx, "PATCH", "stories/bulk", q, map[string]any{"stories": items})
 		if err != nil {
-			return partial(d, done, notKnown(ctx, err, chunk))
+			return nil, notKnown(ctx, err, chunk)
 		}
 		outs, err := bulkReply(raw, chunk, body, r)
 		if err != nil {
-			return partial(d, done, saved(err, chunk))
+			return nil, saved(ctx, err, chunk)
+		}
+		return outs, nil
+	})
+	if err != nil {
+		return partial(d, done, err)
+	}
+	return d.Out(done)
+}
+
+// writeChunks calls write for each chunk of bulkSize ids, in order, and
+// returns the stories of the chunks that are done. It stops at the first
+// error, or at a cancel before a chunk: that chunk and the next ones are not sent.
+func writeChunks(ctx context.Context, ids []int64, write func(chunk []int64) (storyList, error)) (storyList, error) {
+	done := storyList{}
+	for start := 0; start < len(ids); start += bulkSize {
+		if ctx.Err() != nil {
+			return done, &exit.Error{Code: exit.Cancelled, Msg: "cancelled",
+				Suggestion: "no write was sent for stories " + joinIDs(ids[start:], " ") + ": they are not changed"}
+		}
+		outs, err := write(ids[start:min(start+bulkSize, len(ids))])
+		if err != nil {
+			return done, err
 		}
 		done = append(done, outs...)
 	}
-	return d.Out(done)
+	return done, nil
 }
 
 // storyWorkflows reads the workflow of each story. A story that is not there is exit 3.
@@ -168,17 +184,21 @@ func notKnown(ctx context.Context, err error, chunk []int64) error {
 	}
 	e.Suggestion = "these stories may be partly changed, as the API does not say if a bulk write is atomic: " +
 		"read them with scut story view " + joinIDs(chunk, " ")
-	if e.NotSent && ctx.Err() == nil {
+	if e.NotSent {
 		e.Suggestion = "the write was not sent: stories " + joinIDs(chunk, " ") + " are not changed"
 	}
 	return e
 }
 
-// saved marks the error of a reply that fails a check after the chunk is saved.
-func saved(err error, chunk []int64) error {
+// saved marks the error of a reply that fails a check after the chunk is
+// saved. After a cancel, the error has code 130, so that RunContext prints it.
+func saved(ctx context.Context, err error, chunk []int64) error {
 	var e *exit.Error
 	if !errors.As(err, &e) {
 		e = &exit.Error{Code: exit.Other, Msg: err.Error()}
+	}
+	if ctx.Err() != nil {
+		e = &exit.Error{Code: exit.Cancelled, Msg: "cancelled after the write"}
 	}
 	e.Suggestion = "the write of these stories is saved, but its reply did not pass the checks: " +
 		"read them with scut story view " + joinIDs(chunk, " ")
