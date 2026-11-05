@@ -44,17 +44,17 @@ scut worktree [<story>] [--repo <path>] [--dir <path>] [--branch <name>] [--star
 
 ### Repository
 
-The main worktree is the first entry of `git -C <repo> worktree list --porcelain`, from any worktree of the repository. Outside a git repository, exit 2 (usage).
+The main worktree is the first entry of `git -C <repo> worktree list --porcelain -z`, from any worktree of the repository. `-z` keeps a path with a newline whole. Outside a git repository (git says "not a git repository"), exit 2 (usage). Any other git failure, for example no `git` on the `PATH`, follows Git errors.
 
 ### Branch match
 
-A branch matches when its name contains `sc-<id>` with no digit after it: `sc-12` does not match `sc-123`. The match is on the ID, not on the full name, because a story renamed after the branch was made gives a new `formatted_vcs_branch_name`.
+A branch matches when its name contains `sc-<id>` with no digit after it, and with no letter or digit before it: `sc-12` does not match `sc-123`, and `misc-12` is not story 12. The match is on the ID, not on the full name, because a story renamed after the branch was made gives a new `formatted_vcs_branch_name`.
 
 The command takes the first source that has a match:
 
 | `from` | Source | Action |
 |--------|--------|--------|
-| `worktree` | A worktree whose branch matches (`git worktree list --porcelain`). | Return its directory, even if it is not the default `--dir`. `created: false`. |
+| `worktree` | A worktree whose branch matches (`git worktree list --porcelain -z`). A rebase or a bisect detaches the worktree: then its branch is in `rebase-merge/head-name`, `rebase-apply/head-name` or `BISECT_START` of its git directory. | Return its directory, even if it is not the default `--dir`. `created: false`. |
 | `local` | `refs/heads/*`. | `git worktree add <dir> <branch>`. |
 | `remote` | `refs/remotes/origin/*`. | `git worktree add --track -b <branch> <dir> origin/<branch>`. |
 | `new` | None of the above. | See Fetch. |
@@ -71,23 +71,24 @@ When no source matches, `--branch` gives the name of the new branch, and step 3 
 
 1. `git fetch origin`.
 2. Check `refs/remotes/origin/*` again. A match there gives `from: remote`. This finds a branch that another person pushed after the last fetch.
-3. Else read the story (`GET /stories/{id}`, field `formatted_vcs_branch_name`). Null gives exit 3, as `story branch` does. Strip a trailing `-` or `/`, as `story branch` does. A name with no `sc-<id>` in it is exit 3 with the suggestion to use `--branch`, because the next run would not find the branch.
+3. Else read the story (`GET /stories/{id}`, field `formatted_vcs_branch_name`). Null gives exit 3, as `story branch` does. Strip a trailing `-` or `/`, as `story branch` does. A name with no `sc-<id>` in it is exit 3 with the suggestion to use `--branch`, because the next run would not find the branch. Then look at the sources again: another run can make a branch of the story during the story read, and a match now is used instead of a new branch.
 4. `git worktree add --no-track -b <name> <dir> origin/HEAD`, or `origin/main` when `origin/HEAD` is not set. `from: new`. With no `--no-track`, the new branch tracks main, and `git pull` and `git push` use main.
 
 ### Directory
 
 - The worktree of the story is in the directory: no change, `from: worktree`.
 - The directory exists for a different reason, empty or not: exit 2, no change.
-- Else git makes it.
+- Else `scut` makes it with `mkdir`, which fails if the directory exists, and then git adds the worktree in it. A directory that another process makes between the check and git is then an exit 2, not a directory that git fills. If git fails, `scut` removes the directory it made.
 
 ### `--start`
 
 After the git part:
 
 1. Read the story: `workflow`, `workflow_state`, `owners`. In v4 these are nested objects, not IDs.
-2. Read the workflow states. If the current state has type `unstarted`, set the state to the `started` state with the lowest position. A story in a `started` or `done` state does not move. A workflow with no `started` state is exit 3.
-3. Add `@me` with `owner_ids_add`. Skip it if `@me` is an owner.
-4. One `PATCH` with the changes, or no call when there is none.
+2. Read all pages of the workflow states. If the current state has type `backlog` or `unstarted`, set the state to the `started` state with the lowest position. A story in a `started` or `done` state does not move. A backlog or unstarted story in a workflow with no `started` state is exit 3.
+3. Before the `PATCH` that changes the state, read the state again. If another writer changed it after step 1, do not change the state. The API has no conditional update, so this makes the window small, not zero.
+4. Add `@me` with `owner_ids_add`. Skip it if `@me` is an owner.
+5. One `PATCH` with the changes, or no call when there is none.
 
 If the git part worked and the Shortcut part fails, the worktree stays. The command exits with the Shortcut error code, and the error JSON has the worktree under `worktree`, so a caller can still open it.
 
@@ -132,7 +133,8 @@ story() {
 - `--branch` names the new branch when nothing matches, and must contain `sc-<id>`.
 - A branch name format with no `sc-<id>` is exit 3, not a branch that later runs cannot find.
 - An empty existing directory counts as in use.
-- A workflow with no `started` state is exit 3.
+- A backlog or unstarted story in a workflow with no `started` state is exit 3.
+- A `backlog` story moves like an `unstarted` one.
 
 ## Left to the builder
 

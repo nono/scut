@@ -17,6 +17,7 @@ import (
 	"github.com/nono/scut/internal/exit"
 	"github.com/nono/scut/internal/gitwt"
 	"github.com/nono/scut/internal/output"
+	"github.com/nono/scut/internal/transport"
 )
 
 type worktreeResult struct {
@@ -80,8 +81,7 @@ func newWorktree(env Env) *cobra.Command {
 				return err
 			}
 			var m gitwt.Match
-			switch {
-			case ms == nil:
+			if ms == nil {
 				m = gitwt.Match{Branch: branch, Source: gitwt.New}
 				if branch == "" {
 					d, err := api()
@@ -96,9 +96,17 @@ func newWorktree(env Env) *cobra.Command {
 							Msg:        fmt.Sprintf("the branch name %q has no sc-%d", m.Branch, id),
 							Suggestion: "give --branch"}
 					}
+					// Another run can make a branch of the story during the
+					// story read: use it, do not make a second one.
+					if ms, err = r.Find(ctx, id); err != nil {
+						return err
+					}
 				} else if !gitwt.HasID(branch, id) {
 					return exit.Usagef("--branch %q has no sc-%d", branch, id)
 				}
+			}
+			switch {
+			case ms == nil:
 			case branch != "":
 				found := false
 				for _, x := range ms {
@@ -124,18 +132,25 @@ func newWorktree(env Env) *cobra.Command {
 				}
 				res.Dir = m.Dir
 			} else {
-				if _, err := os.Lstat(dir); err == nil {
+				// scut makes the directory, and git adds the worktree in it: a
+				// directory that another process makes first fails here.
+				if err := os.MkdirAll(filepath.Dir(dir), 0o777); err != nil {
+					return &exit.Error{Code: exit.Other, Msg: err.Error()}
+				}
+				if err := os.Mkdir(dir, 0o777); errors.Is(err, fs.ErrExist) {
 					return exit.Usagef("%s is in use", dir)
-				} else if !errors.Is(err, fs.ErrNotExist) {
+				} else if err != nil {
 					return &exit.Error{Code: exit.Other, Msg: err.Error()}
 				}
 				base := ""
 				if m.Source == gitwt.New {
 					if base, err = r.Base(ctx); err != nil {
+						_ = os.Remove(dir)
 						return err
 					}
 				}
 				if err := r.Add(ctx, dir, m, base); err != nil {
+					_ = os.Remove(dir)
 					return err
 				}
 				res.Dir, res.Created = dir, true
@@ -148,6 +163,9 @@ func newWorktree(env Env) *cobra.Command {
 					res.Started = &started
 				}
 				if err != nil {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
 					res.Started = nil
 					var e *exit.Error
 					if !errors.As(err, &e) {
@@ -168,14 +186,14 @@ func newWorktree(env Env) *cobra.Command {
 	f := c.Flags()
 	f.StringVar(&repo, "repo", "", "a directory in the git repository (default: the current directory)")
 	f.StringVar(&dir, "dir", "", "the directory of a new worktree (default: <parent of the main worktree>/<id>)")
-	f.BoolVar(&start, "start", false, "also move an unstarted story to the first started state of its workflow, and add @me as owner")
+	f.BoolVar(&start, "start", false, "also move a backlog or unstarted story to the first started state of its workflow, and add @me as owner")
 	f.StringVar(&branch, "branch", "", "the branch to use when more than one matches, or the name of a new branch")
 	return c
 }
 
-// startStory moves an unstarted story to the started state with the lowest
-// position in its workflow, and adds @me as owner. It makes one PATCH, or none
-// when there is nothing to change. started tells if the state changed.
+// startStory moves a backlog or unstarted story to the started state with the
+// lowest position in its workflow, and adds @me as owner. It makes one PATCH,
+// or none when there is nothing to change. started tells if the state changed.
 func startStory(ctx context.Context, d *deps, id int64) (started bool, err error) {
 	path := "stories/" + strconv.FormatInt(id, 10)
 	raw, err := d.Doer.Raw(ctx, "GET", path, url.Values{"fields": {"workflow,workflow_state,owners"}}, nil)
@@ -199,8 +217,8 @@ func startStory(ctx context.Context, d *deps, id int64) (started bool, err error
 	if err := json.Unmarshal(raw, &s); err != nil {
 		return false, &exit.Error{Code: exit.Other, Msg: "bad story response"}
 	}
-	items, _, err := d.Doer.List(ctx, "workflows/"+strconv.FormatInt(s.Workflow.ID, 10)+"/states",
-		url.Values{"fields": {"id,type,position"}, "limit": {"100"}})
+	items, err := transport.PageQuery(ctx, d.Doer, "workflows/"+strconv.FormatInt(s.Workflow.ID, 10)+"/states",
+		url.Values{"fields": {"id,type,position"}, "limit": {"100"}}, -1)
 	if err != nil {
 		return false, err
 	}
@@ -224,7 +242,7 @@ func startStory(ctx context.Context, d *deps, id int64) (started bool, err error
 		}
 	}
 	body := map[string]any{}
-	if cur == "unstarted" {
+	if cur == "backlog" || cur == "unstarted" {
 		if first == nil {
 			return false, exit.NotFoundf("no started state in workflow %d", s.Workflow.ID)
 		}
@@ -238,6 +256,26 @@ func startStory(ctx context.Context, d *deps, id int64) (started bool, err error
 	// it, and owner_ids_add of an owner changes nothing.
 	if !slices.Contains(s.Owners.Entities, member{me}) {
 		body["owner_ids_add"] = []string{me}
+	}
+	if body["workflow_state_id"] != nil {
+		// Read the state again just before the PATCH, so a story that another
+		// writer moved meanwhile is not moved back. The API has no
+		// conditional update, so this makes the window small, not zero.
+		raw, err := d.Doer.Raw(ctx, "GET", path, url.Values{"fields": {"workflow_state"}}, nil)
+		if err != nil {
+			return false, err
+		}
+		var now struct {
+			State struct {
+				ID int64 `json:"id"`
+			} `json:"workflow_state"`
+		}
+		if err := json.Unmarshal(raw, &now); err != nil {
+			return false, &exit.Error{Code: exit.Other, Msg: "bad story response"}
+		}
+		if now.State.ID != s.State.ID {
+			delete(body, "workflow_state_id")
+		}
 	}
 	if len(body) == 0 {
 		return false, nil
