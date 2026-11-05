@@ -27,15 +27,23 @@ func docFixture() map[string]any {
 	}
 }
 
-// docRoute serves the doc fixture, with content in the asked format.
+// docRoute serves the doc fixture, with content in the asked format. As the
+// live API, it sends only the keys in fields when fields is set.
 func docRoute(content *string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		d := docFixture()
-		switch r.URL.Query().Get("content_format") {
-		case "markdown":
-			d["content_markdown"] = content
-		case "html":
-			d["content_html"] = content
+		q := r.URL.Query()
+		if f := q.Get("content_format"); f != "" {
+			d["content_"+f] = content
+		}
+		if f := q.Get("fields"); f != "" {
+			keep := map[string]any{}
+			for _, k := range strings.Split(f, ",") {
+				if v, ok := d[k]; ok {
+					keep[k] = v
+				}
+			}
+			d = keep
 		}
 		jsonHandler(jsonOf(map[string]any{"entity": d}))(w, r)
 	}
