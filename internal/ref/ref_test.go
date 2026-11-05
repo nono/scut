@@ -17,6 +17,7 @@ func TestStoryRef(t *testing.T) {
 		"https://app.shortcut.com/acme/story/12":                   12,
 		"bug/sc-5409/fix-wave":                                     5409,
 		"user42/sc-17-x":                                           17,
+		"fix/misc-12/sc-5":                                         5,
 	} {
 		got, err := ref.Story(in)
 		if err != nil || got != want {
@@ -26,7 +27,7 @@ func TestStoryRef(t *testing.T) {
 }
 
 func TestStoryRefBad(t *testing.T) {
-	for _, in := range []string{"abc", "sc-", "54a", "", "https://app.shortcut.com/acme/epic/5", "99999999999999999999"} {
+	for _, in := range []string{"abc", "sc-", "54a", "", "fix/misc-12-typo", "https://app.shortcut.com/acme/epic/5", "99999999999999999999"} {
 		_, err := ref.Story(in)
 		var e *exit.Error
 		if !errors.As(err, &e) || e.Code != exit.Usage {
@@ -54,6 +55,15 @@ func TestFromGitDetached(t *testing.T) {
 	dir := testgit.Repo(t, "bug/sc-5409/x")
 	testgit.Git(t, dir, "checkout", "-q", "--detach")
 	_, err := ref.FromGit(dir)
+	var e *exit.Error
+	if !errors.As(err, &e) || e.Code != exit.Usage || e.Msg != "give a story ID" {
+		t.Errorf("got %v", err)
+	}
+}
+
+// misc-1234 is not story 1234: sc- must not follow a letter or a digit.
+func TestFromGitNoLeftBoundary(t *testing.T) {
+	_, err := ref.FromGit(testgit.Repo(t, "fix/misc-1234-typo"))
 	var e *exit.Error
 	if !errors.As(err, &e) || e.Code != exit.Usage || e.Msg != "give a story ID" {
 		t.Errorf("got %v", err)

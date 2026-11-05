@@ -13,7 +13,7 @@ import (
 
 var (
 	digits   = regexp.MustCompile(`^\d+$`)
-	scID     = regexp.MustCompile(`sc-(\d+)`)
+	scID     = regexp.MustCompile(`(?:^|[^A-Za-z0-9])sc-(\d+)`) // misc-12 is not story 12
 	urlStory = regexp.MustCompile(`(?:^|/)story/(\d+)(?:/|$)`)
 )
 

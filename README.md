@@ -10,6 +10,7 @@ mise use github:nono/scut
 ```
 
 Releases are for Linux amd64 only. You can also build it with `make build`.
+`scut worktree` needs git 2.36 or later.
 
 ## Log in
 

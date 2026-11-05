@@ -102,7 +102,7 @@ scut auth login · scut auth status
 scut cache clear
 ```
 
-`<story>` accepts `sc-NNNN`, `NNNN`, a story URL, or a branch name. If you do not give a story, `scut` takes it from the current git branch with the regex `sc-(\d+)`. Outside a git repo, or with no match, it exits 2 (usage) with "give a story ID".
+`<story>` accepts `sc-NNNN`, `NNNN`, a story URL, or a branch name. If you do not give a story, `scut` takes it from the current git branch with the regex `(?:^|[^A-Za-z0-9])sc-(\d+)`, so `misc-12` is not story 12. Outside a git repo, or with no match, it exits 2 (usage) with "give a story ID".
 
 `story view` with several IDs makes one `GET /stories?ids=…` call. This covers the "read 10 stories" case of G12.
 

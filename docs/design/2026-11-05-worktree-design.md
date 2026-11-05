@@ -44,7 +44,7 @@ scut worktree [<story>] [--repo <path>] [--dir <path>] [--branch <name>] [--star
 
 ### Repository
 
-The main worktree is the first entry of `git -C <repo> worktree list --porcelain -z`, from any worktree of the repository. `-z` keeps a path with a newline whole. Outside a git repository (git says "not a git repository"), exit 2 (usage). Any other git failure, for example no `git` on the `PATH`, follows Git errors.
+The main worktree is the first entry of `git -C <repo> worktree list --porcelain -z`, from any worktree of the repository. `-z` keeps a path with a newline whole. git added `-z` in 2.36, so `scut worktree` needs git 2.36 or later; the README says so. git runs with `LC_ALL=C`, because the text "not a git repository" is translated. Outside a git repository (git says "not a git repository"), exit 2 (usage). Any other git failure, for example no `git` on the `PATH`, follows Git errors.
 
 ### Branch match
 

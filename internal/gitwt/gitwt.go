@@ -61,6 +61,8 @@ func HasID(branch string, id int64) bool {
 
 func run(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	// The C locale: Open reads the text of a git error, and git translates it.
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
