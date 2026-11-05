@@ -296,7 +296,7 @@ func TestUpdateContract(t *testing.T) {
 	// parent check fails. A body that Prism rejects gives another error.
 	for _, args := range [][]string{{"--parent", "5428"}, {"--no-parent"}} {
 		code, _, errs := h.run(append([]string{"story", "update", "5818"}, args...)...)
-		if code != 1 || !strings.Contains(errs, "the API did not change the parent") {
+		if code != 1 || !strings.Contains(errs, "the API did not set the parent") {
 			t.Errorf("%v: code %d, stderr %s", args, code, errs)
 		}
 	}

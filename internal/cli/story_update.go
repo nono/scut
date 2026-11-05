@@ -165,10 +165,8 @@ func newStoryUpdate(env Env) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if want, ok := body["parent_story_id"]; ok {
-				if err := checkParent(raw, want); err != nil {
-					return err
-				}
+			if err := checkParent(raw, body); err != nil {
+				return err
 			}
 			out, err := shapeStory(raw, r, shapeOpts{Description: true})
 			if err != nil {
@@ -180,10 +178,14 @@ func newStoryUpdate(env Env) *cobra.Command {
 	return cmd
 }
 
-// checkParent fails when the story in raw does not have the parent want
-// (an int64, or nil for none). The API ignores parent_story_id when the
-// Sub-task feature of the workspace is off.
-func checkParent(raw []byte, want any) error {
+// checkParent fails when body sets parent_story_id (an int64, or nil for
+// none) and the story in raw, the reply to body, has another parent. The API
+// ignores parent_story_id when the Sub-task feature of the workspace is off.
+func checkParent(raw []byte, body map[string]any) error {
+	want, ok := body["parent_story_id"]
+	if !ok {
+		return nil
+	}
 	var s struct {
 		Parent *struct {
 			ID int64 `json:"id"`
@@ -192,15 +194,17 @@ func checkParent(raw []byte, want any) error {
 	if err := json.Unmarshal(raw, &s); err != nil {
 		return &exit.Error{Code: exit.Other, Msg: "bad story data: " + err.Error()}
 	}
-	got := "has no parent"
+	var got any
 	if s.Parent != nil {
-		if s.Parent.ID == want {
-			return nil
-		}
-		got = "has parent " + strconv.FormatInt(s.Parent.ID, 10)
-	} else if want == nil {
+		got = s.Parent.ID
+	}
+	if got == want {
 		return nil
 	}
-	return &exit.Error{Code: exit.Other, Msg: "the API did not change the parent: the story " + got +
-		". The other changes are applied. Is the Sub-task feature of the workspace on?"}
+	has := "has no parent"
+	if s.Parent != nil {
+		has = "has parent " + strconv.FormatInt(s.Parent.ID, 10)
+	}
+	return &exit.Error{Code: exit.Other, Msg: "the API did not set the parent: the story " + has +
+		". The rest of the write is saved. Is the Sub-task feature of the workspace on?"}
 }
