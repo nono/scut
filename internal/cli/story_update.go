@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -10,6 +12,7 @@ import (
 
 	"github.com/nono/scut/internal/exit"
 	"github.com/nono/scut/internal/ref"
+	"github.com/nono/scut/internal/resolve"
 )
 
 // fieldSpec is one --field "Name=Value".
@@ -27,155 +30,193 @@ func parseFieldSpecs(list []string) ([]fieldSpec, error) {
 	return out, nil
 }
 
+// updateFlags are the flags of story update.
+type updateFlags struct {
+	name, state, workflow, epic, requester, descFile, parent string
+	addOwner, removeOwner, fields                            []string
+	archive, unarchive, noParent                             bool
+}
+
 func newStoryUpdate(env Env) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:         "update <story>",
-		Short:       "Change a story",
-		Args:        cobra.ExactArgs(1),
-		Annotations: map[string]string{OpsAnnotation: "updateStory,getStory,listWorkflows,searchEpics,listMembers,getWhoami,listCustomFields"},
+		Use:   "update <story>…",
+		Short: "Change one story, or make the same change to several",
+		Long: "Change one story, or make the same change to several stories in one call per 100 stories.\n" +
+			"With several stories, the output is a list, and --name and --description-file are not allowed.",
+		Args:        cobra.MinimumNArgs(1),
+		Annotations: map[string]string{OpsAnnotation: "updateStory,bulkUpdateStories,getStory,listStories,listWorkflows,searchEpics,listMembers,getWhoami,listCustomFields"},
 	}
+	var u updateFlags
 	f := cmd.Flags()
-	name := f.String("name", "", "new name")
-	state := f.String("state", "", "workflow state name")
-	workflow := f.String("workflow", "", "workflow of --state; default: the workflow of the story")
-	epic := f.String("epic", "", "epic ID or name")
-	requester := f.String("requester", "", "requester (@me, mention name, email or UUID)")
-	addOwner := f.StringArray("add-owner", nil, "add an owner; repeatable")
-	removeOwner := f.StringArray("remove-owner", nil, "remove an owner; repeatable")
-	fields := f.StringArray("field", nil, "set a custom field, Name=Value; repeatable")
-	descFile := f.String("description-file", "", "read the description from this file; - is stdin")
-	archive := f.Bool("archive", false, "archive the story")
-	unarchive := f.Bool("unarchive", false, "unarchive the story")
-	parent := f.String("parent", "", "make the story a sub-task of this story")
-	noParent := f.Bool("no-parent", false, "make the story a normal story, not a sub-task")
+	f.StringVar(&u.name, "name", "", "new name; a single story only")
+	f.StringVar(&u.state, "state", "", "workflow state name")
+	f.StringVar(&u.workflow, "workflow", "", "workflow of --state; default: the workflow of each story")
+	f.StringVar(&u.epic, "epic", "", "epic ID or name")
+	f.StringVar(&u.requester, "requester", "", "requester (@me, mention name, email or UUID)")
+	f.StringArrayVar(&u.addOwner, "add-owner", nil, "add an owner; repeatable")
+	f.StringArrayVar(&u.removeOwner, "remove-owner", nil, "remove an owner; repeatable")
+	f.StringArrayVar(&u.fields, "field", nil, "set a custom field, Name=Value; repeatable")
+	f.StringVar(&u.descFile, "description-file", "", "read the description from this file; - is stdin; a single story only")
+	f.BoolVar(&u.archive, "archive", false, "archive the story")
+	f.BoolVar(&u.unarchive, "unarchive", false, "unarchive the story")
+	f.StringVar(&u.parent, "parent", "", "make the story a sub-task of this story")
+	f.BoolVar(&u.noParent, "no-parent", false, "make the story a normal story, not a sub-task")
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		changed := cmd.Flags().Changed
-		if *archive && *unarchive {
+		if u.archive && u.unarchive {
 			return exit.Usagef("--archive and --unarchive conflict")
 		}
-		if changed("parent") && *noParent {
+		if changed("parent") && u.noParent {
 			return exit.Usagef("--parent and --no-parent conflict")
 		}
 		if changed("workflow") && !changed("state") {
 			return exit.Usagef("--workflow needs --state")
 		}
-		given := *archive || *unarchive || *noParent
+		given := u.archive || u.unarchive || u.noParent
 		for _, n := range []string{"name", "state", "epic", "requester", "add-owner", "remove-owner", "field", "description-file", "parent"} {
 			given = given || changed(n)
 		}
 		if !given {
 			return exit.Usagef("nothing to change: give at least one flag")
 		}
-		id, err := ref.Story(args[0])
-		if err != nil {
-			return err
+		ids := make([]int64, 0, len(args))
+		for _, a := range args {
+			id, err := ref.Story(a)
+			if err != nil {
+				return err
+			}
+			ids = append(ids, id)
 		}
-		specs, err := parseFieldSpecs(*fields)
+		ids = uniqueIDs(ids)
+		if len(ids) > 1 && (changed("name") || changed("description-file")) {
+			return exit.Usagef("--name and --description-file need a single story")
+		}
+		specs, err := parseFieldSpecs(u.fields)
 		if err != nil {
 			return err
 		}
 		body := map[string]any{}
 		if changed("description-file") {
-			if body["description"], err = readText(*descFile, env.Stdin); err != nil {
+			if body["description"], err = readText(u.descFile, env.Stdin); err != nil {
 				return err
 			}
 		}
 		if changed("name") {
-			body["name"] = *name
+			body["name"] = u.name
 		}
-		if *archive || *unarchive {
-			body["archived"] = *archive
+		if u.archive || u.unarchive {
+			body["archived"] = u.archive
 		}
 		if changed("parent") {
-			if body["parent_story_id"], err = ref.Story(*parent); err != nil {
+			pid, err := ref.Story(u.parent)
+			if err != nil {
 				return err
 			}
+			if slices.Contains(ids, pid) {
+				return exit.Usagef("--parent %d is one of the stories: a story cannot be its own parent", pid)
+			}
+			body["parent_story_id"] = pid
 		}
-		if *noParent {
+		if u.noParent {
 			body["parent_story_id"] = nil
 		}
 		return withDeps(env, func(cmd *cobra.Command, _ []string, d *deps) error {
-			ctx := cmd.Context()
-			r := d.Resolver
-			path := "stories/" + strconv.FormatInt(id, 10)
-			if changed("state") {
-				var wf int64
-				if changed("workflow") {
-					if wf, err = r.Workflow(*workflow); err != nil {
-						return err
-					}
-				} else {
-					raw, err := d.Doer.Raw(ctx, "GET", path, url.Values{"fields": {"workflow"}}, nil)
-					if err != nil {
-						return err
-					}
-					var s struct {
-						Workflow *struct {
-							ID int64 `json:"id"`
-						} `json:"workflow"`
-					}
-					if err := json.Unmarshal(raw, &s); err != nil {
-						return &exit.Error{Code: exit.Other, Msg: "bad story data: " + err.Error()}
-					}
-					if s.Workflow != nil {
-						wf = s.Workflow.ID
-					}
-				}
-				sid, err := r.State(*state, wf, "")
-				if err != nil {
-					return err
-				}
-				body["workflow_state_id"] = sid
+			if len(ids) > 1 {
+				return updateMany(cmd.Context(), d, ids, u, changed, specs, body)
 			}
-			if changed("epic") {
-				eid, err := r.Epic(*epic)
-				if err != nil {
-					return err
-				}
-				body["epic_id"] = eid
-			}
-			if changed("requester") {
-				if body["requester_id"], err = r.Member(*requester); err != nil {
-					return err
-				}
-			}
-			if changed("add-owner") {
-				if body["owner_ids_add"], err = r.Members(*addOwner); err != nil {
-					return err
-				}
-			}
-			if changed("remove-owner") {
-				if body["owner_ids_remove"], err = r.Members(*removeOwner); err != nil {
-					return err
-				}
-			}
-			if len(specs) > 0 {
-				vals := make([]map[string]string, 0, len(specs))
-				for _, s := range specs {
-					fid, vid, err := r.Field(s.name, s.value)
-					if err != nil {
-						return err
-					}
-					vals = append(vals, map[string]string{"field_id": fid, "value_id": vid})
-				}
-				body["custom_field_values_add"] = vals
-			}
-			raw, err := d.Doer.Raw(ctx, "PATCH", path, nil, body)
-			if err != nil {
-				return err
-			}
-			if err := checkParent(raw, body); err != nil {
-				return err
-			}
-			out, err := shapeStory(raw, r, shapeOpts{Description: true})
-			if err != nil {
-				return err
-			}
-			return d.Out(out)
+			return updateOne(cmd.Context(), d, ids[0], u, changed, specs, body)
 		})(cmd, args)
 	}
 	return cmd
+}
+
+// resolveCommon adds to body the names that resolve the same for each story:
+// epic, requester, owners and custom fields.
+func resolveCommon(r *resolve.R, u updateFlags, changed func(string) bool, specs []fieldSpec, body map[string]any) error {
+	var err error
+	if changed("epic") {
+		if body["epic_id"], err = r.Epic(u.epic); err != nil {
+			return err
+		}
+	}
+	if changed("requester") {
+		if body["requester_id"], err = r.Member(u.requester); err != nil {
+			return err
+		}
+	}
+	if changed("add-owner") {
+		if body["owner_ids_add"], err = r.Members(u.addOwner); err != nil {
+			return err
+		}
+	}
+	if changed("remove-owner") {
+		if body["owner_ids_remove"], err = r.Members(u.removeOwner); err != nil {
+			return err
+		}
+	}
+	if len(specs) > 0 {
+		vals := make([]map[string]string, 0, len(specs))
+		for _, s := range specs {
+			fid, vid, err := r.Field(s.name, s.value)
+			if err != nil {
+				return err
+			}
+			vals = append(vals, map[string]string{"field_id": fid, "value_id": vid})
+		}
+		body["custom_field_values_add"] = vals
+	}
+	return nil
+}
+
+func updateOne(ctx context.Context, d *deps, id int64, u updateFlags, changed func(string) bool, specs []fieldSpec, body map[string]any) error {
+	r := d.Resolver
+	path := "stories/" + strconv.FormatInt(id, 10)
+	if changed("state") {
+		var wf int64
+		var err error
+		if changed("workflow") {
+			if wf, err = r.Workflow(u.workflow); err != nil {
+				return err
+			}
+		} else {
+			raw, err := d.Doer.Raw(ctx, "GET", path, url.Values{"fields": {"workflow"}}, nil)
+			if err != nil {
+				return err
+			}
+			var s struct {
+				Workflow *struct {
+					ID int64 `json:"id"`
+				} `json:"workflow"`
+			}
+			if err := json.Unmarshal(raw, &s); err != nil {
+				return &exit.Error{Code: exit.Other, Msg: "bad story data: " + err.Error()}
+			}
+			if s.Workflow != nil {
+				wf = s.Workflow.ID
+			}
+		}
+		sid, err := r.State(u.state, wf, "")
+		if err != nil {
+			return err
+		}
+		body["workflow_state_id"] = sid
+	}
+	if err := resolveCommon(r, u, changed, specs, body); err != nil {
+		return err
+	}
+	raw, err := d.Doer.Raw(ctx, "PATCH", path, nil, body)
+	if err != nil {
+		return err
+	}
+	if err := checkParent(raw, body); err != nil {
+		return err
+	}
+	out, err := shapeStory(raw, r, shapeOpts{Description: true})
+	if err != nil {
+		return err
+	}
+	return d.Out(out)
 }
 
 // checkParent fails when body sets parent_story_id (an int64, or nil for

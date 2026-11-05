@@ -16,6 +16,7 @@ description: Use when a task reads or changes Shortcut stories, epics, comments,
 - Pass long text with `--body-file` or `--description-file`. Give a file, or `-` for stdin.
 - Use names, not IDs: teams, states, members (`@me`), fields (`--field "Name=Value"`). A wrong name exits 3 and `valid` lists the right ones.
 - A story is an ID (`1234`, `sc-1234`), a URL, or a branch name.
+- To make the same change to several stories, give them all to one `story update` (for example, sub-tasks: `story update 12 13 14 --parent 11`). If it fails, the `suggestion` names the stories that may be partly changed.
 - A doc is a doc URL, a doc ID or an exact title. A doc can be large: `doc view --out <file>` writes the content to a file, so read the file in parts.
 - `story search` takes the Shortcut query syntax unchanged. It can lag. Use `story view` for current data.
 - Searches and comment lists give 25 items. Use `--limit N` or `--limit all`. Lookup lists give all items.
@@ -27,7 +28,7 @@ description: Use when a task reads or changes Shortcut stories, epics, comments,
 - Unlink a PR, branch or commit from a story (the v4 API has no endpoint).
 - Create or update a doc.
 - Story history.
-- Bulk commands.
+- Bulk create, and a batch file of changes.
 - Iterations, objectives and labels as commands.
 
 ## Commands
@@ -58,7 +59,7 @@ Each line: command, summary, flags. Run `scut <noun> usage` for flag help.
 - `story search` `<query>` Search stories. Flags: --fields string, --limit string.
 - `story subtasks` `[<story>]` List the sub-tasks of a story, in position order. Flags: --fields string, --limit string.
 - `story unlink` `<story> <verb> <story>` Remove a link between stories.
-- `story update` `<story>` Change a story. Flags: --add-owner stringArray, --archive, --description-file string, --epic string, --field stringArray, --name string, --no-parent, --parent string, --remove-owner stringArray, --requester string, --state string, --unarchive, --workflow string.
+- `story update` `<story>…` Change one story, or make the same change to several. Flags: --add-owner stringArray, --archive, --description-file string, --epic string, --field stringArray, --name string, --no-parent, --parent string, --remove-owner stringArray, --requester string, --state string, --unarchive, --workflow string.
 - `story view` `[<story>…]` Show stories; default story from the git branch. Flags: --comments string, --fields string.
 - `team list` List teams.
 - `whoami` Show the member and workspace of the token.
