@@ -206,18 +206,8 @@ func newDocSearch(env Env) *cobra.Command {
 			return err
 		}
 		return withDeps(env, func(cmd *cobra.Command, _ []string, d *deps) error {
-			raw, stop := listPages(cmd, d, "documents/search", url.Values{"query": {args[0]}, "fields": {docFields}}, limit)
-			if raw == nil && stop != nil {
-				return stop
-			}
-			out, err := shapeDocs(d, raw)
-			if err != nil {
-				return err
-			}
-			if err := d.Out(out); err != nil {
-				return err
-			}
-			return stop // a list cut short: the items read, then the error
+			return printPages(cmd, d, "documents/search", url.Values{"query": {args[0]}, "fields": {docFields}}, limit,
+				func(raw []json.RawMessage) (docList, error) { return shapeDocs(d, raw) })
 		})(cmd, args)
 	}
 	return cmd

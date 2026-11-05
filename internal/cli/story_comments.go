@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"net/url"
 	"strconv"
 
@@ -28,18 +29,8 @@ func newStoryComments(env Env) *cobra.Command {
 		}
 		return withDeps(env, func(cmd *cobra.Command, _ []string, d *deps) error {
 			q := url.Values{"order_dir": {"asc"}}
-			raw, stop := listPages(cmd, d, "stories/"+strconv.FormatInt(id, 10)+"/comments", q, limit)
-			if raw == nil && stop != nil {
-				return stop
-			}
-			out, err := shapeComments(raw, d.Resolver)
-			if err != nil {
-				return err
-			}
-			if err := d.Out(out); err != nil {
-				return err
-			}
-			return stop // a list cut short: the items read, then the error
+			return printPages(cmd, d, "stories/"+strconv.FormatInt(id, 10)+"/comments", q, limit,
+				func(raw []json.RawMessage) ([]CommentOut, error) { return shapeComments(raw, d.Resolver) })
 		})(cmd, args)
 	}
 	return cmd
