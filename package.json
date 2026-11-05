@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "description": "Tools for the contract tests of scut. Run npm ci, or make test.",
+  "devDependencies": {
+    "@stoplight/prism-cli": "5.16.0"
+  }
+}

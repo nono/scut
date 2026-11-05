@@ -1,6 +1,7 @@
 package testapi
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -15,24 +16,28 @@ import (
 const prismWait = 60 * time.Second
 
 // Prism starts a Prism mock of the v4 spec and returns its base URL.
-// It skips the test if npx is missing, unless CI is set: then it fails.
-// Prism stops in t.Cleanup.
+// Prism comes from node_modules (npm ci, or make test). The test skips if
+// it is missing, unless CI is set: then it fails.
+// Prism stops in t.Cleanup. If Prism fails to start, the error shows its output.
 func Prism(t *testing.T) string {
 	t.Helper()
-	npx, err := exec.LookPath("npx")
-	if err != nil {
-		if os.Getenv("CI") != "" {
-			t.Fatal("npx not found, the contract tests need it in CI")
-		}
-		t.Skip("npx not found")
-	}
 	root := repoRoot(t)
+	prism := filepath.Join(root, "node_modules", ".bin", "prism")
+	if _, err := os.Stat(prism); err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatalf("%s not found, run npm ci: the contract tests need it in CI", prism)
+		}
+		t.Skipf("%s not found, run npm ci", prism)
+	}
 	port := freePort(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, npx, "--yes", "@stoplight/prism-cli@5", "mock",
+	cmd := exec.CommandContext(ctx, prism, "mock",
 		"-h", "127.0.0.1", "-p", fmt.Sprint(port), filepath.Join(root, "api", "shortcut.openapi.json"))
 	cmd.Dir = root
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	if err := cmd.Start(); err != nil {
@@ -48,7 +53,7 @@ func Prism(t *testing.T) string {
 	for time.Now().Before(deadline) {
 		select {
 		case <-exited:
-			t.Fatal("prism exited before it was ready")
+			t.Fatalf("prism exited before it was ready: %v\n%s", cmd.ProcessState, out.String())
 		default:
 		}
 		if c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), time.Second); err == nil {
@@ -57,7 +62,9 @@ func Prism(t *testing.T) string {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	t.Fatalf("prism not ready after %s", prismWait)
+	cancel()
+	<-exited
+	t.Fatalf("prism not ready after %s\n%s", prismWait, out.String())
 	return ""
 }
 
