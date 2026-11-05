@@ -210,16 +210,37 @@ func TestAdd(t *testing.T) {
 	}
 }
 
+// A git error has git's stderr, and Add removes the directory it made.
 func TestGitErrorHasStderr(t *testing.T) {
 	_, main := testgit.Repos(t)
-	file := filepath.Join(t.TempDir(), "f")
-	if err := os.WriteFile(file, nil, 0o644); err != nil {
+	dir := filepath.Join(filepath.Dir(main), "wt")
+	err := open(t, main).Add(context.Background(), dir, gitwt.Match{Branch: "bug/sc-1/a..b", Source: gitwt.New})
+	var e *exit.Error
+	if !errors.As(err, &e) || e.Code != exit.Other || !strings.Contains(e.Msg, "git worktree add") || !strings.Contains(e.Msg, "not a valid branch name") {
+		t.Fatalf("err %v", err)
+	}
+	if _, err := os.Lstat(dir); err == nil {
+		t.Errorf("dir left after the failure")
+	}
+}
+
+// Add does not use a directory that exists, also an empty one.
+func TestAddDirInUse(t *testing.T) {
+	_, main := testgit.Repos(t)
+	dir := filepath.Join(filepath.Dir(main), "wt")
+	if err := os.Mkdir(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	err := open(t, main).Add(context.Background(), filepath.Join(file, "wt"), gitwt.Match{Branch: "bug/sc-1/x", Source: gitwt.New})
+	err := open(t, main).Add(context.Background(), dir, gitwt.Match{Branch: "bug/sc-1/x", Source: gitwt.New})
 	var e *exit.Error
-	if !errors.As(err, &e) || e.Code != exit.Other || !strings.Contains(e.Msg, "git worktree add") || !strings.Contains(e.Msg, "Not a directory") {
+	if !errors.As(err, &e) || e.Code != exit.Usage {
 		t.Fatalf("err %v", err)
+	}
+	if es, _ := os.ReadDir(dir); len(es) != 0 {
+		t.Errorf("dir changed: %v", es)
+	}
+	if out := testgit.Git(t, main, "branch", "--list", "bug/sc-1/x"); out != "" {
+		t.Errorf("branch made: %q", out)
 	}
 }
 

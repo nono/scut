@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -190,8 +191,24 @@ func (r Repo) Fetch(ctx context.Context) error {
 }
 
 // Add adds a worktree in dir for m. A New branch starts at origin/HEAD, else
-// at origin/main.
-func (r Repo) Add(ctx context.Context, dir string, m Match) error {
+// at origin/main. Add makes dir with mkdir, which fails if dir exists, before
+// git runs: git accepts an empty directory, so a directory that another
+// process made would be filled. An existing dir is exit 2. If git fails, Add
+// removes dir.
+func (r Repo) Add(ctx context.Context, dir string, m Match) (err error) {
+	if err := os.MkdirAll(filepath.Dir(dir), 0o777); err != nil {
+		return &exit.Error{Code: exit.Other, Msg: err.Error()}
+	}
+	if err := os.Mkdir(dir, 0o777); errors.Is(err, fs.ErrExist) {
+		return exit.Usagef("%s is in use", dir)
+	} else if err != nil {
+		return &exit.Error{Code: exit.Other, Msg: err.Error()}
+	}
+	defer func() {
+		if err != nil {
+			_ = os.Remove(dir)
+		}
+	}()
 	args := []string{"worktree", "add", "--quiet"}
 	switch m.Source {
 	case Local:
@@ -209,6 +226,6 @@ func (r Repo) Add(ctx context.Context, dir string, m Match) error {
 	default:
 		return &exit.Error{Code: exit.Other, Msg: fmt.Sprintf("cannot add a worktree from source %q", m.Source)}
 	}
-	_, err := run(ctx, r.Main, args...)
+	_, err = run(ctx, r.Main, args...)
 	return err
 }

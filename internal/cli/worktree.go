@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net/url"
-	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -48,19 +46,16 @@ func newWorktree(env Env) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			id := ids[0]
-			ctx := cmd.Context()
+			id, ctx := ids[0], cmd.Context()
 			// The API client is made only when a Shortcut call is necessary,
 			// so an existing branch needs no token.
-			var d *deps
+			var cached *deps
 			api := func() (*deps, error) {
-				if d == nil {
-					var err error
-					if d, err = newDeps(cmd, env); err != nil {
-						return nil, err
-					}
+				var err error
+				if cached == nil {
+					cached, err = newDeps(cmd, env)
 				}
-				return d, nil
+				return cached, err
 			}
 			r, err := gitwt.Open(ctx, abs(env.Dir, repo))
 			if err != nil {
@@ -82,85 +77,37 @@ func newWorktree(env Env) *cobra.Command {
 			}
 			var m gitwt.Match
 			if ms == nil {
-				m = gitwt.Match{Branch: branch, Source: gitwt.New}
-				if branch == "" {
-					d, err := api()
-					if err != nil {
-						return err
-					}
-					if m.Branch, err = branchName(ctx, d, id); err != nil {
-						return err
-					}
-					if !ref.HasID(m.Branch, id) {
-						return &exit.Error{Code: exit.NotFound,
-							Msg:        fmt.Sprintf("the branch name %q has no sc-%d", m.Branch, id),
-							Suggestion: "give --branch"}
-					}
-					// Another run can make a branch of the story during the
-					// story read: use it, do not make a second one.
-					if ms, err = r.Find(ctx, id); err != nil {
-						return err
-					}
-				} else if !ref.HasID(branch, id) {
-					return exit.Usagef("--branch %q has no sc-%d", branch, id)
+				if m, ms, err = newBranch(ctx, r, id, branch, api); err != nil {
+					return err
 				}
 			}
-			switch {
-			case ms == nil:
-			case branch != "":
-				i := slices.IndexFunc(ms, func(x gitwt.Match) bool { return x.Branch == branch })
-				if i < 0 {
-					return &exit.Error{Code: exit.Usage, Msg: fmt.Sprintf("--branch %q is not a branch of sc-%d", branch, id), Valid: branchNames(ms)}
+			if ms != nil {
+				if m, err = pick(ms, branch, id); err != nil {
+					return err
 				}
-				m = ms[i]
-			case len(ms) > 1:
-				return &exit.Error{Code: exit.Usage, Msg: fmt.Sprintf("more than one branch for sc-%d", id),
-					Suggestion: "give --branch", Valid: branchNames(ms)}
-			default:
-				m = ms[0]
 			}
 			res := worktreeResult{Story: id, Branch: m.Branch, From: string(m.Source)}
-			if m.Source == gitwt.Worktree {
-				if m.Prunable {
-					return &exit.Error{Code: exit.Usage,
-						Msg:        fmt.Sprintf("the worktree of %s at %s is missing", m.Branch, m.Dir),
-						Suggestion: "git -C " + r.Main + " worktree prune"}
-				}
-				res.Dir = m.Dir
-			} else {
-				// scut makes the directory, and git adds the worktree in it: a
-				// directory that another process makes first fails here.
-				if err := os.MkdirAll(filepath.Dir(dir), 0o777); err != nil {
-					return &exit.Error{Code: exit.Other, Msg: err.Error()}
-				}
-				if err := os.Mkdir(dir, 0o777); errors.Is(err, fs.ErrExist) {
-					return exit.Usagef("%s is in use", dir)
-				} else if err != nil {
-					return &exit.Error{Code: exit.Other, Msg: err.Error()}
-				}
+			switch {
+			case m.Source != gitwt.Worktree:
 				if err := r.Add(ctx, dir, m); err != nil {
-					_ = os.Remove(dir)
 					return err
 				}
 				res.Dir, res.Created = dir, true
+			case m.Prunable:
+				return &exit.Error{Code: exit.Usage,
+					Msg:        fmt.Sprintf("the worktree of %s at %s is missing", m.Branch, m.Dir),
+					Suggestion: "git -C " + r.Main + " worktree prune"}
+			default:
+				res.Dir = m.Dir
 			}
 			if start {
-				started := false
 				d, err := api()
+				started := false
 				if err == nil {
 					started, err = startStory(ctx, d, id)
 				}
 				if err != nil {
-					var e *exit.Error
-					if !errors.As(err, &e) {
-						e = &exit.Error{Code: exit.Other, Msg: err.Error()}
-					}
-					c := *e
-					c.Worktree = res
-					if ctx.Err() != nil {
-						c.Code = exit.Cancelled
-					}
-					return &c
+					return withWorktree(ctx, err, res)
 				}
 				res.Started = &started
 			}
@@ -177,6 +124,66 @@ func newWorktree(env Env) *cobra.Command {
 	f.BoolVar(&start, "start", false, "also move a backlog or unstarted story to the first started state of its workflow, and add @me as owner")
 	f.StringVar(&branch, "branch", "", "the branch to use when more than one matches, or the name of a new branch")
 	return c
+}
+
+// newBranch gives the new branch of story id when no branch matches: the
+// --branch name, else the name that Shortcut suggests. After the story read,
+// it looks for the branches of the story again and returns them: another run
+// can make one during the read, and that one is used, not a second one.
+func newBranch(ctx context.Context, r gitwt.Repo, id int64, branch string, api func() (*deps, error)) (gitwt.Match, []gitwt.Match, error) {
+	if branch != "" {
+		if !ref.HasID(branch, id) {
+			return gitwt.Match{}, nil, exit.Usagef("--branch %q has no sc-%d", branch, id)
+		}
+		return gitwt.Match{Branch: branch, Source: gitwt.New}, nil, nil
+	}
+	d, err := api()
+	if err != nil {
+		return gitwt.Match{}, nil, err
+	}
+	name, err := branchName(ctx, d, id)
+	if err != nil {
+		return gitwt.Match{}, nil, err
+	}
+	if !ref.HasID(name, id) {
+		return gitwt.Match{}, nil, &exit.Error{Code: exit.NotFound,
+			Msg: fmt.Sprintf("the branch name %q has no sc-%d", name, id), Suggestion: "give --branch"}
+	}
+	ms, err := r.Find(ctx, id)
+	return gitwt.Match{Branch: name, Source: gitwt.New}, ms, err
+}
+
+// pick selects one of the branches of story id: the --branch one, else the
+// only one.
+func pick(ms []gitwt.Match, branch string, id int64) (gitwt.Match, error) {
+	if branch != "" {
+		i := slices.IndexFunc(ms, func(x gitwt.Match) bool { return x.Branch == branch })
+		if i < 0 {
+			return gitwt.Match{}, &exit.Error{Code: exit.Usage,
+				Msg: fmt.Sprintf("--branch %q is not a branch of sc-%d", branch, id), Valid: branchNames(ms)}
+		}
+		return ms[i], nil
+	}
+	if len(ms) > 1 {
+		return gitwt.Match{}, &exit.Error{Code: exit.Usage, Msg: fmt.Sprintf("more than one branch for sc-%d", id),
+			Suggestion: "give --branch", Valid: branchNames(ms)}
+	}
+	return ms[0], nil
+}
+
+// withWorktree adds the worktree to the error of the --start part, so a
+// caller can still open it. After a cancel, the code is 130.
+func withWorktree(ctx context.Context, err error, res worktreeResult) error {
+	var e *exit.Error
+	if !errors.As(err, &e) {
+		e = &exit.Error{Code: exit.Other, Msg: err.Error()}
+	}
+	c := *e
+	c.Worktree = res
+	if ctx.Err() != nil {
+		c.Code = exit.Cancelled
+	}
+	return &c
 }
 
 // startStory moves a backlog or unstarted story to the started state with the
@@ -215,26 +222,26 @@ func startStory(ctx context.Context, d *deps, id int64) (started bool, err error
 		Type     string `json:"type"`
 		Position int64  `json:"position"`
 	}
+	states, err := decodeAll[state](items, "workflow state")
+	if err != nil {
+		return false, err
+	}
 	var cur string
 	var first *state
-	for _, it := range items {
-		var st state
-		if err := json.Unmarshal(it, &st); err != nil {
-			return false, &exit.Error{Code: exit.Other, Msg: "bad workflow state"}
-		}
+	for i, st := range states {
 		if st.ID == s.State.ID {
 			cur = st.Type
 		}
 		if st.Type == "started" && (first == nil || st.Position < first.Position) {
-			first = &st
+			first = &states[i]
 		}
 	}
-	body := map[string]any{}
+	var target int64 // the state to move to; 0 for no move
 	if cur == "backlog" || cur == "unstarted" {
 		if first == nil {
 			return false, exit.NotFoundf("no started state in workflow %d", s.Workflow.ID)
 		}
-		body["workflow_state_id"] = first.ID
+		target = first.ID
 	}
 	me, err := d.Resolver.Me()
 	if err != nil {
@@ -242,10 +249,8 @@ func startStory(ctx context.Context, d *deps, id int64) (started bool, err error
 	}
 	// A nested list can be cut short: then me can be an owner that is not in
 	// it, and owner_ids_add of an owner changes nothing.
-	if !slices.Contains(s.Owners.Entities, member{me}) {
-		body["owner_ids_add"] = []string{me}
-	}
-	if body["workflow_state_id"] != nil {
+	addMe := !slices.Contains(s.Owners.Entities, member{me})
+	if target != 0 {
 		// Read the state again just before the PATCH, so a story that another
 		// writer moved meanwhile is not moved back. The API has no
 		// conditional update, so this makes the window small, not zero.
@@ -262,8 +267,15 @@ func startStory(ctx context.Context, d *deps, id int64) (started bool, err error
 			return false, &exit.Error{Code: exit.Other, Msg: "bad story response"}
 		}
 		if now.State.ID != s.State.ID {
-			delete(body, "workflow_state_id")
+			target = 0
 		}
+	}
+	body := map[string]any{}
+	if target != 0 {
+		body["workflow_state_id"] = target
+	}
+	if addMe {
+		body["owner_ids_add"] = []string{me}
 	}
 	if len(body) == 0 {
 		return false, nil
@@ -271,14 +283,11 @@ func startStory(ctx context.Context, d *deps, id int64) (started bool, err error
 	if _, err := d.Doer.Raw(ctx, "PATCH", path, nil, body); err != nil {
 		return false, err
 	}
-	return body["workflow_state_id"] != nil, nil
+	return target != 0, nil
 }
 
 // abs returns p made absolute against base. An empty p gives base.
 func abs(base, p string) string {
-	if p == "" {
-		return base
-	}
 	if filepath.IsAbs(p) {
 		return filepath.Clean(p)
 	}
