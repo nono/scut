@@ -14,20 +14,19 @@
 
 | Exit | Meaning | Do this |
 |---|---|---|
-| 2 | Usage error, or the API refused a request (HTTP 400). | Pick from `valid`, or do the `suggestion`. A noun with no command is an error. A command that sends several writes (`story link` with several pairs, `story update` on several stories) can have done some: read stdout first. |
+| 2 | Usage error, or the API refused a request (HTTP 400). | Pick from `valid`, or do the `suggestion`. A noun with no command is an error. A command that sends several writes (`story link` with several pairs, `story update` on several stories) can have done some: read stdout, and the `suggestion` names the stories that may be changed. |
 | 3 | Not found. | Check the ID. For a name, pick from `valid`. |
-| 4 | No token, a bad token, or a missing scope. | Do not retry. If `scut auth status` shows a read-only token, stop: the write needs another token. `auth login` writes only the keyring, and `SCUT_TOKEN`, `--token-file` and `token_file` in the config come first: if one is set, ask the user to fix it. Else ask the user to run `scut auth login` in a terminal: it asks for a token from https://app.shortcut.com/settings/account/api-tokens, with no echo. |
+| 4 | No token, a bad token, or a missing scope. | Do not retry. A read-only token (see `scut auth status`) cannot write: stop. If `SCUT_TOKEN`, `--token-file` or `token_file` in the config is set, ask the user to fix it: `auth login` writes only the keyring. Else ask the user to run `scut auth login` in a terminal (token from https://app.shortcut.com/settings/account/api-tokens). |
 | 5 | Shortcut is unavailable. | Retry later. A write may have taken effect: read the `suggestion` first. For `story create`, it says if the story exists. |
 | 1 | Other error. | Read `error` and `api`. |
 | 130 | Cancelled. | Read the `suggestion`, if any. |
 
 - If the shell says `scut: command not found`, tell the user to install it with `mise use github:nono/scut`. Do not install it yourself.
-- If `story update` on several stories fails, the `suggestion` names the stories of the failed call and says if they may be changed.
 
 ## Common tasks
 
 ```sh
-scut story view  # the story of the current git branch
+scut story view
 scut story view 12 13 14 --fields id,name,state  # several stories in one call, few fields
 scut story search '!is:done owner:me' --fields id,name,state
 scut story create --type bug --name "Login fails" --state "To Do" --description-file d.md
@@ -42,7 +41,7 @@ scut worktree 12 --start  # find or make the worktree, and start the story
 
 ## Output size
 
-- `--fields` gives only those fields on `story view`, `story search`, `story subtasks` and `epic stories`. Use it when you need few fields.
+- `story view`, `story search`, `story subtasks` and `epic stories` take `--fields`.
 - Searches and comment lists give 25 items. Use `--limit N` or `--limit all`. Lookup lists give all items.
 - `story search` takes the Shortcut query syntax unchanged. It can lag: use `story view` for current data.
 - A doc is a doc URL, a doc ID or an exact title. A doc can be large: `doc view --out <file>` writes the content to a file, so read the file in parts.
@@ -53,7 +52,6 @@ Write the text to a file with your file tool. Then pass `--description-file <fil
 
 ## Writes
 
-- Each write is its own command. This skill allows the reads with no prompt. Each write asks for permission, and so do the commands that can write a file at a path that you give.
 - Archive, unlink, `--no-parent`, or a change of parent: only when the user asks.
 - Never add `--yes` yourself. `scut api -X DELETE` needs it.
 

@@ -49,15 +49,10 @@ const description = "Use when a task reads or changes Shortcut stories, epics, c
 	"a sub-task, a state change such as \"move it to In Review\", a Shortcut doc, or the branch name of a story."
 
 // localWrites are commands that call only GET operations but write the
-// keyring, remove the cache, or write a file at a path that the caller
-// gives: they stay out of allowed-tools. A rule matches the start of the
-// command, so it cannot leave out a flag such as --out. Reads also write the
-// cache, which is not in this list.
+// keyring: they stay out of allowed-tools. A command with an --out flag, or
+// with no ops annotation (cache clear), stays out too, with no entry here.
 var localWrites = map[string]bool{
-	"auth login":  true, // stores the token in the keyring
-	"cache clear": true, // removes the cache
-	"doc view":    true, // --out replaces a file at any path
-	"story files": true, // --out writes files to any directory
+	"auth login": true,
 }
 
 // localReads are commands that call no operation and only read: the only
@@ -83,11 +78,13 @@ func shortcutWrites(c *cobra.Command, spec specInfo) []string {
 }
 
 // allowed reports if allowed-tools lists c: it writes nothing other than the
-// cache (not localWrites, no write to Shortcut), and it has an ops
-// annotation or is a local read.
+// cache, and it has an ops annotation or is a local read. A rule matches the
+// start of the command, so it cannot leave out a flag: a command with --out,
+// which writes a file at a path that the caller gives, is not allowed.
 func allowed(c *cobra.Command, spec specInfo) bool {
 	p := cmdPath(c)
-	return !localWrites[p] && len(shortcutWrites(c, spec)) == 0 && (len(cli.Ops(c)) > 0 || localReads[p])
+	return !localWrites[p] && c.Flags().Lookup("out") == nil && len(shortcutWrites(c, spec)) == 0 &&
+		(len(cli.Ops(c)) > 0 || localReads[p])
 }
 
 // allowedTools is the allowed-tools value: the usage commands and each
