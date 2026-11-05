@@ -155,6 +155,7 @@ A command checks its flags and arguments before it reads the token, so such a us
 
 - Unknown command, or a group with no subcommand: `valid` has the subcommands. `suggestion` is `did you mean "<name>"?` when a name is near, else `see "<command> --help"`. An empty name gets no guess. Cobra parses the flags of a group before it looks for the subcommand, so `story veiw 1 --fields x` is also an unknown command, not an unknown flag of `story`.
 - Unknown flag: `valid` has the flags of the command. Each flag parse error has `suggestion` `see "<command> --help"`.
+- `help <topic>` with a topic that does not exist: the unknown-command error, exit 2. The cobra help command printed the root help and exited 0.
 - Wrong number of arguments, also to a command that takes none: `suggestion` is the usage line, for example `usage: scut story search <query>`.
 
 ### Retries (G5, G8)

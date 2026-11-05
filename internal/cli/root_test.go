@@ -103,6 +103,29 @@ func TestUsageErrorsNameTheFix(t *testing.T) {
 	}
 }
 
+// help on a topic that does not exist is the unknown-command error, not the root help.
+func TestHelpUnknownTopic(t *testing.T) {
+	for _, c := range []struct {
+		args       []string
+		valid      string
+		suggestion string
+	}{
+		{[]string{"help", "stroy"}, "story", `did you mean "story"?`},
+		{[]string{"help", "story", "veiw"}, "view", `did you mean "view"?`},
+	} {
+		e := usageError(t, cli.NewRoot(emptyEnv()), c.args...)
+		if !hasValid(e, c.valid) || e["suggestion"] != c.suggestion {
+			t.Errorf("%v: %v", c.args, e)
+		}
+	}
+	for _, args := range [][]string{{"help"}, {"help", "story"}, {"help", "story", "view"}} {
+		var out, errb bytes.Buffer
+		if code := cli.Execute(args, &out, &errb, emptyEnv()); code != 0 || out.Len() == 0 || errb.Len() != 0 {
+			t.Errorf("%v: code %d, stdout %d bytes, stderr %q", args, code, out.Len(), errb.String())
+		}
+	}
+}
+
 // Hidden commands, hidden flags and the help command are not in valid.
 func TestValidLeavesOutHidden(t *testing.T) {
 	root := cli.NewRoot(emptyEnv())

@@ -123,6 +123,25 @@ func flagError(cmd *cobra.Command, err error) error {
 	return e
 }
 
+// newHelp replaces the cobra help command, which prints the root help and
+// exits 0 for a topic that does not exist. Here that is the unknown-command error.
+func newHelp() *cobra.Command {
+	return &cobra.Command{
+		Use:   "help [command]",
+		Short: "Help about any command",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			target, rest, err := cmd.Root().Find(args)
+			if err != nil {
+				return exit.Usagef("%s", err)
+			}
+			if len(rest) > 0 {
+				return noArgs(target, rest)
+			}
+			return target.Help()
+		},
+	}
+}
+
 // NewRoot returns the root command with all subcommands.
 func NewRoot(env Env) *cobra.Command {
 	root := &cobra.Command{
@@ -139,6 +158,7 @@ func NewRoot(env Env) *cobra.Command {
 		},
 	}
 	root.SetFlagErrorFunc(flagError)
+	root.SetHelpCommand(newHelp())
 	root.CompletionOptions.DisableDefaultCmd = true
 	pf := root.PersistentFlags()
 	pf.Bool("human", false, "print text instead of JSON")
