@@ -2,6 +2,7 @@
 package exit
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -63,10 +64,14 @@ func Write(w io.Writer, err error) Code {
 	if !errors.As(err, &e) {
 		e = &Error{Code: Other, Msg: err.Error()}
 	}
-	b, merr := json.Marshal(wire{e.Msg, e.Status, e.API, e.Suggestion, e.Valid, e.Worktree})
-	if merr != nil {
-		b = []byte(`{"error":"cannot encode error"}`)
+	// No HTML escapes: a usage line such as "scut api <path>" stays as it is.
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if enc.Encode(wire{e.Msg, e.Status, e.API, e.Suggestion, e.Valid, e.Worktree}) != nil {
+		b.Reset()
+		b.WriteString(`{"error":"cannot encode error"}` + "\n")
 	}
-	_, _ = w.Write(append(b, '\n'))
+	_, _ = w.Write(b.Bytes())
 	return e.Code
 }

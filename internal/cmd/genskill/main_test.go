@@ -203,21 +203,21 @@ func TestCommittedFilesCurrent(t *testing.T) {
 }
 
 func TestReadmeText(t *testing.T) {
-	in := "# x\n\n" + beginMark + "\n- old\n" + endMark + "\n\n## P\n\n" + permsMark + "\nold\n" + endMark + "\n\n## Next\n"
+	in := "# x\n\n" + beginMark + "\n- old\n" + endMark + "\n\n## P\n\n" + permsMark + "\nold\n" + permsEnd + "\n\n## Next\n"
 	got, err := readmeText(in, "| table |")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "# x\n\n" + beginMark + "\n" + notSupported() + "\n" + endMark + "\n\n## P\n\n" + permsMark + "\n| table |\n" + endMark + "\n\n## Next\n"
+	want := "# x\n\n" + beginMark + "\n" + notSupported() + "\n" + endMark + "\n\n## P\n\n" + permsMark + "\n| table |\n" + permsEnd + "\n\n## Next\n"
 	if got != want {
 		t.Errorf("got %q", got)
 	}
 	if !strings.HasPrefix(notSupported(), "- ") || strings.Contains(notSupported(), "##") {
 		t.Errorf("list %q", notSupported())
 	}
-	both := beginMark + endMark + permsMark + endMark
+	both := beginMark + endMark + permsMark + permsEnd
 	for _, bad := range []string{"no markers", beginMark + " no end", endMark + " no begin",
-		beginMark + endMark, permsMark + endMark, permsMark + " no end" + beginMark + endMark} {
+		beginMark + endMark, permsMark + permsEnd, permsMark + " no end" + beginMark + endMark} {
 		if _, err := readmeText(bad, ""); err == nil {
 			t.Errorf("want an error for %q", bad)
 		}
@@ -229,10 +229,7 @@ func TestReadmeText(t *testing.T) {
 
 func TestPermissionsTable(t *testing.T) {
 	root := testRoot()
-	table, err := permissionsText(root, loadSpec(t))
-	if err != nil {
-		t.Fatal(err)
-	}
+	table := permissionsText(root, loadSpec(t))
 	for _, c := range leafCommands(root) {
 		if !strings.Contains(table, "| `"+cmdPath(c)+"` |") {
 			t.Errorf("missing %q", cmdPath(c))
@@ -251,14 +248,6 @@ func TestPermissionsTable(t *testing.T) {
 		if !strings.Contains(table+"\n", want+"\n") {
 			t.Errorf("no %q in\n%s", want, table)
 		}
-	}
-}
-
-func TestPermissionsUnknownOp(t *testing.T) {
-	root := testRoot()
-	root.AddCommand(&cobra.Command{Use: "bogus", Annotations: map[string]string{cli.OpsAnnotation: "noSuchOp"}, Run: func(*cobra.Command, []string) {}})
-	if _, err := permissionsText(root, loadSpec(t)); err == nil {
-		t.Error("want an error for an operationId that is not in the spec")
 	}
 }
 

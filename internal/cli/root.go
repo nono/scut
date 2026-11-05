@@ -50,6 +50,8 @@ func Group(use, short string) *cobra.Command {
 		Use:   use,
 		Short: short,
 		Args:  noArgs,
+		// The cobra default, which only its own error path sets.
+		SuggestionsMinimumDistance: 2,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			e := exit.Usagef("%q needs a subcommand", cmd.CommandPath())
 			e.Valid = subcommandNames(cmd)
@@ -72,9 +74,6 @@ func noArgs(cmd *cobra.Command, args []string) error {
 		e := exit.Usagef("unknown command %q for %q", args[0], cmd.CommandPath())
 		e.Valid = subcommandNames(cmd)
 		e.Suggestion = seeHelp(cmd)
-		if cmd.SuggestionsMinimumDistance <= 0 {
-			cmd.SuggestionsMinimumDistance = 2 // the cobra default, which only its own error path sets
-		}
 		// An empty name is a prefix of each name: make no guess.
 		if s := cmd.SuggestionsFor(args[0]); len(s) > 0 && strings.TrimSpace(args[0]) != "" {
 			e.Suggestion = fmt.Sprintf("did you mean %q?", s[0])
@@ -88,7 +87,7 @@ func noArgs(cmd *cobra.Command, args []string) error {
 func subcommandNames(cmd *cobra.Command) []string {
 	var out []string
 	for _, c := range cmd.Commands() {
-		if c.IsAvailableCommand() && c.Name() != "help" {
+		if c.IsAvailableCommand() {
 			out = append(out, c.Name())
 		}
 	}
@@ -114,7 +113,7 @@ func flagError(cmd *cobra.Command, err error) error {
 	}
 	e := exit.Usagef("%s", err)
 	e.Suggestion = seeHelp(cmd)
-	if strings.HasPrefix(err.Error(), "unknown ") {
+	if ne := (*pflag.NotExistError)(nil); errors.As(err, &ne) {
 		cmd.Flags().VisitAll(func(f *pflag.Flag) {
 			if !f.Hidden {
 				e.Valid = append(e.Valid, "--"+f.Name)
@@ -133,6 +132,8 @@ func NewRoot(env Env) *cobra.Command {
 		SilenceErrors: true,
 		Version:       transport.Version,
 		Args:          noArgs,
+		// The cobra default, which only its own error path sets.
+		SuggestionsMinimumDistance: 2,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return cmd.Help()
 		},

@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -40,28 +41,12 @@ func TestGroupWithoutSubcommand(t *testing.T) {
 	}
 }
 
-func TestUnknownCommandIs2(t *testing.T) {
-	var out, errb bytes.Buffer
-	if code := cli.Execute([]string{"story"}, &out, &errb, emptyEnv()); code != 2 {
-		t.Fatalf("code %d, want 2", code)
-	}
-	if !strings.Contains(errb.String(), `"error"`) {
-		t.Errorf("stderr: %q", errb.String())
-	}
-}
-
-func TestBadFlagIs2(t *testing.T) {
-	var out, errb bytes.Buffer
-	if code := cli.Execute([]string{"--nope"}, &out, &errb, emptyEnv()); code != 2 {
-		t.Fatalf("code %d, want 2", code)
-	}
-}
-
-// usageError runs args and returns the JSON error; it fails unless the code is 2.
-func usageError(t *testing.T, args ...string) map[string]any {
+// usageError runs args on root and returns the JSON error; it fails unless the code is 2.
+func usageError(t *testing.T, root *cobra.Command, args ...string) map[string]any {
 	t.Helper()
 	var out, errb bytes.Buffer
-	if code := cli.Execute(args, &out, &errb, emptyEnv()); code != 2 {
+	root.SetOut(&out)
+	if code := cli.RunContext(context.Background(), root, args, &errb); code != 2 {
 		t.Fatalf("%v: code %d, want 2; stderr %s", args, code, errb.String())
 	}
 	return decode(t, errb.String())
@@ -70,11 +55,7 @@ func usageError(t *testing.T, args ...string) map[string]any {
 func hasValid(e map[string]any, want ...string) bool {
 	valid, _ := e["valid"].([]any)
 	for _, w := range want {
-		found := false
-		for _, v := range valid {
-			found = found || v == w
-		}
-		if !found {
+		if !slices.Contains(valid, any(w)) {
 			return false
 		}
 	}
@@ -89,6 +70,7 @@ func TestUsageErrorsNameTheFix(t *testing.T) {
 		suggestion string
 	}{
 		{[]string{"stroy"}, []string{"story", "epic"}, `did you mean "story"?`},
+		{[]string{"--nope"}, []string{"story", "epic"}, `see "scut --help"`},
 		{[]string{"story", "veiw"}, []string{"view", "comment"}, `did you mean "view"?`},
 		{[]string{"story", "nothing-like-it"}, []string{"view"}, `see "scut story --help"`},
 		{[]string{"story"}, []string{"view", "update"}, `see "scut story --help"`},
@@ -108,7 +90,7 @@ func TestUsageErrorsNameTheFix(t *testing.T) {
 		// An empty name matches every name by prefix: no guess.
 		{[]string{"story", ""}, []string{"view"}, `see "scut story --help"`},
 	} {
-		e := usageError(t, c.args...)
+		e := usageError(t, cli.NewRoot(emptyEnv()), c.args...)
 		if !hasValid(e, c.valid...) {
 			t.Errorf("%v: valid %v, want %v", c.args, e["valid"], c.valid)
 		}
@@ -121,11 +103,22 @@ func TestUsageErrorsNameTheFix(t *testing.T) {
 	}
 }
 
-// Hidden commands and the help command are not in valid.
-func TestUnknownCommandValidLeavesOutHelp(t *testing.T) {
-	e := usageError(t, "nothing-like-it")
-	if hasValid(e, "help") {
-		t.Errorf("valid %v has help", e["valid"])
+// Hidden commands, hidden flags and the help command are not in valid.
+func TestValidLeavesOutHidden(t *testing.T) {
+	root := cli.NewRoot(emptyEnv())
+	root.AddCommand(&cobra.Command{Use: "secret", Hidden: true, Run: func(*cobra.Command, []string) {}})
+	leaf := &cobra.Command{Use: "leaf", Run: func(*cobra.Command, []string) {}}
+	leaf.Flags().Bool("shown", false, "")
+	leaf.Flags().Bool("unseen", false, "")
+	_ = leaf.Flags().MarkHidden("unseen")
+	root.AddCommand(leaf)
+	e := usageError(t, root, "nothing-like-it")
+	if !hasValid(e, "leaf") || hasValid(e, "secret") || hasValid(e, "help") {
+		t.Errorf("commands: valid %v", e["valid"])
+	}
+	e = usageError(t, root, "leaf", "--nope")
+	if !hasValid(e, "--shown") || hasValid(e, "--unseen") {
+		t.Errorf("flags: valid %v", e["valid"])
 	}
 }
 
