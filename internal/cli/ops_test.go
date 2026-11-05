@@ -158,6 +158,7 @@ var opsCases = [][]string{
 	{"epic", "search", "x"},
 	{"epic", "stories", "Big epic"},
 	{"epic", "comment", "Big epic", "--body-file", "-"},
+	{"worktree", "5818", "--repo", "@repo"},
 }
 
 // Each operation that a command calls is in its scut/ops annotation, so
@@ -171,8 +172,11 @@ func TestOpsAnnotationsComplete(t *testing.T) {
 			var rec opsRecorder
 			args = slices.Clone(args)
 			for i, a := range args {
-				if a == "@tmp" {
+				switch a {
+				case "@tmp":
 					args[i] = t.TempDir()
+				case "@repo":
+					args[i] = gitRepos(t)
 				}
 			}
 			h := newHarness(t, rec.routes(t), "sct_rw_acme_s3cret\n", map[string]string{"SCUT_TOKEN": "sct_rw_acme_s3cret"})

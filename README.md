@@ -70,6 +70,7 @@ scut story usage           # the commands of one noun
 scut story view 1234
 scut story search 'owner:me state:"To Do"'
 scut story create --name "Fix the login" --type bug
+scut worktree 1234         # find or make the git worktree of the story, from the current repository
 ```
 
 Use names, not IDs. A wrong name exits 3 and the error lists the valid names.

@@ -12,7 +12,7 @@ Commands call 23 of 257 v4 operations. `scut api` can call any operation.
 | createStoryLink | `story link` |
 | deleteStoryLink | `story unlink` |
 | getEpic | `epic view` |
-| getStory | `story branch`, `story create`, `story update`, `story view` |
+| getStory | `story branch`, `story create`, `story update`, `story view`, `worktree` |
 | getWhoami | `auth login`, `auth status`, `story create`, `story update`, `whoami` |
 | listCustomFields | `field list`, `field values`, `story create`, `story update` |
 | listEpicStories | `epic stories` |
