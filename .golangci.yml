@@ -57,6 +57,12 @@ linters:
         - unusedresult
         - waitgroup
 
+issues:
+  # Show each issue of a line, so one finding cannot hide another.
+  uniq-by-line: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
 formatters:
   enable:
     - gofmt

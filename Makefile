@@ -17,9 +17,14 @@ check-skill:
 	go run ./internal/cmd/genskill -check
 
 # golangci-lint runs gofmt and go vet too (see .golangci.yml).
+# deadcode exits 0 on findings, so its output is the failure.
 lint: check-skill
 	golangci-lint run
 	govulncheck ./...
+	go mod tidy -diff
+	@out=$$(deadcode -test ./...) && [ -z "$$out" ] || { echo "$$out"; exit 1; }
+	actionlint
+	zizmor --offline .github/workflows
 
 live:
 	go test -tags live -count=1 -v ./internal/live
