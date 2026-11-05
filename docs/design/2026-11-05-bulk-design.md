@@ -43,7 +43,7 @@ scut story update <story>… [--state] [--workflow] [--epic] [--requester] [--ad
 1. Check the flags (before the token, as each command does).
 2. Read the stories: `GET /stories?ids=…&fields=id,workflow&filter=include_archived`, in pages of 100. A story that is not there: exit 3, and `valid` is not set; the error names the missing IDs. No write is made.
 3. Resolve each name once: epic, members, fields. `--state`: with `--workflow`, one state ID; without it, one state ID for each workflow of the stories, from step 2. A state that is not in a workflow of the stories: exit 3, no write.
-4. Write in chunks of 100 stories, in argument order: `PATCH /stories/bulk` with `{"stories": [{"id": …, …}, …]}` and `limit` = the chunk size, so the reply lists each story of the chunk. Each item has the same keys; only `workflow_state_id` can differ between items.
+4. Write in chunks of 100 stories, in argument order: `PATCH /stories/bulk` with `{"stories": [{"id": …, …}, …]}`, `limit` = the chunk size and `filter=include_archived`, so the reply lists each story of the chunk. The spec gives `exclude_archived` as the default of `filter`, and then the reply leaves out each archived story. Each item has the same keys; only `workflow_state_id` can differ between items.
 5. Check each reply: it must list each story of the chunk, and `checkParent` applies to each story, as for one story.
 
 ## Failures
@@ -53,7 +53,10 @@ The API does not say if a bulk write is atomic, and its errors (400, 404, 422) h
 - A failed chunk is reported as not known. The error has the HTTP status and the API body, as other errors do. Its `suggestion` names the stories of that chunk: "these stories may be partly changed: read them with `scut story view <ids>`".
 - The stories of the chunks before it are printed on stdout, as an array, before the error. The chunks after it are not sent.
 - A write is not retried (as in v1: only `GET` is). A 5xx or a timeout exits 5.
-- A reply that leaves out a story of the chunk: exit 1, with the IDs. The write is saved.
+- A reply that fails a check (it leaves out a story of the chunk, or a parent is not set): exit 1. The write is saved, and the `suggestion` names each story of the chunk.
+- A write that was not sent (a dial failure or a bad certificate): the `suggestion` says that the stories of the chunk are not changed.
+- A cancel (Ctrl-C) during a write: exit 130, and the error keeps the `suggestion` that names the chunk, as `story create` does. A cancel between two writes: exit 130, and the `suggestion` names the stories that are not sent.
+- Not checked: another client can move a story to another workflow between the read of step 2 and the write. `--state` then sends a state of the old workflow, and the API can move the story back. The one-story path has the same gap between its read and its write; the bulk path makes it longer only past 100 stories. Use `--workflow` when the workflow can change.
 
 ## Calls
 

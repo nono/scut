@@ -1,6 +1,8 @@
 package cli_test
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -10,7 +12,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/nono/scut/internal/cli"
 	"github.com/nono/scut/internal/testapi"
 )
 
@@ -20,13 +24,18 @@ const bulkPath = "/api/v4/acme/stories/bulk"
 type bulkAPI struct {
 	t        *testing.T
 	mu       sync.Mutex
-	workflow map[int64]int // story ID to its workflow; a story not in it does not exist
-	reads    []url.Values  // query of each GET /stories
-	writes   []bulkWrite   // each PATCH /stories/bulk
-	failCall int           // 1-based PATCH call that fails with 422; 0: none
-	drop     int64         // story left out of each reply
-	noParent bool          // the reply ignores parent_story_id
+	workflow map[int64]int // story ID to its workflow (noWorkflow: null); a story not in it does not exist
+	archived map[int64]bool
+	reads    []url.Values // query of each GET /stories
+	writes   []bulkWrite  // each PATCH /stories/bulk
+	failCall int          // 1-based PATCH call that fails with 422; 0: none
+	drop     int64        // story left out of each reply
+	noParent bool         // the reply ignores parent_story_id
+	onWrite  func(n int)  // runs in each PATCH, with its 1-based number
 }
+
+// noWorkflow in bulkAPI.workflow is a story whose workflow is null.
+const noWorkflow = -1
 
 type bulkWrite struct {
 	limit   string
@@ -34,7 +43,7 @@ type bulkWrite struct {
 }
 
 func newBulkAPI(t *testing.T, ids ...int64) *bulkAPI {
-	a := &bulkAPI{t: t, workflow: map[int64]int{}}
+	a := &bulkAPI{t: t, workflow: map[int64]int{}, archived: map[int64]bool{}}
 	for _, id := range ids {
 		a.workflow[id] = 5
 	}
@@ -48,7 +57,11 @@ func (a *bulkAPI) read(w http.ResponseWriter, r *http.Request) {
 	for _, s := range strings.Split(r.URL.Query().Get("ids"), ",") {
 		id, _ := strconv.ParseInt(s, 10, 64)
 		if wf, ok := a.workflow[id]; ok {
-			found = append(found, map[string]any{"id": id, "workflow": map[string]any{"id": wf, "name": "W"}})
+			s := map[string]any{"id": id, "workflow": map[string]any{"id": wf, "name": "W"}}
+			if wf == noWorkflow {
+				s["workflow"] = nil
+			}
+			found = append(found, s)
 		}
 	}
 	a.mu.Unlock()
@@ -66,7 +79,15 @@ func (a *bulkAPI) write(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	a.writes = append(a.writes, bulkWrite{r.URL.Query().Get("limit"), body.Stories})
 	n := len(a.writes)
+	for _, item := range body.Stories {
+		if v, ok := item["archived"].(bool); ok {
+			a.archived[int64(item["id"].(float64))] = v
+		}
+	}
 	a.mu.Unlock()
+	if a.onWrite != nil {
+		a.onWrite(n)
+	}
 	if n == a.failCall {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnprocessableEntity)
@@ -76,13 +97,18 @@ func (a *bulkAPI) write(w http.ResponseWriter, r *http.Request) {
 	var out []any
 	for _, item := range body.Stories {
 		id := int64(item["id"].(float64))
-		if id == a.drop {
+		// As the spec says, the reply leaves out archived stories by default.
+		if id == a.drop || a.archived[id] && r.URL.Query().Get("filter") != "include_archived" {
 			continue
 		}
 		s := storyFixture(a.t)
 		s["id"] = id
-		if p, ok := item["parent_story_id"]; ok && p != nil && !a.noParent {
-			s["parent_story"] = map[string]any{"id": p, "name": "Parent"}
+		s["parent_story"] = map[string]any{"id": 1, "name": "Old parent"}
+		if p, ok := item["parent_story_id"]; ok && !a.noParent {
+			s["parent_story"] = nil
+			if p != nil {
+				s["parent_story"] = map[string]any{"id": p, "name": "Parent"}
+			}
 		}
 		out = append(out, s)
 	}
@@ -120,10 +146,11 @@ func outIDs(t *testing.T, out string) []int64 {
 	return ids
 }
 
-func idRange(from, n int64) []int64 {
+// idRange returns n story IDs from 6000.
+func idRange(n int64) []int64 {
 	out := make([]int64, 0, n)
 	for i := range n {
-		out = append(out, from+i)
+		out = append(out, 6000+i)
 	}
 	return out
 }
@@ -194,7 +221,7 @@ func TestBulkUpdateOneStoryAfterRepeats(t *testing.T) {
 }
 
 func TestBulkUpdateChunks(t *testing.T) {
-	ids := idRange(6000, 150)
+	ids := idRange(150)
 	a := newBulkAPI(t, ids...)
 	h := a.harness(nil)
 	code, out, errs := h.run(append([]string{"story", "update", "--add-owner", "bruno"}, idArgs(ids)...)...)
@@ -258,7 +285,7 @@ func TestBulkUpdateNoWriteOnResolveError(t *testing.T) {
 }
 
 func TestBulkUpdateFailedChunk(t *testing.T) {
-	ids := idRange(6000, 250)
+	ids := idRange(250)
 	a := newBulkAPI(t, ids...)
 	a.failCall = 2
 	h := a.harness(nil)
@@ -338,5 +365,106 @@ func TestBulkUpdateContract(t *testing.T) {
 		"--field", "Technical Area=Back end", "--state", "To Do", "--parent", "5428")
 	if code != 1 || !strings.Contains(errs, "the reply does not list") {
 		t.Errorf("code %d, stderr %s", code, errs)
+	}
+}
+
+func TestBulkUpdateHuman(t *testing.T) {
+	a := newBulkAPI(t, 5429, 5430)
+	h := a.harness(nil)
+	code, out, errs := h.run("--human", "story", "update", "5429", "5430", "--archive")
+	if code != 0 || strings.HasPrefix(strings.TrimSpace(out), "[") || !strings.Contains(out, "5429") || !strings.Contains(out, "5430") {
+		t.Errorf("code %d, stderr %s, out %q", code, errs, out)
+	}
+}
+
+// The reply lists archived stories only with filter=include_archived.
+func TestBulkUpdateArchivedInReply(t *testing.T) {
+	a := newBulkAPI(t, 5429, 5430)
+	h := a.harness(nil)
+	code, out, errs := h.run("story", "update", "5429", "5430", "--archive")
+	if code != 0 || jsonOf(outIDs(t, out)) != "[5429,5430]" {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	code, _, errs = h.run("story", "update", "5429", "5430", "--epic", "1")
+	if code != 0 {
+		t.Errorf("update of archived stories: code %d, stderr %s", code, errs)
+	}
+}
+
+// An empty --workflow is a name that does not resolve, as for one story.
+func TestBulkUpdateEmptyWorkflow(t *testing.T) {
+	a := newBulkAPI(t, 5429, 5430)
+	h := a.harness(map[string]http.HandlerFunc{"GET /api/v4/acme/workflows": twoToDo()})
+	if code, _, errs := h.run("story", "update", "5429", "5430", "--state", "To Do", "--workflow", ""); code != 3 || len(a.writes) != 0 {
+		t.Errorf("code %d, writes %d, stderr %s", code, len(a.writes), errs)
+	}
+}
+
+func TestBulkUpdateNoParent(t *testing.T) {
+	a := newBulkAPI(t, 5429, 5430)
+	h := a.harness(nil)
+	code, _, errs := h.run("story", "update", "5429", "5430", "--no-parent")
+	if code != 0 || jsonOf(a.writes[0].stories) != `[{"id":5429,"parent_story_id":null},{"id":5430,"parent_story_id":null}]` {
+		t.Errorf("code %d, body %s, stderr %s", code, jsonOf(a.writes), errs)
+	}
+}
+
+// A story with no workflow exists: it is not reported as missing.
+func TestBulkUpdateNullWorkflow(t *testing.T) {
+	a := newBulkAPI(t, 5429, 5430)
+	a.workflow[5430] = noWorkflow
+	h := a.harness(nil)
+	if code, _, errs := h.run("story", "update", "5429", "5430", "--archive"); code != 0 || len(a.writes) != 1 {
+		t.Errorf("code %d, writes %d, stderr %s", code, len(a.writes), errs)
+	}
+}
+
+// A chunk that is saved but whose reply fails a check: stdout has the chunks
+// before it, and the suggestion names each story of the chunk.
+func TestBulkUpdateSavedChunkNamed(t *testing.T) {
+	ids := idRange(150)
+	a := newBulkAPI(t, ids...)
+	a.drop = 6120
+	h := a.harness(nil)
+	code, out, errs := h.run(append([]string{"story", "update", "--epic", "1"}, idArgs(ids)...)...)
+	if code != 1 || len(outIDs(t, out)) != 100 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	s, _ := decode(t, errs)["suggestion"].(string)
+	if !strings.Contains(s, "saved") || !strings.Contains(s, "scut story view 6100 6101") || !strings.Contains(s, " 6149") {
+		t.Errorf("suggestion %q", s)
+	}
+
+	b := newBulkAPI(t, 5429, 5430)
+	b.noParent = true
+	h = b.harness(nil)
+	_, _, errs = h.run("story", "update", "5429", "5430", "--parent", "5428")
+	if s, _ := decode(t, errs)["suggestion"].(string); !strings.Contains(s, "scut story view 5429 5430") {
+		t.Errorf("parent check: suggestion %q", s)
+	}
+}
+
+// A cancel during a bulk write keeps the suggestion that names the chunk.
+func TestBulkUpdateCancelNamesChunk(t *testing.T) {
+	ids := idRange(150)
+	a := newBulkAPI(t, ids...)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a.onWrite = func(n int) {
+		if n == 2 {
+			cancel()
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
+	h := a.harness(nil)
+	root := cli.NewRoot(h.env)
+	var out, errb bytes.Buffer
+	root.SetOut(&out)
+	code := cli.RunContext(ctx, root, append([]string{"story", "update", "--epic", "1"}, idArgs(ids)...), &errb)
+	if code != 130 || len(outIDs(t, out.String())) != 100 {
+		t.Fatalf("code %d, stderr %s", code, errb.String())
+	}
+	if s, _ := decode(t, errb.String())["suggestion"].(string); !strings.Contains(s, "may be partly changed") || !strings.Contains(s, "6100") || !strings.Contains(s, "6149") {
+		t.Errorf("suggestion %q", s)
 	}
 }
