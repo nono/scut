@@ -28,7 +28,6 @@ description: Use when a task reads or changes Shortcut stories, epics, comments,
 - Story history.
 - Bulk commands.
 - Iterations, objectives and labels as commands.
-- Sub-task commands after `story create`.
 
 ## Commands
 
@@ -53,8 +52,9 @@ Each line: command, summary, flags. Run `scut <noun> usage` for flag help.
 - `story link` `<story> <verb> <story> [<verb> <story>]...` Link stories.
 - `story relink` `<story> <old-verb> <story> <new-verb>` Change the verb of a link.
 - `story search` `<query>` Search stories. Flags: --fields string, --limit string.
+- `story subtasks` `[<story>]` List the sub-tasks of a story, in position order. Flags: --fields string, --limit string.
 - `story unlink` `<story> <verb> <story>` Remove a link between stories.
-- `story update` `<story>` Change a story. Flags: --add-owner stringArray, --archive, --description-file string, --epic string, --field stringArray, --name string, --remove-owner stringArray, --requester string, --state string, --unarchive, --workflow string.
+- `story update` `<story>` Change a story. Flags: --add-owner stringArray, --archive, --description-file string, --epic string, --field stringArray, --name string, --no-parent, --parent string, --remove-owner stringArray, --requester string, --state string, --unarchive, --workflow string.
 - `story view` `[<story>…]` Show stories; default story from the git branch. Flags: --comments string, --fields string.
 - `team list` List teams.
 - `whoami` Show the member and workspace of the token.

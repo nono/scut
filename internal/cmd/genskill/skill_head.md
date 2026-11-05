@@ -23,7 +23,6 @@
 - Story history.
 - Bulk commands.
 - Iterations, objectives and labels as commands.
-- Sub-task commands after `story create`.
 
 ## Commands
 

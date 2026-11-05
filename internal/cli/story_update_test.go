@@ -121,6 +121,37 @@ func TestUpdateFieldBadForm(t *testing.T) {
 	}
 }
 
+func TestUpdateParent(t *testing.T) {
+	var c calls
+	var body map[string]any
+	h := updateHarness(t, &c, &body, nil)
+	code, _, errs := h.run("story", "update", "5818", "--parent", "sc-5428")
+	if code != 0 || jsonOf(body) != `{"parent_story_id":5428}` {
+		t.Errorf("code %d, body %s, stderr %s", code, jsonOf(body), errs)
+	}
+	code, _, errs = h.run("story", "update", "5818", "--no-parent")
+	if code != 0 || jsonOf(body) != `{"parent_story_id":null}` {
+		t.Errorf("code %d, body %s, stderr %s", code, jsonOf(body), errs)
+	}
+}
+
+func TestUpdateParentBadForm(t *testing.T) {
+	var c calls
+	var body map[string]any
+	h := updateHarness(t, &c, &body, nil)
+	for _, args := range [][]string{
+		{"--parent", "5428", "--no-parent"},
+		{"--parent", "x"},
+	} {
+		if code, _, _ := h.run(append([]string{"story", "update", "5818"}, args...)...); code != 2 {
+			t.Errorf("%v: code %d, want 2", args, code)
+		}
+	}
+	if c.total() != 0 {
+		t.Errorf("calls %v", c.paths)
+	}
+}
+
 func TestUpdateNothing(t *testing.T) {
 	h := newHarness(t, nil, "", nil)
 	if code, _, _ := h.run("story", "update", "5818"); code != 2 {
@@ -209,11 +240,13 @@ func TestUpdateStateWithWorkflowNoGet(t *testing.T) {
 func TestUpdateContract(t *testing.T) {
 	h := newHarness(t, nil, "", map[string]string{"SCUT_TOKEN": updateAuth})
 	h.env.APIBase = testapi.Prism(t)
-	code, out, errs := h.run("story", "update", "5818", "--name", "x", "--archive")
-	if code != 0 {
-		t.Fatalf("code %d, stderr %s", code, errs)
-	}
-	if _, ok := decode(t, out)["id"]; !ok {
-		t.Errorf("no id: %s", out)
+	for _, args := range [][]string{{"--name", "x", "--archive"}, {"--parent", "5428"}, {"--no-parent"}} {
+		code, out, errs := h.run(append([]string{"story", "update", "5818"}, args...)...)
+		if code != 0 {
+			t.Fatalf("%v: code %d, stderr %s", args, code, errs)
+		}
+		if _, ok := decode(t, out)["id"]; !ok {
+			t.Errorf("%v: no id: %s", args, out)
+		}
 	}
 }

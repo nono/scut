@@ -28,7 +28,7 @@ v1 ships:
 ## Non-goals (v1)
 
 - Changes to the skills `file-story`, `story` and `grid-video`. They continue to use the MCP until a later change.
-- U11 (sub-task commands after create; the parent at create is in v1, G3), U12 (docs), U13 (history), U14 (external links).
+- U12 (docs), U13 (history), U14 (external links).
 - G2: unlink a PR, branch or commit. v4 has no endpoint for it. v1 can list them as part of `story view`.
 - G12: bulk commands. v1 accepts several links in one `story link` command, as one call per link (see Links).
 - N1 `scut worktree` (see `2026-11-05-worktree-design.md`), N2 shell completion.
@@ -84,7 +84,8 @@ scut story create --name … [--type] [--team] [--workflow] [--state] [--epic] [
                   [--owner …] [--requester …] [--label …] [--estimate N] [--field "Name=Value"]…
                   [--description-file f|-] [--link "<verb> <story>"]… [--external-link URL]…
 scut story update <story> [--name] [--state] [--epic] [--requester] [--add-owner …] [--remove-owner …]
-                  [--field "Name=Value"]… [--description-file f|-] [--archive|--unarchive]
+                  [--field "Name=Value"]… [--description-file f|-] [--archive|--unarchive] [--parent <story>|--no-parent]
+scut story subtasks [<story>] [--limit N|all] [--fields f,…]
 scut story comment <story> --body-file f|-
 scut story comments <story> [--limit N|all]
 scut story link <story> <verb> <story> [<verb> <story>]…
@@ -121,7 +122,7 @@ Writes need the story-write or comment-write scope, or `w`. `story unlink` and `
 
 - JSON on stdout by default, on a terminal and in a pipe. A list is an array. A view is an object. A write prints the compact shape of the entity that the API returns. `story unlink` prints `{"deleted": <link id>}`. `story link` prints one result per link.
 - `--human` or `SCUT_OUTPUT=human` prints text. Only `--human` on a terminal can open `$EDITOR` or prompt. Exception: `auth login` on a terminal prompts for the token on stderr, with no echo.
-- Default fields are compact. `story view` returns: id, name, type, state name, owners and requester as mention names, epic id and name, labels, custom fields as `{name: value}`, the description, tasks, links, branches, PRs, and the last 10 comments. `search` and `epic stories` leave out the description and comments. `--fields` takes API field names and passes them to the API `fields` parameter. It also takes the output names (`state`, `type`, `tasks`, …) as aliases. An API field that the compact shape does not model is printed as the API sent it, under its API name. `genskill` writes the Story field names from the committed spec to `internal/cli/storyfields_gen.go`, and `make check-skill` fails when that file drifts.
+- Default fields are compact. `story view` returns: id, name, type, state name, owners and requester as mention names, epic id and name, labels, custom fields as `{name: value}`, the description, tasks, links, branches, PRs, and the last 10 comments. `search`, `epic stories` and `story subtasks` leave out the description and comments. `--fields` takes API field names and passes them to the API `fields` parameter. It also takes the output names (`state`, `type`, `tasks`, …) as aliases. An API field that the compact shape does not model is printed as the API sent it, under its API name. `genskill` writes the Story field names from the committed spec to `internal/cli/storyfields_gen.go`, and `make check-skill` fails when that file drifts.
 - Member names in output come from the cache. State and field names come from the API response. The design must keep the IDs as well, so a script can use them.
 - Deleted comments (`text: null`) show as `{"deleted": true}`.
 
@@ -200,7 +201,7 @@ Before `scut` parses a body, it checks the status and the `Content-Type`.
 ## Build and test
 
 - Commit the v4 spec (`api/shortcut.openapi.json`). It is the contract for the Prism tests, the operation check of the `scut/ops` annotations and the coverage table. No Go client is generated from it: commands shape raw JSON (decision of 2026-11-04). CI downloads the live spec and shows a diff when it changed.
-- Unit tests for each package. Contract tests run against Prism (Stoplight) in mock mode on the committed spec. They cover `story view`, `search`, `comments`, `comment`, `create` and `update`, `epic view`, `search`, `stories` and `comment`, `team list`, `member list`, `workflow list` and `states`, `field list` and `values`, and `cache clear`. `story link`, `unlink`, `relink`, `branch`, `files`, `whoami`, `api` and `auth` have no Prism test. A write test checks the request body against the schema (shortcut-cli #366).
+- Unit tests for each package. Contract tests run against Prism (Stoplight) in mock mode on the committed spec. They cover `story view`, `search`, `comments`, `comment`, `create`, `update` and `subtasks`, `epic view`, `search`, `stories` and `comment`, `team list`, `member list`, `workflow list` and `states`, `field list` and `values`, and `cache clear`. `story link`, `unlink`, `relink`, `branch`, `files`, `whoami`, `api` and `auth` have no Prism test. A write test checks the request body against the schema (shortcut-cli #366).
 - Recorded responses (fixtures) for flows that Prism cannot model: G8 retry, paging loop, file download error page, name resolution.
 - One live smoke test, run by hand or in CI with a read-only token: `whoami`, `story view`, `story search`, `story files` and `story branch` on a story with one attachment. The story and the expected values come from `SCUT_LIVE_*` environment variables, because the repository is public.
 - Generate a coverage table of the v4 endpoints that `scut` calls, and check it in CI.
