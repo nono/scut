@@ -70,7 +70,8 @@ func TestUsageErrorsNameTheFix(t *testing.T) {
 		suggestion string
 	}{
 		{[]string{"stroy"}, []string{"story", "epic"}, `did you mean "story"?`},
-		{[]string{"--nope"}, []string{"story", "epic"}, `see "scut --help"`},
+		{[]string{"--nope"}, []string{"--human", "--version"}, `see "scut --help"`},
+		{[]string{"--profile"}, nil, `see "scut --help"`},
 		{[]string{"story", "veiw"}, []string{"view", "comment"}, `did you mean "view"?`},
 		{[]string{"story", "nothing-like-it"}, []string{"view"}, `see "scut story --help"`},
 		{[]string{"story"}, []string{"view", "update"}, `see "scut story --help"`},
@@ -86,7 +87,7 @@ func TestUsageErrorsNameTheFix(t *testing.T) {
 		{[]string{"story", "link", "1", "blocks"}, nil, "usage: scut story link <story> <verb> <story> [<verb> <story>]..."},
 		// A mistyped subcommand before a flag is an unknown command, not an unknown flag of the group.
 		{[]string{"story", "veiw", "1", "--fields", "name"}, []string{"view"}, `did you mean "view"?`},
-		{[]string{"story", "--yes"}, []string{"view", "update"}, `see "scut story --help"`},
+		{[]string{"story", "--yes"}, []string{"--human"}, `see "scut story --help"`},
 		// An empty name matches every name by prefix: no guess.
 		{[]string{"story", ""}, []string{"view"}, `see "scut story --help"`},
 	} {
@@ -118,7 +119,8 @@ func TestHelpUnknownTopic(t *testing.T) {
 			t.Errorf("%v: %v", c.args, e)
 		}
 	}
-	for _, args := range [][]string{{"help"}, {"help", "story"}, {"help", "story", "view"}} {
+	// Words after a leaf are its arguments, as in the command line the user wants to run.
+	for _, args := range [][]string{{"help"}, {"help", "story"}, {"help", "story", "view"}, {"help", "story", "view", "1"}, {"help", "api", "/stories"}} {
 		var out, errb bytes.Buffer
 		if code := cli.Execute(args, &out, &errb, emptyEnv()); code != 0 || out.Len() == 0 || errb.Len() != 0 {
 			t.Errorf("%v: code %d, stdout %d bytes, stderr %q", args, code, out.Len(), errb.String())

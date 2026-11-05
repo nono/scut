@@ -100,16 +100,10 @@ func seeHelp(cmd *cobra.Command) string {
 
 // flagError is a flag parse error, with the flags of cmd in valid when the flag is unknown.
 // On a group, cobra parses the flags before it looks for the subcommand: an
-// argument before the flag is an unknown subcommand, and valid has the subcommands.
+// argument before the flag is an unknown subcommand.
 func flagError(cmd *cobra.Command, err error) error {
-	if cmd.HasSubCommands() {
-		if a := cmd.Flags().Args(); len(a) > 0 {
-			return noArgs(cmd, a)
-		}
-		e := exit.Usagef("%s", err)
-		e.Valid = subcommandNames(cmd)
-		e.Suggestion = seeHelp(cmd)
-		return e
+	if a := cmd.Flags().Args(); cmd.HasSubCommands() && len(a) > 0 {
+		return noArgs(cmd, a)
 	}
 	e := exit.Usagef("%s", err)
 	e.Suggestion = seeHelp(cmd)
@@ -134,7 +128,8 @@ func newHelp() *cobra.Command {
 			if err != nil {
 				return exit.Usagef("%s", err)
 			}
-			if len(rest) > 0 {
+			// Words after a leaf are its arguments: show its help.
+			if len(rest) > 0 && target.HasSubCommands() {
 				return noArgs(target, rest)
 			}
 			return target.Help()
