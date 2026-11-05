@@ -35,10 +35,10 @@ const frontmatter = "---\nname: scut\n" +
 
 func main() {
 	env := cli.Env{Getenv: func(string) string { return "" }}
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, cli.NewRoot(env)))
+	os.Exit(run(os.Args[1:], os.Stderr, cli.NewRoot(env)))
 }
 
-func run(args []string, stdout, stderr io.Writer, root *cobra.Command) int {
+func run(args []string, stderr io.Writer, root *cobra.Command) int {
 	fs := flag.NewFlagSet("genskill", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	check := fs.Bool("check", false, "exit 1 if a generated file differs")

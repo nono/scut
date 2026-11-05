@@ -4,7 +4,7 @@ build:
 	go build -o scut ./cmd/scut
 
 test: node_modules
-	go test ./...
+	go test -race ./...
 
 # Prism for the contract tests. npm ci touches node_modules, so it runs again only when the lockfile changes.
 node_modules: package-lock.json
@@ -16,10 +16,10 @@ skill:
 check-skill:
 	go run ./internal/cmd/genskill -check
 
+# golangci-lint runs gofmt and go vet too (see .golangci.yml).
 lint: check-skill
-	@test -z "$$(gofmt -l .)" || { gofmt -l .; echo "gofmt: files above need formatting"; exit 1; }
-	go vet ./...
 	golangci-lint run
+	govulncheck ./...
 
 live:
 	go test -tags live -count=1 -v ./internal/live

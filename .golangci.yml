@@ -1,0 +1,62 @@
+version: "2"
+
+run:
+  # Lint the live smoke tests too.
+  build-tags: [live]
+
+linters:
+  # standard: errcheck, govet, ineffassign, staticcheck, unused.
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - exhaustive
+    - gocritic
+    - nilerr
+    - unparam
+  settings:
+    exhaustive:
+      # A default case handles the values it does not name.
+      default-signifies-exhaustive: true
+    govet:
+      # The analyzers that `go vet` runs.
+      enable:
+        - appends
+        - asmdecl
+        - assign
+        - atomic
+        - bools
+        - buildtag
+        - cgocall
+        - composites
+        - copylocks
+        - defers
+        - directive
+        - errorsas
+        - framepointer
+        - hostport
+        - httpresponse
+        - ifaceassert
+        - loopclosure
+        - lostcancel
+        - nilfunc
+        - printf
+        - shift
+        - sigchanyzer
+        - slog
+        - stdmethods
+        - stdversion
+        - stringintconv
+        - structtag
+        - testinggoroutine
+        - tests
+        - timeformat
+        - unmarshal
+        - unreachable
+        - unsafeptr
+        - unusedresult
+        - waitgroup
+
+formatters:
+  enable:
+    - gofmt

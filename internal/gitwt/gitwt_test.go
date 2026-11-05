@@ -24,7 +24,7 @@ func open(t *testing.T, dir string) gitwt.Repo {
 	return r
 }
 
-func find(t *testing.T, r gitwt.Repo, id int64) []gitwt.Match {
+func find(t *testing.T, r gitwt.Repo, id int64) []gitwt.Match { //nolint:unparam // each call names the story of its branches
 	t.Helper()
 	m, err := r.Find(context.Background(), id)
 	if err != nil {

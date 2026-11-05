@@ -98,7 +98,7 @@ func (d *Doer) Do(req *http.Request) (*http.Response, error) {
 			limit = max(limit, firstTryMin)
 		}
 		tctx, cancel := context.WithTimeout(ctx, limit)
-		r, err := d.hc.Do(req.WithContext(tctx))
+		r, err := d.hc.Do(req.WithContext(tctx)) //nolint:bodyclose // the caller closes a 2xx body; statusError closes the others
 		switch {
 		case err != nil:
 			cancel()
@@ -243,7 +243,7 @@ func Scrub(s, token string) string {
 }
 
 func (d *Doer) connectError(req *http.Request, err error) error {
-	if ue, ok := err.(*url.Error); ok {
+	if ue := (*url.Error)(nil); errors.As(err, &ue) {
 		err = ue.Err
 	}
 	code := exit.Unavailable

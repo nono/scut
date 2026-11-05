@@ -112,7 +112,7 @@ func (r *R) complete(item json.RawMessage, fields []string) (json.RawMessage, er
 	}
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(item, &m); err != nil {
-		return item, nil
+		return item, nil //nolint:nilerr // not an object: no nested list to complete
 	}
 	changed := false
 	for _, f := range fields {

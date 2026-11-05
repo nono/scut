@@ -212,6 +212,8 @@ func createStoryRetry(ctx context.Context, d *deps, body map[string]any) (json.R
 				return giveUp(unavailable(err))
 			case createWait:
 				resend = false
+			case createResend:
+				// the server did not take it: send again
 			}
 			uncertain = true
 			failure = err
