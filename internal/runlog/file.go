@@ -26,10 +26,7 @@ func appendLine(path string, line []byte) error {
 		return err
 	}
 	if logSize(path) >= maxFile {
-		rotate(path, dir)
-	}
-	if logSize(path) >= hardLimit {
-		return errors.New("the log is at its hard limit")
+		rotate(path)
 	}
 	// O_NONBLOCK: the open of a FIFO must not wait for a reader.
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR|syscall.O_NONBLOCK, 0o600)
@@ -43,6 +40,9 @@ func appendLine(path string, line []byte) error {
 	}
 	if !fi.Mode().IsRegular() {
 		return errors.New("the log is not a regular file")
+	}
+	if fi.Size() >= hardLimit {
+		return errors.New("the log is at its hard limit")
 	}
 	if err := f.Chmod(0o600); err != nil {
 		return err
@@ -76,11 +76,11 @@ func logSize(path string) int64 {
 
 // rotate renames a full log to path.1. Two runs can both see a full log. A
 // second rename would replace the full .1 with a small file, so the rename
-// needs the lock on dir, and a second look at the size. A run that does not get
-// the lock does not wait: it writes to the log and leaves the rename to the
+// needs the lock on the directory, and a second look at the size. A run that
+// does not get the lock does not wait: it writes to the log and leaves the rename to the
 // other run. A failure here does not stop the write.
-func rotate(path, dir string) {
-	d, err := os.Open(dir)
+func rotate(path string) {
+	d, err := os.Open(filepath.Dir(path))
 	if err != nil {
 		return
 	}

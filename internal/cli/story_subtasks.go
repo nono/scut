@@ -12,7 +12,7 @@ func newStorySubtasks(env Env) *cobra.Command {
 		Short:       "List the sub-tasks of a story, in position order",
 		Long:        "List the sub-tasks of a story, in position order.\nThe API default applies: archived stories are left out.",
 		Args:        cobra.MaximumNArgs(1),
-		Annotations: map[string]string{OpsAnnotation: "listStorySubTaskStories,listMembers"},
+		Annotations: map[string]string{OpsAnnotation: "listStorySubTaskStories,listMembers", IDArgsAnnotation: "true"},
 	}
 	limitFlag := cmd.Flags().String("limit", strconv.Itoa(defaultLimit), "maximum number of stories, or all")
 	fieldsFlag := cmd.Flags().String("fields", "", fieldsUsage)

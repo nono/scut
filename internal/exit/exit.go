@@ -35,7 +35,6 @@ type Error struct {
 	Worktree   any           // the worktree that scut worktree found or made before the error
 	RetryAfter time.Duration // from a Retry-After header; not printed
 	NotSent    bool          // a connect failure: the request did not reach the server; not printed
-	BadFlag    bool          // a flag parse error: the arguments after the bad flag are not known; not printed
 }
 
 func (e *Error) Error() string { return e.Msg }

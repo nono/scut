@@ -14,6 +14,11 @@ import (
 // OpsAnnotation is the cobra annotation key that lists the operationIds a command calls.
 const OpsAnnotation = "scut/ops"
 
+// IDArgsAnnotation marks a command whose positional arguments are IDs or story
+// references. Another command can get a search query or a name in the form of
+// an ID, so the log keeps no IDs for it.
+const IDArgsAnnotation = "scut/id-args"
+
 // Ops returns the operationIds of the OpsAnnotation of c: "*" for scut api,
 // none for a command that calls no operation.
 func Ops(c *cobra.Command) []string {

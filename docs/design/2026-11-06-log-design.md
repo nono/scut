@@ -62,7 +62,7 @@ A failed run, with a retry:
 | `session` | `CLAUDE_CODE_SESSION_ID` | Left out when not set. This groups the calls of one Claude Code session, and tells an agent run from a human or herdr run. |
 | `cwd` | `env.Dir` | |
 | `cmd` | Command path without `scut`, from the command that cobra returns | An unknown subcommand gives the group, for example `story`. The name that was not known is in `error`. |
-| `ids` | Each positional argument of a command that takes IDs, when it is all of: digits, `sc-` and digits, or a UUID | At most 100. A number is written as a JSON integer, and a number that does not fit in 64 bits is left out. Any other argument is left out. `idCommands` in `internal/cli/root.go` lists these commands, and a new command is not in it. So a search query, a title or a URL slug is never logged, also in the form of an ID. |
+| `ids` | Each positional argument of a command that takes IDs, when it is all of: digits, `sc-` and digits, or a UUID | At most 100. A number is written as a JSON integer, and a number that does not fit in 64 bits is left out. Any other argument is left out. `IDArgsAnnotation` marks these commands, and a new command does not have it. So a search query, a title or a URL slug is never logged, also in the form of an ID. |
 | `args_n` | Number of positional arguments | Also shows the true count when `ids` is cut. Left out after a flag parse error, because pflag stops at the bad flag. `ids` and `flags` then hold only what came before it. |
 | `flags` | Each flag that the user set, name to value | The value is present only for the names in the allowlist, at most 200 bytes. Other flags have `""`. |
 | `ms` | Duration of the run | |
@@ -115,7 +115,7 @@ The log is on by default, and the README says so, with what it records and how t
 - New package `internal/runlog`: the line type, the rules for cutting and scrubbing, the path, the rotation and the write.
 - `cli.Execute` starts a record before it runs the command, and writes it after. It uses the command that `ExecuteContextC` returns. `RunContext` keeps its signature, and tests that call it directly write no log.
 - `Env` gets a field for the record. With nil, nothing is recorded.
-- An `http.RoundTripper` that wraps the transport adds the `http` entries. It goes on the clients of the two `transport.New` calls (`internal/cli/deps.go`, `internal/cli/auth.go`, with a new option `transport.WithRoundTripper`, so that the client keeps its timeout) and on `fileClient` (`internal/cli/story_files.go`).
+- An `http.RoundTripper` that wraps the transport adds the `http` entries. It goes on the clients of the two `transport.New` calls (`internal/cli/deps.go`, `internal/cli/auth.go`, with `transport.WithHTTPClient`; the per-try context of `Doer.Do` gives the time limit) and on `fileClient` (`internal/cli/story_files.go`).
 - A counting writer around stdout gives `out_bytes`.
 - `internal/live/live_test.go` runs the real binary. It must set `SCUT_LOG=off`, so that tests do not fill the real log.
 

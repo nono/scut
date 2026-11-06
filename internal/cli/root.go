@@ -36,6 +36,7 @@ type Env struct {
 	Now          func() time.Time             // nil: time.Now
 	FileClient   *http.Client                 // nil: a new client for the file host
 	FileHosts    []string                     // hosts that get the file token; nil: the Shortcut hosts
+	FileTimeout  time.Duration                // limit of one file try; 0: fileTimeout
 	Rec          *runlog.Recorder             // the record of this run, set by Execute; nil: no record
 }
 
@@ -106,15 +107,10 @@ func seeHelp(cmd *cobra.Command) string {
 // argument before the flag is an unknown subcommand.
 func flagError(cmd *cobra.Command, err error) error {
 	if a := cmd.Flags().Args(); cmd.HasSubCommands() && len(a) > 0 {
-		var e *exit.Error
-		if ne := noArgs(cmd, a); errors.As(ne, &e) {
-			e.BadFlag = true
-		}
-		return e
+		return noArgs(cmd, a)
 	}
 	e := exit.Usagef("%s", err)
 	e.Suggestion = seeHelp(cmd)
-	e.BadFlag = true
 	if ne := (*pflag.NotExistError)(nil); errors.As(err, &ne) {
 		cmd.Flags().VisitAll(func(f *pflag.Flag) {
 			if !f.Hidden {
@@ -205,45 +201,30 @@ func Execute(args []string, stdout, stderr io.Writer, env Env) int {
 	// With a handler, a write to a closed stdout returns EPIPE and does not
 	// stop the process, so the run can write its log line.
 	signal.Notify(make(chan os.Signal, 1), syscall.SIGPIPE)
-	return execute(ctx, args, stdout, stderr, env)
-}
-
-// idCommands are the commands whose positional arguments are IDs or story
-// references. Another command can get a search query or a name in the form of
-// an ID, so the log keeps no IDs for it.
-var idCommands = map[string]bool{
-	"story view": true, "story update": true, "story comment": true, "story comments": true,
-	"story link": true, "story unlink": true, "story relink": true, "story subtasks": true,
-	"story branch": true, "story files": true,
-	"epic view": true, "epic stories": true, "epic comment": true,
-	"worktree": true,
-}
-
-// execute runs scut and writes the line of the run to the log.
-func execute(ctx context.Context, args []string, stdout, stderr io.Writer, env Env) int {
-	now := env.Now
-	if now == nil {
-		now = time.Now
-	}
-	env.Rec = runlog.Start(env.Getenv, now)
+	env.Rec = runlog.Start(env.Getenv, time.Now)
 	out := &countWriter{w: stdout}
 	root := NewRoot(env)
 	root.SetOut(out)
-	code, cmd, err := run(ctx, root, args, out.errWriter(stderr))
-	if out.broken != nil {
+	// pflag stops at a bad flag, so the arguments after it are not known.
+	badFlag := false
+	root.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
+		badFlag = true
+		return flagError(c, err)
+	})
+	code, cmd, err := run(ctx, root, args, quietStderr{stderr, out})
+	if out.closed() {
 		code, err = int(exit.BrokenPipe), out.broken
 	}
 	raw := map[string]string{}
 	cmd.Flags().Visit(func(f *pflag.Flag) { raw[f.Name] = f.Value.String() })
-	name := strings.TrimPrefix(strings.TrimPrefix(cmd.CommandPath(), root.Name()), " ")
-	var ee *exit.Error
+	_, name, _ := strings.Cut(cmd.CommandPath(), " ")
 	env.Rec.Finish(runlog.Result{
 		Version:  transport.Version,
 		Dir:      env.Dir,
 		Cmd:      name,
 		Args:     cmd.Flags().Args(),
-		IDArgs:   idCommands[name],
-		ArgsCut:  errors.As(err, &ee) && ee.BadFlag,
+		IDArgs:   cmd.Annotations[IDArgsAnnotation] != "",
+		ArgsCut:  badFlag,
 		Flags:    raw,
 		OutBytes: out.n,
 		Exit:     code,
@@ -271,20 +252,19 @@ func (c *countWriter) Write(p []byte) (int, error) {
 
 func (c *countWriter) closed() bool { return c.broken != nil }
 
-// errWriter returns stderr with no output after a write to a closed stdout:
-// such a run prints no error, as a process that SIGPIPE stops.
-func (c *countWriter) errWriter(stderr io.Writer) io.Writer {
-	return writerFunc(func(p []byte) (int, error) {
-		if c.closed() {
-			return len(p), nil
-		}
-		return stderr.Write(p)
-	})
+// quietStderr is stderr with no output after a write to a closed stdout: such a
+// run prints no error, as a process that SIGPIPE stops.
+type quietStderr struct {
+	w   io.Writer
+	out *countWriter
 }
 
-type writerFunc func([]byte) (int, error)
-
-func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
+func (q quietStderr) Write(p []byte) (int, error) {
+	if q.out.closed() {
+		return len(p), nil
+	}
+	return q.w.Write(p)
+}
 
 // RunContext runs root with args and ctx. It writes any error as JSON to stderr
 // and returns the exit code. A cancelled context gives 130, with no output

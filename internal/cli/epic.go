@@ -105,7 +105,7 @@ func newEpicView(env Env) *cobra.Command {
 		Use:         "view <epic>",
 		Short:       "Show an epic, by ID or exact name",
 		Args:        cobra.ExactArgs(1),
-		Annotations: map[string]string{OpsAnnotation: "getEpic,searchEpics,listMembers"},
+		Annotations: map[string]string{OpsAnnotation: "getEpic,searchEpics,listMembers", IDArgsAnnotation: "true"},
 		RunE: withDeps(env, func(cmd *cobra.Command, args []string, d *deps) error {
 			id, err := d.Resolver.Epic(args[0])
 			if err != nil {
@@ -152,7 +152,7 @@ func newEpicStories(env Env) *cobra.Command {
 		Short:       "List the stories of an epic, in position order",
 		Long:        "List the stories of an epic, in position order. The epic is an ID or an exact name.\nThe API default applies: archived stories are left out.",
 		Args:        cobra.ExactArgs(1),
-		Annotations: map[string]string{OpsAnnotation: "listEpicStories,searchEpics,listMembers"},
+		Annotations: map[string]string{OpsAnnotation: "listEpicStories,searchEpics,listMembers", IDArgsAnnotation: "true"},
 	}
 	limitFlag := cmd.Flags().String("limit", strconv.Itoa(defaultLimit), "maximum number of stories, or all")
 	fieldsFlag := cmd.Flags().String("fields", "", fieldsUsage)
@@ -181,7 +181,7 @@ func newEpicComment(env Env) *cobra.Command {
 		Use:         "comment <epic>",
 		Short:       "Add a comment to an epic",
 		Args:        cobra.ExactArgs(1),
-		Annotations: map[string]string{OpsAnnotation: "createEpicComment,searchEpics,listMembers"},
+		Annotations: map[string]string{OpsAnnotation: "createEpicComment,searchEpics,listMembers", IDArgsAnnotation: "true"},
 	}
 	bodyFile := cmd.Flags().String("body-file", "", "read the comment text from this file; - is stdin")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {

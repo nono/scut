@@ -42,24 +42,25 @@ func size(t *testing.T, path string) int64 {
 	return fi.Size()
 }
 
+func mode(t *testing.T, path string) os.FileMode {
+	t.Helper()
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fi.Mode().Perm()
+}
+
 func TestAppendMakesDirAndModes(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "state", "scut")
 	path := filepath.Join(dir, "scut.log")
 	if err := appendLine(path, []byte("a\n")); err != nil {
 		t.Fatal(err)
 	}
-	di, err := os.Stat(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if m := di.Mode().Perm(); m != 0o700 {
+	if m := mode(t, dir); m != 0o700 {
 		t.Errorf("dir mode = %o", m)
 	}
-	fi, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if m := fi.Mode().Perm(); m != 0o600 {
+	if m := mode(t, path); m != 0o600 {
 		t.Errorf("file mode = %o", m)
 	}
 }
@@ -82,16 +83,8 @@ func TestAppendFixesModes(t *testing.T) {
 	if err := appendLine(path, []byte("a\n")); err != nil {
 		t.Fatal(err)
 	}
-	di, err := os.Stat(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fi, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if di.Mode().Perm() != 0o700 || fi.Mode().Perm() != 0o600 {
-		t.Errorf("modes = %o, %o", di.Mode().Perm(), fi.Mode().Perm())
+	if d, f := mode(t, dir), mode(t, path); d != 0o700 || f != 0o600 {
+		t.Errorf("modes = %o, %o", d, f)
 	}
 }
 
@@ -244,10 +237,9 @@ func TestAppendLockHeld(t *testing.T) {
 
 // Another run can rotate between the first look at the size and the lock.
 func TestRotateLooksAgain(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "scut.log")
+	path := filepath.Join(t.TempDir(), "scut.log")
 	seed(t, path, 10)
-	rotate(path, dir)
+	rotate(path)
 	if _, err := os.Stat(path + ".1"); !os.IsNotExist(err) {
 		t.Errorf("a small log was renamed: %v", err)
 	}

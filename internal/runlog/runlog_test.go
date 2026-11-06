@@ -56,9 +56,8 @@ func decodeLine(t *testing.T, b []byte) map[string]any {
 func TestStart(t *testing.T) {
 	now := time.Now
 	for name, get := range map[string]func(string) string{
-		"nil getenv": nil,
-		"off":        envOf(map[string]string{"SCUT_LOG": "off", "HOME": "/h", "XDG_STATE_HOME": "/s"}),
-		"no dirs":    envOf(nil),
+		"off":     envOf(map[string]string{"SCUT_LOG": "off", "HOME": "/h", "XDG_STATE_HOME": "/s"}),
+		"no dirs": envOf(nil),
 	} {
 		if r := Start(get, now); r != nil {
 			t.Errorf("%s: got a recorder", name)
@@ -203,10 +202,7 @@ func TestEncodeCutUTF8(t *testing.T) {
 func TestEncodeScrubsToken(t *testing.T) {
 	const tok = "sct_rw_example-ws_s3cret"
 	r := newRec(t, nil)
-	base := roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: 200, Body: http.NoBody}, nil
-	})
-	trip(t, r.API(base), "https://example.test/x/"+tok)
+	trip(t, r.API(okBase), "https://example.test/x/"+tok)
 	for name, res := range map[string]Result{
 		"error": {Err: errors.New("bad " + tok)},
 		"dir":   {Dir: "/x/" + tok},
@@ -275,6 +271,10 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
+var okBase = roundTripFunc(func(*http.Request) (*http.Response, error) {
+	return &http.Response{StatusCode: 200, Body: http.NoBody}, nil
+})
+
 func trip(t *testing.T, rt http.RoundTripper, url string) {
 	t.Helper()
 	resp, err := rt.RoundTrip(httptest.NewRequest(http.MethodGet, url, nil))
@@ -331,10 +331,7 @@ func TestTransportError(t *testing.T) {
 
 func TestTransportLimit(t *testing.T) {
 	r := newRec(t, nil)
-	base := roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: 200, Body: http.NoBody}, nil
-	})
-	rt := r.API(base)
+	rt := r.API(okBase)
 	for range 150 {
 		trip(t, rt, "https://example.test/x")
 	}
@@ -352,10 +349,7 @@ func TestTransportLimit(t *testing.T) {
 
 func TestFilesTransport(t *testing.T) {
 	r := newRec(t, nil)
-	base := roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: 200, Body: http.NoBody}, nil
-	})
-	trip(t, r.Files(base), "https://files.example.test/a/name.png?x=secret")
+	trip(t, r.Files(okBase), "https://files.example.test/a/name.png?x=secret")
 	b := r.encode(Result{})
 	if s := string(b); strings.Contains(s, "name.png") || strings.Contains(s, "secret") {
 		t.Errorf("file text in the line: %s", b)

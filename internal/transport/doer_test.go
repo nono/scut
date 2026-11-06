@@ -72,28 +72,6 @@ func asExit(t *testing.T, err error) *exit.Error {
 	return e
 }
 
-type countTransport struct{ n atomic.Int32 }
-
-func (c *countTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	c.n.Add(1)
-	return http.DefaultTransport.RoundTrip(r)
-}
-
-func TestWithRoundTripper(t *testing.T) {
-	base := testapi.Fake(t, map[string]http.HandlerFunc{"/": func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{}`)
-	}})
-	rt := &countTransport{}
-	d := transport.New(settings, transport.WithBaseURL(base), transport.WithRoundTripper(rt))
-	if _, err := d.Raw(context.Background(), http.MethodGet, "x", nil, nil); err != nil {
-		t.Fatal(err)
-	}
-	if rt.n.Load() != 1 {
-		t.Errorf("round trips = %d", rt.n.Load())
-	}
-}
-
 func TestDoerAuthHeader(t *testing.T) {
 	var auth, ua string
 	d := newDoer(t, &waits{}, "GET", func(rw http.ResponseWriter, r *http.Request) {

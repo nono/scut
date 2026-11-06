@@ -25,8 +25,6 @@ import (
 
 const marker = "zqmarkerzq"
 
-var withToken = map[string]string{"SCUT_TOKEN": token}
-
 // anyRoute answers each API call with an empty list.
 func anyRoute() map[string]http.HandlerFunc {
 	return map[string]http.HandlerFunc{"/": jsonHandler(`{"entities":[]}`)}
@@ -36,14 +34,19 @@ func logPath(h *harness) string {
 	return filepath.Join(h.env.Getenv("HOME"), ".local", "state", "scut", "scut.log")
 }
 
-func logLines(t *testing.T, h *harness) []map[string]any {
+func logText(t *testing.T, h *harness) string {
 	t.Helper()
 	b, err := os.ReadFile(logPath(h))
 	if err != nil {
 		t.Fatal(err)
 	}
+	return string(b)
+}
+
+func logLines(t *testing.T, h *harness) []map[string]any {
+	t.Helper()
 	var out []map[string]any
-	for l := range strings.Lines(string(b)) {
+	for l := range strings.Lines(logText(t, h)) {
 		var m map[string]any
 		if err := json.Unmarshal([]byte(l), &m); err != nil {
 			t.Fatalf("not JSON: %q: %v", l, err)
@@ -51,6 +54,29 @@ func logLines(t *testing.T, h *harness) []map[string]any {
 		out = append(out, m)
 	}
 	return out
+}
+
+type closedPipe struct{}
+
+func (closedPipe) Write([]byte) (int, error) {
+	return 0, fmt.Errorf("write /dev/stdout: %w", syscall.EPIPE)
+}
+
+// A reader that closes the pipe, as head does, must not lose the line. The run
+// keeps the exit code of a process that SIGPIPE stops, and prints no error.
+func TestRunLogBrokenPipe(t *testing.T) {
+	h := newHarness(t, nil, "", nil)
+	var errb strings.Builder
+	if code := cli.Execute([]string{"spec", "getStory"}, closedPipe{}, &errb, h.env); code != 141 {
+		t.Fatalf("exit %d: %s", code, errb.String())
+	}
+	if errb.Len() != 0 {
+		t.Errorf("stderr = %q", errb.String())
+	}
+	l := lastLine(t, h)
+	if l["exit"] != 141.0 || !strings.Contains(l["error"].(string), "broken pipe") {
+		t.Errorf("line = %v", l)
+	}
 }
 
 func lastLine(t *testing.T, h *harness) map[string]any {
@@ -93,23 +119,6 @@ func TestRunLogSuccess(t *testing.T) {
 	}
 }
 
-// A search query or a name in ID form is not an ID.
-func TestRunLogIDsOnlyForIDCommands(t *testing.T) {
-	for _, args := range [][]string{
-		{"story", "search", "20261106"},
-		{"epic", "search", "20261106"},
-		{"doc", "search", "20261106"},
-		{"doc", "view", "20261106"},
-		{"spec", "20261106"},
-	} {
-		h := newHarness(t, anyRoute(), "", withToken)
-		h.run(args...)
-		if l := lastLine(t, h); l["ids"] != nil || l["args_n"] != float64(len(args)-len(strings.Fields(l["cmd"].(string)))) {
-			t.Errorf("%v: %v", args, l)
-		}
-	}
-}
-
 // pflag stops at a bad flag, so the arguments after it are not known.
 func TestRunLogBadFlagHasNoArgCount(t *testing.T) {
 	for _, args := range [][]string{
@@ -117,26 +126,25 @@ func TestRunLogBadFlagHasNoArgCount(t *testing.T) {
 		{"story", "view", "1", "--nope", "2"},
 		{"story", "veiw", "--nope", "1"},
 	} {
-		h := newHarness(t, anyRoute(), "", withToken)
+		h := newHarness(t, anyRoute(), "", tokenVars())
 		h.run(args...)
 		if l := lastLine(t, h); l["exit"] != 2.0 || l["args_n"] != nil {
 			t.Errorf("%v: %v", args, l)
 		}
 	}
-	h := newHarness(t, anyRoute(), "", withToken)
+	h := newHarness(t, anyRoute(), "", tokenVars())
 	h.run("story", "view", "1", "2", "--limit", "x")
 	if l := lastLine(t, h); l["args_n"] != nil {
 		t.Errorf("unknown flag of a known command: %v", l)
 	}
-	h = newHarness(t, anyRoute(), "", withToken)
+	h = newHarness(t, anyRoute(), "", tokenVars())
 	h.run("story", "search")
 	if l := lastLine(t, h); l["args_n"] != 0.0 {
 		t.Errorf("a count error keeps the count: %v", l)
 	}
 }
 
-// The transport of the log changes how net/http cancels a request. The error
-// must be the same with and without the log.
+// The transport of the log must not change the text of a timeout.
 func TestFileTimeoutSameTextWithLog(t *testing.T) {
 	stop := make(chan struct{})
 	host := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-stop }))
@@ -150,9 +158,8 @@ func TestFileTimeoutSameTextWithLog(t *testing.T) {
 					"id": 1, "name": "a.txt", "content_type": "text/plain", "size": 2, "url": host.URL + "/f/1",
 				})),
 			}, "", map[string]string{"SCUT_TOKEN": "sct_rw_acme_s3cret", "SCUT_LOG": mode})
-			c := host.Client()
-			c.Timeout = 20 * time.Millisecond
-			h.env.FileClient = c
+			h.env.FileClient = host.Client()
+			h.env.FileTimeout = 20 * time.Millisecond
 			h.env.FileHosts = []string{"127.0.0.1"}
 			h.env.Sleep = func(time.Duration) {}
 			code, _, stderr := h.run("story", "files", "5818", "--out", t.TempDir())
@@ -162,7 +169,7 @@ func TestFileTimeoutSameTextWithLog(t *testing.T) {
 			got[stderr] = true
 		}
 	}
-	want := `{"error":"download file 1: timeout"}` + "\n"
+	want := `{"error":"download file 1: context deadline exceeded"}` + "\n"
 	if len(got) != 1 || !got[want] {
 		t.Errorf("error texts: %v, want only %q", got, want)
 	}
@@ -176,7 +183,7 @@ func TestRunLogRetries(t *testing.T) {
 			return
 		}
 		jsonHandler(`{"entities":[]}`)(w, r)
-	}}, "", withToken)
+	}}, "", tokenVars())
 	h.env.Sleep = func(time.Duration) {}
 	if code, _, stderr := h.run("team", "list"); code != 0 {
 		t.Fatalf("exit %d: %s", code, stderr)
@@ -220,14 +227,10 @@ func TestRunLogBeforeCommand(t *testing.T) {
 }
 
 func TestRunLogAPIPath(t *testing.T) {
-	h := newHarness(t, anyRoute(), "", withToken)
+	h := newHarness(t, anyRoute(), "", tokenVars())
 	h.run("api", "stories/search?query="+marker, "-X", "GET")
 	h.run("api", "stories/some-text")
-	b, err := os.ReadFile(logPath(h))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(b), marker) {
+	if b := logText(t, h); strings.Contains(b, marker) {
 		t.Errorf("the query is in the log: %s", b)
 	}
 	lines := logLines(t, h)
@@ -244,16 +247,13 @@ func TestRunLogNoToken(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = fmt.Fprintf(w, `{"message":"bad %s"}`, token)
-	}}, "", withToken)
+	}}, "", tokenVars())
 	h.run("team", "list")
 	h.run("api", "stories/"+token)
 	h.run("team", "list", "--token-file", "/nonexistent/"+token)
 	h.run("api", "stories/1", "-f", token) // a usage error that quotes the token
-	b, err := os.ReadFile(logPath(h))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(b), "s3cret") {
+	b := logText(t, h)
+	if strings.Contains(b, "s3cret") {
 		t.Errorf("the token is in the log: %s", b)
 	}
 	if len(logLines(t, h)) != 4 {
@@ -288,7 +288,7 @@ func TestRunLogAuthLogin(t *testing.T) {
 	if e["p"] != "/api/v4/whoami" {
 		t.Errorf("entry = %v", e)
 	}
-	if b, _ := os.ReadFile(logPath(h)); strings.Contains(string(b), "s3cret") {
+	if b := logText(t, h); strings.Contains(b, "s3cret") {
 		t.Errorf("the token is in the log: %s", b)
 	}
 }
@@ -311,7 +311,7 @@ func TestRunLogFailureHasNoEffect(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{{"team", "list"}, {"story", "veiw"}} {
-		wantCode, wantOut, wantErr := newHarness(t, anyRoute(), "", withToken).run(args...)
+		wantCode, wantOut, wantErr := newHarness(t, anyRoute(), "", tokenVars()).run(args...)
 		for name, state := range map[string]string{"state is a file": file, "log is a directory": dirState} {
 			h := newHarness(t, anyRoute(), "", map[string]string{"SCUT_TOKEN": token, "XDG_STATE_HOME": state})
 			code, out, errb := h.run(args...)
@@ -368,7 +368,7 @@ func walkCases(t *testing.T) map[string]walkCase {
 		return updateHarness(t, &calls{}, &body, nil)
 	}
 	repo := func(t *testing.T, stdin string) *harness {
-		h := newHarness(t, anyRoute(), stdin, withToken)
+		h := newHarness(t, anyRoute(), stdin, tokenVars())
 		_, h.env.Dir = testgit.Repos(t)
 		return h
 	}
@@ -404,7 +404,7 @@ func walkBase(t *testing.T, c *cobra.Command, cases map[string]walkCase, name st
 	}
 	if wc.harness == nil {
 		wc.harness = func(t *testing.T, stdin string) *harness {
-			return newHarness(t, anyRoute(), stdin, withToken)
+			return newHarness(t, anyRoute(), stdin, tokenVars())
 		}
 	}
 	return wc
@@ -477,7 +477,7 @@ func TestRunLogNoInputText(t *testing.T) {
 		}
 
 		// A number is an ID only for a command that takes IDs.
-		h := newHarness(t, anyRoute(), "", withToken)
+		h := newHarness(t, anyRoute(), "", tokenVars())
 		h.run(line([]string{"20261106"})...)
 		_, hasIDs := lastLine(t, h)["ids"]
 		if hasIDs != idCommands[name] {
@@ -505,16 +505,12 @@ func TestRunLogSearchQuery(t *testing.T) {
 		"400": func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusBadRequest) },
 	} {
 		t.Run(name, func(t *testing.T) {
-			hn := newHarness(t, map[string]http.HandlerFunc{"/": h}, "", withToken)
+			hn := newHarness(t, map[string]http.HandlerFunc{"/": h}, "", tokenVars())
 			hn.env.Sleep = func(time.Duration) {}
 			for _, args := range [][]string{{"story", "search", marker}, {"epic", "search", marker}, {"doc", "search", marker}} {
 				hn.run(args...)
 			}
-			b, err := os.ReadFile(logPath(hn))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if strings.Contains(string(b), marker) {
+			if b := logText(t, hn); strings.Contains(b, marker) {
 				t.Errorf("the query is in the log: %s", b)
 			}
 			if n := len(logLines(t, hn)); n != 3 {
@@ -530,7 +526,7 @@ func TestRunLogSIGINT(t *testing.T) {
 	h := newHarness(t, map[string]http.HandlerFunc{"/": func(_ http.ResponseWriter, r *http.Request) {
 		_ = syscall.Kill(syscall.Getpid(), syscall.SIGINT)
 		<-r.Context().Done()
-	}}, "", withToken)
+	}}, "", tokenVars())
 	if code, _, errb := h.run("team", "list"); code != 130 {
 		t.Fatalf("exit %d: %s", code, errb)
 	}

@@ -12,7 +12,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/nono/scut/internal/exit"
@@ -58,7 +57,6 @@ type Recorder struct {
 	path    string
 	session string
 
-	mu    sync.Mutex
 	http  []entry
 	httpN int
 }
@@ -93,7 +91,7 @@ type line struct {
 // Start begins the record of a run. It returns nil when SCUT_LOG is off or when
 // the environment gives no directory for the log.
 func Start(getenv func(string) string, now func() time.Time) *Recorder {
-	if getenv == nil || getenv("SCUT_LOG") == "off" {
+	if getenv("SCUT_LOG") == "off" {
 		return nil
 	}
 	// The XDG specification says to ignore a relative value.
@@ -114,20 +112,17 @@ func Start(getenv func(string) string, now func() time.Time) *Recorder {
 }
 
 // API returns base with a record of each try. An entry has the URL path.
-func (r *Recorder) API(base http.RoundTripper) http.RoundTripper {
-	if r == nil {
-		return base
-	}
-	return &recordTransport{r, base, false}
-}
+func (r *Recorder) API(base http.RoundTripper) http.RoundTripper { return r.wrap(base, false) }
 
 // Files returns base with a record of each try. An entry has the host only,
 // because a file URL holds the name of the file.
-func (r *Recorder) Files(base http.RoundTripper) http.RoundTripper {
+func (r *Recorder) Files(base http.RoundTripper) http.RoundTripper { return r.wrap(base, true) }
+
+func (r *Recorder) wrap(base http.RoundTripper, hostOnly bool) http.RoundTripper {
 	if r == nil {
 		return base
 	}
-	return &recordTransport{r, base, true}
+	return &recordTransport{r, base, hostOnly}
 }
 
 type recordTransport struct {
@@ -154,8 +149,6 @@ func (t *recordTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	} else {
 		e.Status = resp.StatusCode
 	}
-	t.r.mu.Lock()
-	defer t.r.mu.Unlock()
 	t.r.httpN++
 	if len(t.r.http) < maxEntries {
 		t.r.http = append(t.r.http, e)
@@ -168,9 +161,7 @@ func (r *Recorder) Finish(res Result) {
 	if r == nil {
 		return
 	}
-	if b := r.encode(res); b != nil {
-		_ = appendLine(r.path, b) // a write error of the log has no effect on the run
-	}
+	_ = appendLine(r.path, r.encode(res)) // a write error of the log has no effect on the run
 }
 
 func (r *Recorder) encode(res Result) []byte {
@@ -200,8 +191,6 @@ func (r *Recorder) encode(res Result) []byte {
 			l.API = cut(string(e.API), maxError)
 		}
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	l.HTTP = r.http
 	if r.httpN > len(r.http) {
 		l.HTTPN = r.httpN
@@ -210,9 +199,7 @@ func (r *Recorder) encode(res Result) []byte {
 	var b bytes.Buffer
 	enc := json.NewEncoder(&b)
 	enc.SetEscapeHTML(false)
-	if enc.Encode(l) != nil {
-		return nil
-	}
+	_ = enc.Encode(l) // the fields are strings, numbers and lists of them
 	// On the encoded line, so that a new field is covered.
 	return tokenPattern.ReplaceAll(b.Bytes(), []byte("***"))
 }
@@ -237,9 +224,6 @@ func ids(args []string) []any {
 }
 
 func flags(raw map[string]string) map[string]string {
-	if len(raw) == 0 {
-		return nil
-	}
 	out := make(map[string]string, len(raw))
 	for k, v := range raw {
 		if loggedFlags[k] {

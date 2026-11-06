@@ -61,10 +61,6 @@ func WithSleep(f func(time.Duration)) Option { return func(d *Doer) { d.clock.Sl
 // WithHTTPClient sets the HTTP client.
 func WithHTTPClient(c *http.Client) Option { return func(d *Doer) { d.hc = c } }
 
-// WithRoundTripper sets the transport of the HTTP client. The client keeps its
-// timeout. A nil rt is the default transport.
-func WithRoundTripper(rt http.RoundTripper) Option { return func(d *Doer) { d.hc.Transport = rt } }
-
 // WithClock sets the clock that measures the retry budget.
 func WithClock(f func() time.Time) Option { return func(d *Doer) { d.clock.Now = f } }
 
