@@ -106,10 +106,15 @@ func seeHelp(cmd *cobra.Command) string {
 // argument before the flag is an unknown subcommand.
 func flagError(cmd *cobra.Command, err error) error {
 	if a := cmd.Flags().Args(); cmd.HasSubCommands() && len(a) > 0 {
-		return noArgs(cmd, a)
+		var e *exit.Error
+		if ne := noArgs(cmd, a); errors.As(ne, &e) {
+			e.BadFlag = true
+		}
+		return e
 	}
 	e := exit.Usagef("%s", err)
 	e.Suggestion = seeHelp(cmd)
+	e.BadFlag = true
 	if ne := (*pflag.NotExistError)(nil); errors.As(err, &ne) {
 		cmd.Flags().VisitAll(func(f *pflag.Flag) {
 			if !f.Hidden {
@@ -231,12 +236,14 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer, env E
 	raw := map[string]string{}
 	cmd.Flags().Visit(func(f *pflag.Flag) { raw[f.Name] = f.Value.String() })
 	name := strings.TrimPrefix(strings.TrimPrefix(cmd.CommandPath(), root.Name()), " ")
+	var ee *exit.Error
 	env.Rec.Finish(runlog.Result{
 		Version:  transport.Version,
 		Dir:      env.Dir,
 		Cmd:      name,
 		Args:     cmd.Flags().Args(),
 		IDArgs:   idCommands[name],
+		ArgsCut:  errors.As(err, &ee) && ee.BadFlag,
 		Flags:    raw,
 		OutBytes: out.n,
 		Exit:     code,

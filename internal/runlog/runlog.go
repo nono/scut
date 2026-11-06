@@ -44,6 +44,7 @@ type Result struct {
 	Version, Dir, Cmd string
 	Args              []string
 	IDArgs            bool // the arguments of this command are IDs: keep them in ids
+	ArgsCut           bool // a flag parse error stopped the parse: the count of Args is not known
 	Flags             map[string]string
 	OutBytes          int64
 	Exit              int
@@ -78,7 +79,7 @@ type line struct {
 	Dir      string            `json:"cwd"`
 	Cmd      string            `json:"cmd"`
 	IDs      []any             `json:"ids,omitempty"`
-	ArgsN    int               `json:"args_n"`
+	ArgsN    *int              `json:"args_n,omitempty"`
 	Flags    map[string]string `json:"flags,omitempty"`
 	MS       int64             `json:"ms"`
 	OutBytes int64             `json:"out_bytes"`
@@ -179,7 +180,6 @@ func (r *Recorder) encode(res Result) []byte {
 		Session:  r.session,
 		Dir:      res.Dir,
 		Cmd:      res.Cmd,
-		ArgsN:    len(res.Args),
 		Flags:    flags(res.Flags),
 		MS:       r.now().Sub(r.start).Milliseconds(),
 		OutBytes: res.OutBytes,
@@ -187,6 +187,10 @@ func (r *Recorder) encode(res Result) []byte {
 	}
 	if res.IDArgs {
 		l.IDs = ids(res.Args)
+	}
+	if !res.ArgsCut {
+		n := len(res.Args)
+		l.ArgsN = &n
 	}
 	if res.Err != nil {
 		l.Error = cut(res.Err.Error(), maxError)

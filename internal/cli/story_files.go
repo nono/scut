@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -282,6 +283,11 @@ func download(ctx context.Context, c *http.Client, hosts []string, token string,
 		code := exit.Unavailable
 		if transport.IsTLS(err) || errors.Is(err, errRedirect) { // a retry does not heal it
 			code = exit.Other
+		}
+		// net/http words a timeout in more than one way, and the way depends on
+		// the type of the transport, so the log must not change this text.
+		if te := net.Error(nil); errors.As(err, &te) && te.Timeout() {
+			err = errors.New("timeout")
 		}
 		return &exit.Error{Code: code, Msg: scrub(fmt.Sprintf("download file %d: %v", f.ID, err))}
 	}

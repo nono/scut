@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -106,6 +107,64 @@ func TestRunLogIDsOnlyForIDCommands(t *testing.T) {
 		if l := lastLine(t, h); l["ids"] != nil || l["args_n"] != float64(len(args)-len(strings.Fields(l["cmd"].(string)))) {
 			t.Errorf("%v: %v", args, l)
 		}
+	}
+}
+
+// pflag stops at a bad flag, so the arguments after it are not known.
+func TestRunLogBadFlagHasNoArgCount(t *testing.T) {
+	for _, args := range [][]string{
+		{"story", "view", "--nope", "1"},
+		{"story", "view", "1", "--nope", "2"},
+		{"story", "veiw", "--nope", "1"},
+	} {
+		h := newHarness(t, anyRoute(), "", withToken)
+		h.run(args...)
+		if l := lastLine(t, h); l["exit"] != 2.0 || l["args_n"] != nil {
+			t.Errorf("%v: %v", args, l)
+		}
+	}
+	h := newHarness(t, anyRoute(), "", withToken)
+	h.run("story", "view", "1", "2", "--limit", "x")
+	if l := lastLine(t, h); l["args_n"] != nil {
+		t.Errorf("unknown flag of a known command: %v", l)
+	}
+	h = newHarness(t, anyRoute(), "", withToken)
+	h.run("story", "search")
+	if l := lastLine(t, h); l["args_n"] != 0.0 {
+		t.Errorf("a count error keeps the count: %v", l)
+	}
+}
+
+// The transport of the log changes how net/http cancels a request. The error
+// must be the same with and without the log.
+func TestFileTimeoutSameTextWithLog(t *testing.T) {
+	stop := make(chan struct{})
+	host := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-stop }))
+	defer host.Close()
+	defer close(stop)
+	got := map[string]bool{}
+	for _, mode := range []string{"off", "on"} {
+		for range 6 {
+			h := newHarness(t, map[string]http.HandlerFunc{
+				"GET " + filesPath: jsonHandler(listBody(map[string]any{
+					"id": 1, "name": "a.txt", "content_type": "text/plain", "size": 2, "url": host.URL + "/f/1",
+				})),
+			}, "", map[string]string{"SCUT_TOKEN": "sct_rw_acme_s3cret", "SCUT_LOG": mode})
+			c := host.Client()
+			c.Timeout = 20 * time.Millisecond
+			h.env.FileClient = c
+			h.env.FileHosts = []string{"127.0.0.1"}
+			h.env.Sleep = func(time.Duration) {}
+			code, _, stderr := h.run("story", "files", "5818", "--out", t.TempDir())
+			if code != 5 {
+				t.Fatalf("exit %d: %s", code, stderr)
+			}
+			got[stderr] = true
+		}
+	}
+	want := `{"error":"download file 1: timeout"}` + "\n"
+	if len(got) != 1 || !got[want] {
+		t.Errorf("error texts: %v, want only %q", got, want)
 	}
 }
 

@@ -133,6 +133,14 @@ func TestEncodeNoIDArgs(t *testing.T) {
 	}
 }
 
+// After a flag parse error, the count of the arguments is not known.
+func TestEncodeArgsCut(t *testing.T) {
+	m := decodeLine(t, newRec(t, nil).encode(Result{Args: []string{"1"}, ArgsCut: true}))
+	if _, ok := m["args_n"]; ok {
+		t.Errorf("args_n = %v", m["args_n"])
+	}
+}
+
 func TestEncodeFlags(t *testing.T) {
 	r := newRec(t, nil)
 	m := decodeLine(t, r.encode(Result{Flags: map[string]string{"state": "Done", "name": "secret", "token-file": "/x"}}))
