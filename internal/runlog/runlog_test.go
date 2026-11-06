@@ -70,6 +70,18 @@ func TestStart(t *testing.T) {
 	if r := Start(envOf(map[string]string{"HOME": "/h"}), now); r.path != "/h/.local/state/scut/scut.log" {
 		t.Errorf("HOME path = %q", r.path)
 	}
+	// The XDG specification says to ignore a relative value.
+	if r := Start(envOf(map[string]string{"HOME": "/h", "XDG_STATE_HOME": "rel"}), now); r.path != "/h/.local/state/scut/scut.log" {
+		t.Errorf("relative XDG path = %q", r.path)
+	}
+	for _, get := range []func(string) string{
+		envOf(map[string]string{"XDG_STATE_HOME": "rel"}),
+		envOf(map[string]string{"HOME": "rel"}),
+	} {
+		if r := Start(get, now); r != nil {
+			t.Errorf("relative path = %q", r.path)
+		}
+	}
 }
 
 func TestNilRecorder(t *testing.T) {
@@ -204,6 +216,19 @@ func TestEncodeScrubsToken(t *testing.T) {
 		}
 		decodeLine(t, b)
 	}
+}
+
+// ParseToken accepts any characters in the secret.
+func TestEncodeScrubsAnySecret(t *testing.T) {
+	for _, secret := range []string{"abc.def+ghi/jkl", `abc:def'ghi~jkl`} {
+		b := newRec(t, nil).encode(Result{Err: errors.New("bad sct_rw_example-ws_" + secret + " end")})
+		if strings.Contains(string(b), "jkl") || !strings.Contains(string(b), "*** end") {
+			t.Errorf("%s: %s", secret, b)
+		}
+		decodeLine(t, b)
+	}
+	// A quote in the text ends the match and leaves valid JSON.
+	decodeLine(t, newRec(t, nil).encode(Result{Err: errors.New(`"sct_rw_example-ws_s3cret" end`)}))
 }
 
 func TestEncodeShape(t *testing.T) {

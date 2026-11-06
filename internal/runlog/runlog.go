@@ -25,9 +25,11 @@ const (
 )
 
 var (
-	idPattern    = regexp.MustCompile(`^(?:sc-)?([0-9]+)$`)
-	uuidPattern  = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-	tokenPattern = regexp.MustCompile(`sct_[A-Za-z0-9_-]+`)
+	idPattern   = regexp.MustCompile(`^(?:sc-)?([0-9]+)$`)
+	uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+	// A secret can hold any character. In the encoded line, a quote, a backslash
+	// or a space ends it, so the line stays valid JSON.
+	tokenPattern = regexp.MustCompile(`sct_[^"\\\s]+`)
 )
 
 // loggedFlags are the flags whose values cannot hold free text. A new flag has
@@ -96,10 +98,11 @@ func Start(getenv func(string) string, now func() time.Time) *Recorder {
 	if getenv == nil || getenv("SCUT_LOG") == "off" {
 		return nil
 	}
+	// The XDG specification says to ignore a relative value.
 	state := getenv("XDG_STATE_HOME")
-	if state == "" {
+	if !filepath.IsAbs(state) {
 		home := getenv("HOME")
-		if home == "" {
+		if !filepath.IsAbs(home) {
 			return nil
 		}
 		state = filepath.Join(home, ".local", "state")
@@ -209,8 +212,7 @@ func (r *Recorder) encode(res Result) []byte {
 	if enc.Encode(l) != nil {
 		return nil
 	}
-	// On the encoded line, so that a new field is covered. The pattern has no
-	// quote, so the line stays valid JSON.
+	// On the encoded line, so that a new field is covered.
 	return tokenPattern.ReplaceAll(b.Bytes(), []byte("***"))
 }
 

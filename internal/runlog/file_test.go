@@ -6,17 +6,29 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
 
-// seed makes a file of size bytes, with no lines.
+// seed makes a file of size bytes that ends in a newline.
 func seed(t *testing.T, path string, size int64) {
 	t.Helper()
 	if err := os.WriteFile(path, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if size == 0 {
+		return
+	}
 	if err := os.Truncate(path, size); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	if _, err := f.WriteAt([]byte("\n"), size-1); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -49,6 +61,90 @@ func TestAppendMakesDirAndModes(t *testing.T) {
 	}
 	if m := fi.Mode().Perm(); m != 0o600 {
 		t.Errorf("file mode = %o", m)
+	}
+}
+
+func TestAppendFixesModes(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "scut")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "scut.log")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := appendLine(path, []byte("a\n")); err != nil {
+		t.Fatal(err)
+	}
+	di, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if di.Mode().Perm() != 0o700 || fi.Mode().Perm() != 0o600 {
+		t.Errorf("modes = %o, %o", di.Mode().Perm(), fi.Mode().Perm())
+	}
+}
+
+// A short write on a full disk leaves a line with no newline. The next line
+// must not join it.
+func TestAppendAfterTornLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "scut.log")
+	if err := os.WriteFile(path, []byte("{\"cmd\":\"st"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := appendLine(path, []byte("{\"cmd\":\"b\"}\n")); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != "{\"cmd\":\"st\n{\"cmd\":\"b\"}\n" {
+		t.Errorf("log = %q", b)
+	}
+}
+
+// When the rename fails, the log stops at the hard limit.
+func TestAppendHardLimit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "scut.log")
+	if err := os.Mkdir(path+".1", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	seed(t, path, hardLimit-1)
+	if err := appendLine(path, []byte("a\n")); err != nil {
+		t.Errorf("below the limit: %v", err)
+	}
+	if n := size(t, path); n != hardLimit+1 {
+		t.Errorf("log has %d bytes", n)
+	}
+	if err := appendLine(path, []byte("a\n")); err == nil {
+		t.Error("at the limit: no error")
+	}
+	if n := size(t, path); n != hardLimit+1 {
+		t.Errorf("log has %d bytes after the limit", n)
+	}
+}
+
+func TestAppendFIFODoesNotBlock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "scut.log")
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- appendLine(path, []byte("a\n")) }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("a FIFO: no error")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("appendLine blocks on a FIFO")
 	}
 }
 
