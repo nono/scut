@@ -215,13 +215,17 @@ A command checks its flags and arguments before it reads the token, so such a us
 - Calls: 1 for a doc by URL or ID, plus 1 search call for each 100 docs that match a title, plus the member cache. The search is fuzzy, so a short title can match many docs; after 100 pages the lookup exits 1.
 - No `doc update` or `doc create` for now (your call, 2026-11-05). The API replaces all of the content on update.
 
+### Run log
+
+Each run adds one JSON line to a local log, with the exceptions that the log design lists (see `2026-11-06-log-design.md`).
+
 ### Agent skill
 
 - The skill is in this repo at `skills/scut/SKILL.md`, so `npx skills add nono/scut` can install it. `scut` has no command to install the skill.
 - The command reference in `SKILL.md` is generated from the command tree by a dev tool (`go run ./internal/cmd/genskill`). CI fails if the committed file differs from the generated one, so the reference cannot drift from `--help`.
 - `scut usage` prints about 400 bytes (about 100 tokens): the nouns and one line each. `scut <noun> usage` prints that noun's commands and flags.
 - The skill says: use `scut`; read `scut usage` first; JSON output; what to do for each exit code; common tasks; write long text to a file and pass `--body-file`; which writes need the user to ask.
-- Its `allowed-tools` (generated, added 2026-11-05) lists each command that calls only `GET` operations and writes nothing other than the cache, so reads need no permission prompt and each write still asks. It leaves out `auth login` (keyring), `cache clear`, and the commands with `--out` (`doc view`, `story files`): a rule matches the start of the command, so it cannot leave out one flag. A command with no ops annotation is left out, except the named local reads (`spec`). The README permission table has a column for it.
+- Its `allowed-tools` (generated, added 2026-11-05) lists the log path and each command that calls only `GET` operations and writes nothing other than the cache and the log, so reads need no permission prompt and each write still asks. It leaves out `auth login` (keyring), `cache clear`, and the commands with `--out` (`doc view`, `story files`): a rule matches the start of the command, so it cannot leave out one flag. A command with no ops annotation is left out, except the named local reads (`spec`). The README permission table has a column for it.
 - The skill does not mention the MCP.
 - The skill has a "Not supported" list (for example: unlink a PR or branch, docs, history, bulk). It tells the agent to say that the feature is missing, and not to work around it with `scut api` unless the user asks.
 

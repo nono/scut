@@ -36,16 +36,13 @@ func tokenAllowed(u *url.URL, hosts []string) bool {
 	return u.Scheme == "https" && slices.Contains(hosts, u.Hostname())
 }
 
-// fileClient returns a copy of c (or a new client) for the file host. It has
-// a timeout and never sends Authorization. It sends Shortcut-Token on a
+// fileClient returns a copy of c (or a new client) for the file host. It never
+// sends Authorization. It sends Shortcut-Token on a
 // redirect only to an allowed target.
 func fileClient(c *http.Client, hosts []string) *http.Client {
 	n := http.Client{}
 	if c != nil {
 		n = *c
-	}
-	if n.Timeout == 0 {
-		n.Timeout = fileTimeout
 	}
 	n.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 10 {
@@ -81,7 +78,7 @@ func newStoryFiles(env Env) *cobra.Command {
 		Use:         "files [<story>] --out <dir>",
 		Short:       "Download the files attached to a story",
 		Args:        cobra.MaximumNArgs(1),
-		Annotations: map[string]string{OpsAnnotation: "listStoryFiles"},
+		Annotations: map[string]string{OpsAnnotation: "listStoryFiles", IDArgsAnnotation: "sc-"},
 	}
 	outFlag := cmd.Flags().String("out", "", "directory to write the files to")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
@@ -107,6 +104,11 @@ func newStoryFiles(env Env) *cobra.Command {
 				hosts = defaultFileHosts
 			}
 			client := fileClient(env.FileClient, hosts)
+			limit := env.FileTimeout
+			if limit == 0 {
+				limit = fileTimeout
+			}
+			client.Transport = env.Rec.Files(client.Transport)
 			if len(items) > 0 {
 				if err := os.MkdirAll(out, 0o755); err != nil {
 					return &exit.Error{Code: exit.Other, Msg: err.Error()}
@@ -122,7 +124,7 @@ func newStoryFiles(env Env) *cobra.Command {
 					break
 				}
 				name := uniqueName(cleanName(f.Name, f.ID), f.ID, used)
-				p, err := downloadRetry(ctx, d, client, hosts, f, out, name)
+				p, err := downloadRetry(ctx, d, client, hosts, limit, f, out, name)
 				if err != nil {
 					failure = err
 					break
@@ -253,14 +255,14 @@ func copyNew(src, dest string) (err error) {
 // downloadRetry runs download with transport.Retry: after a 429, a 502, a
 // 503, a 504 or a lost connection it tries again, with the same backoff and
 // try limit as a call. No new try starts after 20 s from the first, but each
-// try has the 60 s limit of the file client (fileTimeout), not the time left
+// try has the limit (fileTimeout, 60 s), not the time left
 // in the 20 s: a large file needs more than 20 s for one try. Each try writes
 // a new temp file.
-func downloadRetry(ctx context.Context, d *deps, c *http.Client, hosts []string, f apiFile, dir, name string) (string, error) {
+func downloadRetry(ctx context.Context, d *deps, c *http.Client, hosts []string, limit time.Duration, f apiFile, dir, name string) (string, error) {
 	var p string
 	err := transport.Retry(ctx, d.Clock, fmt.Sprintf("download file %d", f.ID), func(int, time.Duration) error {
 		var err error
-		p, err = download(ctx, c, hosts, d.Settings.Token, f, dir, name)
+		p, err = download(ctx, c, hosts, limit, d.Settings.Token, f, dir, name)
 		return err
 	})
 	return p, err
@@ -268,7 +270,7 @@ func downloadRetry(ctx context.Context, d *deps, c *http.Client, hosts []string,
 
 // download writes one file through a temp file in dir, then links it to a
 // free name from name on. It returns the path.
-func download(ctx context.Context, c *http.Client, hosts []string, token string, f apiFile, dir, name string) (dest string, err error) {
+func download(ctx context.Context, c *http.Client, hosts []string, limit time.Duration, token string, f apiFile, dir, name string) (dest string, err error) {
 	scrub := func(s string) string { return transport.Scrub(s, token) }
 	netErr := func(err error) error {
 		if ctx.Err() != nil {
@@ -284,7 +286,12 @@ func download(ctx context.Context, c *http.Client, hosts []string, token string,
 		}
 		return &exit.Error{Code: code, Msg: scrub(fmt.Sprintf("download file %d: %v", f.ID, err))}
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.URL, nil)
+	// A context and not Client.Timeout: net/http words that timeout in more than
+	// one way, and the way depends on the type of the transport, so the log
+	// would change the text of the error.
+	tctx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	req, err := http.NewRequestWithContext(tctx, http.MethodGet, f.URL, nil)
 	if err != nil {
 		return "", &exit.Error{Code: exit.Other, Msg: scrub(fmt.Sprintf("file %d: bad url", f.ID))}
 	}

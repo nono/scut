@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -47,6 +48,7 @@ func newAuthLogin(env Env) *cobra.Command {
 			if env.APIBase != "" {
 				opts = append(opts, transport.WithBaseURL(env.APIBase))
 			}
+			opts = append(opts, transport.WithHTTPClient(&http.Client{Transport: env.Rec.API(nil)}))
 			d := transport.New(config.Settings{Profile: profile, Token: tok, Scopes: scopes, Workspace: workspace}, opts...)
 			w, err := getWhoami(cmd.Context(), d)
 			if err != nil {

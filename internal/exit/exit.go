@@ -21,6 +21,7 @@ const (
 	Auth        Code = 4
 	Unavailable Code = 5
 	Cancelled   Code = 130
+	BrokenPipe  Code = 141 // the code of a process that SIGPIPE stops
 )
 
 // Error is an error with an exit code and optional API detail.

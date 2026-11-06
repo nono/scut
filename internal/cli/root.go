@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/nono/scut/internal/config"
 	"github.com/nono/scut/internal/exit"
+	"github.com/nono/scut/internal/runlog"
 	"github.com/nono/scut/internal/transport"
 )
 
@@ -34,6 +36,8 @@ type Env struct {
 	Now          func() time.Time             // nil: time.Now
 	FileClient   *http.Client                 // nil: a new client for the file host
 	FileHosts    []string                     // hosts that get the file token; nil: the Shortcut hosts
+	FileTimeout  time.Duration                // limit of one file try; 0: fileTimeout
+	Rec          *runlog.Recorder             // the record of this run, set by Execute; nil: no record
 }
 
 // OSEnv returns the Env of the running process.
@@ -194,9 +198,75 @@ func usageArgs(c *cobra.Command) {
 func Execute(args []string, stdout, stderr io.Writer, env Env) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	// With a handler, a write to a closed stdout returns EPIPE and does not
+	// stop the process, so the run can write its log line.
+	signal.Notify(make(chan os.Signal, 1), syscall.SIGPIPE)
+	env.Rec = runlog.Start(env.Getenv, time.Now)
+	out := &countWriter{w: stdout}
 	root := NewRoot(env)
-	root.SetOut(stdout)
-	return RunContext(ctx, root, args, stderr)
+	root.SetOut(out)
+	// pflag stops at a bad flag, so the arguments after it are not known.
+	badFlag := false
+	root.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
+		badFlag = true
+		return flagError(c, err)
+	})
+	code, cmd, err := run(ctx, root, args, quietStderr{stderr, out})
+	if out.closed() {
+		code, err = int(exit.BrokenPipe), out.broken
+	}
+	raw := map[string]string{}
+	cmd.Flags().Visit(func(f *pflag.Flag) { raw[f.Name] = f.Value.String() })
+	_, name, _ := strings.Cut(cmd.CommandPath(), " ")
+	idPrefix, idArgs := cmd.Annotations[IDArgsAnnotation]
+	env.Rec.Finish(runlog.Result{
+		Version:  transport.Version,
+		Dir:      env.Dir,
+		Cmd:      name,
+		Args:     cmd.Flags().Args(),
+		IDArgs:   idArgs,
+		IDPrefix: idPrefix,
+		ArgsCut:  badFlag,
+		Flags:    raw,
+		OutBytes: out.n,
+		Exit:     code,
+		Err:      err,
+	})
+	return code
+}
+
+// countWriter counts the bytes that a command tries to write to stdout, and
+// keeps the error of a write to a closed pipe.
+type countWriter struct {
+	w      io.Writer
+	n      int64
+	broken error
+}
+
+func (c *countWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += int64(n)
+	if errors.Is(err, syscall.EPIPE) {
+		c.broken = err
+		c.n += int64(len(p) - n)
+	}
+	return n, err
+}
+
+func (c *countWriter) closed() bool { return c.broken != nil }
+
+// quietStderr is stderr with no output after a write to a closed stdout: such a
+// run prints no error, as a process that SIGPIPE stops.
+type quietStderr struct {
+	w   io.Writer
+	out *countWriter
+}
+
+func (q quietStderr) Write(p []byte) (int, error) {
+	if q.out.closed() {
+		return len(p), nil
+	}
+	return q.w.Write(p)
 }
 
 // RunContext runs root with args and ctx. It writes any error as JSON to stderr
@@ -204,18 +274,24 @@ func Execute(args []string, stdout, stderr io.Writer, env Env) int {
 // unless the command returns an *exit.Error with code 130: then it is written,
 // so the command can say what it did before the cancel.
 func RunContext(ctx context.Context, root *cobra.Command, args []string, stderr io.Writer) int {
+	code, _, _ := run(ctx, root, args, stderr)
+	return code
+}
+
+// run is RunContext that also returns the command that ran and its error.
+func run(ctx context.Context, root *cobra.Command, args []string, stderr io.Writer) (int, *cobra.Command, error) {
 	root.SetArgs(args)
 	root.SetErr(stderr)
-	err := root.ExecuteContext(ctx)
+	cmd, err := root.ExecuteContextC(ctx)
 	if err == nil {
-		return int(exit.OK)
+		return int(exit.OK), cmd, nil
 	}
 	if ctx.Err() != nil {
 		var e *exit.Error
 		if errors.As(err, &e) && e.Code == exit.Cancelled {
-			return int(exit.Write(stderr, err))
+			return int(exit.Write(stderr, err)), cmd, err
 		}
-		return int(exit.Cancelled)
+		return int(exit.Cancelled), cmd, err
 	}
-	return int(exit.Write(stderr, err))
+	return int(exit.Write(stderr, err)), cmd, err
 }

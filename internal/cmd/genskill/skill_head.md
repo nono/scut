@@ -60,6 +60,17 @@ Write the text to a file with your file tool. Then pass `--description-file <fil
 - If a feature is missing, say so. Do not work around it with `scut api`, unless the user asks.
 - When the user asks for `scut api`, first run `scut spec <operationId>` (for example `scut spec getStory`) to get the method, the path and the body. A path is relative to the workspace: `scut api stories/12/story-links`.
 
+## Log
+
+Each run adds one JSON line to `~/.local/state/scut/scut.log` (older lines are in `scut.log.1`). `$XDG_STATE_HOME` changes the directory. Fields: `t`, `v`, `session`, `cwd`, `cmd`, `ids`, `args_n`, `flags`, `ms`, `out_bytes`, `exit`, `error`, `api`, `http` (the first 100 tries: `m`, `p` or `h`, `s`, `ms`, `err`), `http_n` (the true count, when `http` is cut). A run that a panic or a signal other than SIGINT and SIGPIPE stops has no line, and `SCUT_LOG=off` stops the log.
+
+Read it when the user asks about scut usage or a past failure, or when an error on stderr does not explain itself. Do not read it on each failure. The recipes skip a broken line and a blank line, so do not count runs with `wc -l`.
+
+```sh
+jq -cR 'fromjson?|objects|select(.exit!=0)|{t,cmd,exit,error}' ~/.local/state/scut/scut.log
+jq -cR 'fromjson?|objects' ~/.local/state/scut/scut.log | jq -s -c 'map(select(.session))|group_by([.session,.cmd])|map({session:.[0].session,cmd:.[0].cmd,n:length})|map(select(.n>=3))|.[]'  # bulk candidates
+```
+
 ## Not supported
 
 - Unlink a PR, branch or commit from a story (the v4 API has no endpoint).

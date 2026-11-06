@@ -17,6 +17,14 @@ import (
 
 const repoRoot = "../../.."
 
+// The skill tells the agent to read the log, so a read must not ask.
+func TestAllowedToolsReadsLog(t *testing.T) {
+	const want = "Read(~/.local/state/scut/**)"
+	if line := allowedTools(testRoot(), loadSpec(t)); !strings.Contains(line, want) {
+		t.Errorf("allowed-tools lacks %s: %q", want, line)
+	}
+}
+
 func testRoot() *cobra.Command {
 	return cli.NewRoot(cli.Env{Getenv: func(string) string { return "" }})
 }
