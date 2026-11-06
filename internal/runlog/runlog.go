@@ -166,7 +166,9 @@ func (r *Recorder) Finish(res Result) {
 	if r == nil {
 		return
 	}
-	r.encode(res)
+	if b := r.encode(res); b != nil {
+		_ = appendLine(r.path, b) // a failure of the log has no effect on the run
+	}
 }
 
 func (r *Recorder) encode(res Result) []byte {
