@@ -251,6 +251,13 @@ func TestAppendConcurrent(t *testing.T) {
 			t.Errorf("line %d is missing", i)
 		}
 	}
+	// A concurrent write can look like a broken line, so a blank line is
+	// allowed. A line must never join another.
+	for l := range bytes.Lines(all) {
+		if l = bytes.TrimSpace(bytes.Trim(l, "\x00")); len(l) > 0 && !bytes.HasSuffix(l, []byte("}")) || bytes.Count(l, []byte("{")) > 1 {
+			t.Errorf("a broken line: %q", l)
+		}
+	}
 }
 
 // A run that does not get the lock does not wait and does not rename, and it

@@ -19,8 +19,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/nono/scut/api"
 	"github.com/nono/scut/internal/cli"
-	"github.com/nono/scut/internal/testgit"
+	"github.com/nono/scut/internal/spec"
 	"github.com/nono/scut/internal/transport"
 )
 
@@ -48,6 +49,9 @@ func logLines(t *testing.T, h *harness) []map[string]any {
 	t.Helper()
 	var out []map[string]any
 	for l := range strings.Lines(logText(t, h)) {
+		if strings.TrimSpace(l) == "" { // concurrent runs can add a blank line
+			continue
+		}
 		var m map[string]any
 		if err := json.Unmarshal([]byte(l), &m); err != nil {
 			t.Fatalf("not JSON: %q: %v", l, err)
@@ -428,10 +432,17 @@ func walkCases(t *testing.T) map[string]walkCase {
 		var body map[string]any
 		return updateHarness(t, &calls{}, &body, nil)
 	}
-	repo := func(t *testing.T, stdin string) *harness {
-		h := newHarness(t, anyRoute(), stdin, tokenVars())
-		_, h.env.Dir = testgit.Repos(t)
+	repo := func(t *testing.T, _ string) *harness {
+		var patch map[string]any
+		h, _ := startHarness(t, &calls{}, 7, nil, wfStates(), 200, &patch)
 		return h
+	}
+	link := func(method string) func(t *testing.T, _ string) *harness {
+		return func(t *testing.T, _ string) *harness {
+			routes := listRoute(linkEntity(12, 5818, "blocks", 5819))
+			routes[method+" "+linksPath+"/12"] = jsonHandler(jsonOf(map[string]any{"entity": linkEntity(12, 5818, "relates to", 5819)}))
+			return newHarness(t, routes, "", searchEnv)
+		}
 	}
 	return map[string]walkCase{
 		"api":           {args: []string{"stories/1"}, npos: 1},
@@ -442,10 +453,10 @@ func walkCases(t *testing.T) map[string]walkCase {
 			method: "POST", harness: create},
 		"story files":  {args: []string{"1", "--out", t.TempDir()}, npos: 1},
 		"story link":   {args: []string{"1", "blocks", "2"}, npos: 3, method: "POST"},
-		"story relink": {args: []string{"1", "blocks", "2", "relates-to"}, npos: 4},
-		"story unlink": {args: []string{"1", "blocks", "2"}, npos: 3},
+		"story relink": {args: []string{"5818", "blocks", "5819", "relates-to"}, npos: 4, method: "PATCH", harness: link("PATCH")},
+		"story unlink": {args: []string{"5818", "blocks", "5819"}, npos: 3, method: "DELETE", harness: link("DELETE")},
 		"story update": {args: []string{"5818", "--archive"}, npos: 1, method: "PATCH", harness: update},
-		"worktree":     {args: []string{"1"}, npos: 1, harness: repo},
+		"worktree":     {args: []string{"1234", "--start"}, npos: 1, method: "PATCH", harness: repo},
 	}
 }
 
@@ -497,6 +508,10 @@ func TestRunLogNoInputText(t *testing.T) {
 		return l
 	}
 	all := cli.NewRoot(newHarness(t, nil, "", nil).env)
+	apiSpec, err := spec.Parse(api.Spec)
+	if err != nil {
+		t.Fatal(err)
+	}
 	seenID := map[string]bool{}
 	for _, c := range leaves(all) {
 		path := strings.Fields(c.CommandPath())[1:]
@@ -507,6 +522,9 @@ func TestRunLogNoInputText(t *testing.T) {
 		l := check(t, wc.harness(t, wc.stdin), line(wc.args))
 		if _, ok := l["http"]; !ok && len(cli.Ops(c)) > 0 {
 			t.Errorf("%s did not reach HTTP, so the check of http is empty: %v", name, l)
+		}
+		if want := writeMethods(t, apiSpec, c); len(want) > 0 && !slices.Contains(want, wc.method) {
+			t.Errorf("%s writes with %v, and its walk case has method %q", name, want, wc.method)
 		}
 		if wc.method != "" && !usesMethod(l, wc.method) {
 			t.Errorf("%s did not send %s: %v", name, wc.method, l)
@@ -551,6 +569,25 @@ func TestRunLogNoInputText(t *testing.T) {
 			t.Errorf("%s is in idCommands and is not a command that logs IDs", name)
 		}
 	}
+}
+
+// writeMethods returns the methods of the operations of c that are not GET.
+func writeMethods(t *testing.T, s *spec.Spec, c *cobra.Command) []string {
+	t.Helper()
+	var out []string
+	for _, op := range cli.Ops(c) {
+		if op == "*" { // scut api: its walk case is a read
+			continue
+		}
+		v, ok := s.Lookup(op, 0)
+		if !ok {
+			t.Fatalf("%s: no operation %s in the spec", c.CommandPath(), op)
+		}
+		if o, ok := v.(spec.Operation); ok && o.Method != "GET" {
+			out = append(out, o.Method)
+		}
+	}
+	return out
 }
 
 func usesMethod(l map[string]any, method string) bool {
