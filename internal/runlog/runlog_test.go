@@ -148,13 +148,8 @@ func TestEncodeFlags(t *testing.T) {
 
 func TestEncodeAllowlist(t *testing.T) {
 	for _, f := range []string{"limit", "comments", "fields", "format", "depth", "method", "state", "workflow", "team", "type"} {
-		if !Logged(f) {
-			t.Errorf("Logged(%q) = false", f)
-		}
-	}
-	for _, f := range []string{"name", "field", "epic", "label", "owner", "body-file", "token-file", "input", "out"} {
-		if Logged(f) {
-			t.Errorf("Logged(%q) = true", f)
+		if got := flags(map[string]string{f: "v"})[f]; got != "v" {
+			t.Errorf("flag %s: value %q", f, got)
 		}
 	}
 }
@@ -215,6 +210,21 @@ func TestEncodeScrubsToken(t *testing.T) {
 			t.Errorf("%s: %s", name, b)
 		}
 		decodeLine(t, b)
+	}
+}
+
+func TestEncodeScrubsTransportError(t *testing.T) {
+	r := newRec(t, nil)
+	base := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("x sct_rw_example-ws_s3cret y")
+	})
+	resp, err := r.API(base).RoundTrip(httptest.NewRequest(http.MethodGet, "https://example.test/x", nil))
+	if err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("the error must reach the caller")
+	}
+	if b := r.encode(Result{}); strings.Contains(string(b), "s3cret") {
+		t.Errorf("the token is in the line: %s", b)
 	}
 }
 
@@ -286,8 +296,8 @@ func TestAPITransport(t *testing.T) {
 	if e["m"] != "GET" || e["p"] != "/api/v4/example-ws/stories/search" || e["s"] != 418.0 {
 		t.Errorf("entry = %v", e)
 	}
-	if _, ok := e["ms"]; !ok {
-		t.Errorf("entry has no ms: %v", e)
+	if e["ms"] != 250.0 { // the clock of newRec moves 250 ms for each call
+		t.Errorf("ms = %v", e["ms"])
 	}
 	if _, ok := e["h"]; ok {
 		t.Errorf("API entry has a host: %v", e)

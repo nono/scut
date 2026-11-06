@@ -209,6 +209,50 @@ func TestAppendConcurrent(t *testing.T) {
 	}
 }
 
+// A run that does not get the lock does not wait and does not rename, and it
+// writes its line.
+func TestAppendLockHeld(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "scut.log")
+	seed(t, path, maxFile)
+	d, err := os.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = d.Close() }()
+	if err := syscall.Flock(int(d.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- appendLine(path, []byte("new\n")) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		_ = syscall.Flock(int(d.Fd()), syscall.LOCK_UN)
+		t.Fatal("appendLine waits for the lock")
+	}
+	if _, err := os.Stat(path + ".1"); !os.IsNotExist(err) {
+		t.Errorf(".1 exists: %v", err)
+	}
+	if n := size(t, path); n != maxFile+4 {
+		t.Errorf("log has %d bytes", n)
+	}
+}
+
+// Another run can rotate between the first look at the size and the lock.
+func TestRotateLooksAgain(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "scut.log")
+	seed(t, path, 10)
+	rotate(path, dir)
+	if _, err := os.Stat(path + ".1"); !os.IsNotExist(err) {
+		t.Errorf("a small log was renamed: %v", err)
+	}
+}
+
 func TestAppendErrors(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "file")

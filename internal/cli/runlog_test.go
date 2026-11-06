@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -17,7 +18,8 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/nono/scut/internal/cli"
-	"github.com/nono/scut/internal/runlog"
+	"github.com/nono/scut/internal/testgit"
+	"github.com/nono/scut/internal/transport"
 )
 
 const marker = "zqmarkerzq"
@@ -78,8 +80,11 @@ func TestRunLogSuccess(t *testing.T) {
 	if !reflect.DeepEqual(l["ids"], []any{1.0}) {
 		t.Errorf("ids = %v", l["ids"])
 	}
-	if l["flags"].(map[string]any)["fields"] != "id" {
-		t.Errorf("flags = %v", l["flags"])
+	if !reflect.DeepEqual(l["flags"], map[string]any{"fields": "id"}) {
+		t.Errorf("flags must hold only what the user set: %v", l["flags"])
+	}
+	if l["v"] != transport.Version || l["cwd"] != h.env.Dir {
+		t.Errorf("v = %v, cwd = %v", l["v"], l["cwd"])
 	}
 	e := l["http"].([]any)[0].(map[string]any)
 	if e["p"] != "/api/v4/example-ws/stories/1" || e["s"] != 200.0 || e["m"] != "GET" {
@@ -184,7 +189,7 @@ func TestRunLogNoToken(t *testing.T) {
 	h.run("team", "list")
 	h.run("api", "stories/"+token)
 	h.run("team", "list", "--token-file", "/nonexistent/"+token)
-	h.run("api", "-f", "x")
+	h.run("api", "stories/1", "-f", token) // a usage error that quotes the token
 	b, err := os.ReadFile(logPath(h))
 	if err != nil {
 		t.Fatal(err)
@@ -270,12 +275,90 @@ func leaves(c *cobra.Command) []*cobra.Command {
 	return out
 }
 
-// TestRunLogNoInputText covers each command and flag, also a new one. The error
-// fields can quote an input by design. So can the path of scut api.
+// loggedFlags has a copy of the allowlist of the log, so a flag added there
+// must also be added here, and the walk checks each other flag.
+var loggedFlags = map[string]bool{
+	"limit": true, "comments": true, "fields": true, "format": true, "depth": true,
+	"method": true, "state": true, "workflow": true, "team": true, "type": true,
+}
+
+// idCommands has a copy of the commands whose arguments the log keeps in ids.
+var idCommands = map[string]bool{
+	"story view": true, "story update": true, "story comment": true, "story comments": true,
+	"story link": true, "story unlink": true, "story relink": true, "story subtasks": true,
+	"story branch": true, "story files": true,
+	"epic view": true, "epic stories": true, "epic comment": true,
+	"worktree": true,
+}
+
+// walkCase is what a command needs to reach HTTP when one positional argument
+// of "1" per required place is not sufficient. The positional arguments come
+// first, npos of them.
+type walkCase struct {
+	args    []string
+	npos    int
+	stdin   string
+	method  string // a method that the run must use
+	harness func(t *testing.T, stdin string) *harness
+}
+
+func walkCases(t *testing.T) map[string]walkCase {
+	create := func(t *testing.T, _ string) *harness { return createHarness(t, &createFake{}, &calls{}, nil) }
+	update := func(t *testing.T, _ string) *harness {
+		var body map[string]any
+		return updateHarness(t, &calls{}, &body, nil)
+	}
+	repo := func(t *testing.T, stdin string) *harness {
+		h := newHarness(t, anyRoute(), stdin, withToken)
+		_, h.env.Dir = testgit.Repos(t)
+		return h
+	}
+	return map[string]walkCase{
+		"api":           {args: []string{"stories/1"}, npos: 1},
+		"auth login":    {stdin: token + "\n"},
+		"epic comment":  {args: []string{"1", "--body-file", "-"}, npos: 1, stdin: "x", method: "POST"},
+		"story comment": {args: []string{"1", "--body-file", "-"}, npos: 1, stdin: "x", method: "POST"},
+		"story create": {args: []string{"--name", "n", "--type", "bug", "--team", "Software Dev", "--state", "To Do"},
+			method: "POST", harness: create},
+		"story files":  {args: []string{"1", "--out", t.TempDir()}, npos: 1},
+		"story link":   {args: []string{"1", "blocks", "2"}, npos: 3, method: "POST"},
+		"story relink": {args: []string{"1", "blocks", "2", "relates-to"}, npos: 4},
+		"story unlink": {args: []string{"1", "blocks", "2"}, npos: 3},
+		"story update": {args: []string{"5818", "--archive"}, npos: 1, method: "PATCH", harness: update},
+		"worktree":     {args: []string{"1"}, npos: 1, harness: repo},
+	}
+}
+
+// walkBase returns the case of c: its entry in cases, or the smallest count of
+// positional arguments, from 1, that c accepts.
+func walkBase(t *testing.T, c *cobra.Command, cases map[string]walkCase, name string) walkCase {
+	t.Helper()
+	wc, ok := cases[name]
+	if !ok {
+		// A command can take no argument and then need a git branch, so 0 comes last.
+		for _, n := range []int{1, 2, 3, 4, 0} {
+			if c.ValidateArgs(slices.Repeat([]string{"1"}, n)) == nil {
+				wc.args, wc.npos = slices.Repeat([]string{"1"}, n), n
+				break
+			}
+		}
+	}
+	if wc.harness == nil {
+		wc.harness = func(t *testing.T, stdin string) *harness {
+			return newHarness(t, anyRoute(), stdin, withToken)
+		}
+	}
+	return wc
+}
+
+// TestRunLogNoInputText covers each command, each place of a positional
+// argument and each non-bool flag outside the allowlist, also a new one. A
+// command that calls the API must reach HTTP, so the check of http is not empty.
+// The error fields can quote an input by design. So can the path of scut api.
 func TestRunLogNoInputText(t *testing.T) {
-	check := func(t *testing.T, args []string, drop ...string) map[string]any {
+	cases := walkCases(t)
+	check := func(t *testing.T, h *harness, args []string, drop ...string) map[string]any {
 		t.Helper()
-		h := newHarness(t, anyRoute(), "", withToken)
 		h.run(args...)
 		l := lastLine(t, h)
 		rest := map[string]any{}
@@ -293,33 +376,106 @@ func TestRunLogNoInputText(t *testing.T) {
 		}
 		return l
 	}
-	reached := map[string]bool{}
-	for _, c := range leaves(cli.NewRoot(newHarness(t, nil, "", nil).env)) {
+	all := cli.NewRoot(newHarness(t, nil, "", nil).env)
+	seenID := map[string]bool{}
+	for _, c := range leaves(all) {
 		path := strings.Fields(c.CommandPath())[1:]
-		var drop []string
-		if c.Name() == "api" {
-			drop = []string{"http"}
+		name := strings.Join(path, " ")
+		wc := walkBase(t, c, cases, name)
+		line := func(args []string) []string { return append(slices.Clone(path), args...) }
+
+		l := check(t, wc.harness(t, wc.stdin), line(wc.args))
+		if _, ok := l["http"]; !ok && len(cli.Ops(c)) > 0 {
+			t.Errorf("%s did not reach HTTP, so the check of http is empty: %v", name, l)
 		}
-		l := check(t, append(slices.Clone(path), marker), drop...)
-		_, reached[strings.Join(path, " ")] = l["http"]
+		if wc.method != "" && !usesMethod(l, wc.method) {
+			t.Errorf("%s did not send %s: %v", name, wc.method, l)
+		}
+
+		for i := range wc.npos {
+			args := slices.Clone(wc.args)
+			args[i] = marker
+			var drop []string
+			if name == "api" {
+				drop = []string{"http"}
+			}
+			check(t, wc.harness(t, wc.stdin), line(args), drop...)
+		}
 
 		seen := map[string]bool{}
 		visit := func(f *pflag.Flag) {
-			if seen[f.Name] || f.Name == "help" || f.Value.Type() == "bool" || runlog.Logged(f.Name) {
+			if seen[f.Name] || f.Name == "help" || f.Value.Type() == "bool" || loggedFlags[f.Name] {
 				return
 			}
 			seen[f.Name] = true
-			check(t, append(slices.Clone(path), "1", "--"+f.Name, marker))
+			// In the form Name=Value, so that a flag of that form gets further.
+			check(t, wc.harness(t, wc.stdin), line(append(slices.Clone(wc.args), "--"+f.Name, marker+"="+marker)))
 		}
 		c.Flags().VisitAll(visit)
 		c.InheritedFlags().VisitAll(visit)
 		if !seen["token-file"] {
 			t.Errorf("%v: the walk did not reach the global flags", path)
 		}
-	}
-	for _, name := range []string{"story search", "epic search", "doc search"} {
-		if !reached[name] {
-			t.Errorf("%s did not reach HTTP, so the check of http is empty", name)
+
+		// A number is an ID only for a command that takes IDs.
+		h := newHarness(t, anyRoute(), "", withToken)
+		h.run(line([]string{"20261106"})...)
+		_, hasIDs := lastLine(t, h)["ids"]
+		if hasIDs != idCommands[name] {
+			t.Errorf("%s: ids in the line = %v", name, hasIDs)
 		}
+		seenID[name] = hasIDs
+	}
+	for name := range idCommands {
+		if !seenID[name] {
+			t.Errorf("%s is in idCommands and is not a command that logs IDs", name)
+		}
+	}
+}
+
+func usesMethod(l map[string]any, method string) bool {
+	es, _ := l["http"].([]any)
+	return slices.ContainsFunc(es, func(e any) bool { return e.(map[string]any)["m"] == method })
+}
+
+// The query is in no field, also when the search fails.
+func TestRunLogSearchQuery(t *testing.T) {
+	for name, h := range map[string]http.HandlerFunc{
+		"200": jsonHandler(`{"data":[]}`),
+		"503": func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) },
+		"400": func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusBadRequest) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			hn := newHarness(t, map[string]http.HandlerFunc{"/": h}, "", withToken)
+			hn.env.Sleep = func(time.Duration) {}
+			for _, args := range [][]string{{"story", "search", marker}, {"epic", "search", marker}, {"doc", "search", marker}} {
+				hn.run(args...)
+			}
+			b, err := os.ReadFile(logPath(hn))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(b), marker) {
+				t.Errorf("the query is in the log: %s", b)
+			}
+			if n := len(logLines(t, hn)); n != 3 {
+				t.Errorf("%d lines", n)
+			}
+		})
+	}
+}
+
+// The signal reaches a run through Execute. The handler is in place when the
+// request arrives, so the signal cancels the run and does not stop the test.
+func TestRunLogSIGINT(t *testing.T) {
+	h := newHarness(t, map[string]http.HandlerFunc{"/": func(_ http.ResponseWriter, r *http.Request) {
+		_ = syscall.Kill(syscall.Getpid(), syscall.SIGINT)
+		<-r.Context().Done()
+	}}, "", withToken)
+	if code, _, errb := h.run("team", "list"); code != 130 {
+		t.Fatalf("exit %d: %s", code, errb)
+	}
+	if l := lastLine(t, h); l["exit"] != 130.0 {
+		t.Errorf("line = %v", l)
 	}
 }

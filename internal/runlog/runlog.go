@@ -39,9 +39,6 @@ var loggedFlags = map[string]bool{
 	"method": true, "state": true, "workflow": true, "team": true, "type": true,
 }
 
-// Logged tells if the log keeps the value of flag.
-func Logged(flag string) bool { return loggedFlags[flag] }
-
 // Result is what a run gives to Finish. Flags has the raw values.
 type Result struct {
 	Version, Dir, Cmd string
@@ -240,7 +237,7 @@ func flags(raw map[string]string) map[string]string {
 	}
 	out := make(map[string]string, len(raw))
 	for k, v := range raw {
-		if Logged(k) {
+		if loggedFlags[k] {
 			out[k] = cut(v, maxShort)
 		} else {
 			out[k] = ""
