@@ -215,6 +215,10 @@ A command checks its flags and arguments before it reads the token, so such a us
 - Calls: 1 for a doc by URL or ID, plus 1 search call for each 100 docs that match a title, plus the member cache. The search is fuzzy, so a short title can match many docs; after 100 pages the lookup exits 1.
 - No `doc update` or `doc create` for now (your call, 2026-11-05). The API replaces all of the content on update.
 
+### Run log
+
+Each run adds one JSON line to a local log (see `2026-11-06-log-design.md`).
+
 ### Agent skill
 
 - The skill is in this repo at `skills/scut/SKILL.md`, so `npx skills add nono/scut` can install it. `scut` has no command to install the skill.
