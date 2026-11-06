@@ -15,7 +15,7 @@ func newStoryComment(env Env) *cobra.Command {
 		Use:         "comment <story>",
 		Short:       "Add a comment to a story",
 		Args:        cobra.ExactArgs(1),
-		Annotations: map[string]string{OpsAnnotation: "createStoryComment,listMembers", IDArgsAnnotation: "true"},
+		Annotations: map[string]string{OpsAnnotation: "createStoryComment,listMembers", IDArgsAnnotation: "sc-"},
 	}
 	bodyFile := cmd.Flags().String("body-file", "", "read the comment text from this file; - is stdin")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {

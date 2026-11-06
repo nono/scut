@@ -94,16 +94,24 @@ func TestNilRecorder(t *testing.T) {
 
 func TestEncodeIDs(t *testing.T) {
 	r := newRec(t, nil)
-	m := decodeLine(t, r.encode(Result{IDArgs: true, Args: []string{
-		"sc-12", "13", "007", "99999999999999999999", testUUID, "some text", "misc-12",
+	m := decodeLine(t, r.encode(Result{IDArgs: true, IDPrefix: "sc-", Args: []string{
+		"sc-12", "13", "007", "99999999999999999999", testUUID, "some text", "misc-12", "+14", "-15",
 		"https://app.shortcut.com/example-ws/story/14/a-title",
 	}}))
-	want := []any{12.0, 13.0, 7.0, testUUID}
+	want := []any{12.0, 13.0, 7.0}
 	if !reflect.DeepEqual(m["ids"], want) {
 		t.Errorf("ids = %v, want %v", m["ids"], want)
 	}
-	if m["args_n"] != 8.0 {
+	if m["args_n"] != 10.0 {
 		t.Errorf("args_n = %v", m["args_n"])
+	}
+}
+
+// An epic is an ID in digits or a name, so sc-12 is the name of an epic.
+func TestEncodeIDsNoPrefix(t *testing.T) {
+	m := decodeLine(t, newRec(t, nil).encode(Result{IDArgs: true, Args: []string{"sc-12", "13"}}))
+	if want := []any{13.0}; !reflect.DeepEqual(m["ids"], want) {
+		t.Errorf("ids = %v, want %v", m["ids"], want)
 	}
 }
 
@@ -234,15 +242,22 @@ func TestEncodeScrubsTransportError(t *testing.T) {
 
 // ParseToken accepts any characters in the secret.
 func TestEncodeScrubsAnySecret(t *testing.T) {
-	for _, secret := range []string{"abc.def+ghi/jkl", `abc:def'ghi~jkl`} {
-		b := newRec(t, nil).encode(Result{Err: errors.New("bad sct_rw_example-ws_" + secret + " end")})
-		if strings.Contains(string(b), "jkl") || !strings.Contains(string(b), "*** end") {
-			t.Errorf("%s: %s", secret, b)
+	for _, secret := range []string{
+		"abc.def+ghi/jkl", `abc:def'ghi~jkl`, `abc"jkl`, `abc\jkl`, "abc jkl", "abc\tjkl", "abc\njkl", "abcéjkl",
+	} {
+		r := newRec(t, nil)
+		for name, res := range map[string]Result{
+			"error": {Err: errors.New("bad sct_rw_example-ws_" + secret)},
+			"flag":  {Flags: map[string]string{"state": "sct_rw_example-ws_" + secret}},
+			"dir":   {Dir: "/x/sct_rw_example-ws_" + secret},
+		} {
+			b := r.encode(res)
+			if strings.Contains(string(b), "jkl") || !strings.Contains(string(b), "***") {
+				t.Errorf("%s in %s: %s", secret, name, b)
+			}
+			decodeLine(t, b)
 		}
-		decodeLine(t, b)
 	}
-	// A quote in the text ends the match and leaves valid JSON.
-	decodeLine(t, newRec(t, nil).encode(Result{Err: errors.New(`"sct_rw_example-ws_s3cret" end`)}))
 }
 
 func TestEncodeShape(t *testing.T) {

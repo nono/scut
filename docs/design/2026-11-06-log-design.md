@@ -62,7 +62,7 @@ A failed run, with a retry:
 | `session` | `CLAUDE_CODE_SESSION_ID` | Left out when not set. This groups the calls of one Claude Code session, and tells an agent run from a human or herdr run. |
 | `cwd` | `env.Dir` | |
 | `cmd` | Command path without `scut`, from the command that cobra returns | An unknown subcommand gives the group, for example `story`. The name that was not known is in `error`. |
-| `ids` | Each positional argument of a command that takes IDs, when it is all of: digits, `sc-` and digits, or a UUID | At most 100. A number is written as a JSON integer, and a number that does not fit in 64 bits is left out. Any other argument is left out. `IDArgsAnnotation` marks these commands, and a new command does not have it. So a search query, a title or a URL slug is never logged, also in the form of an ID. |
+| `ids` | Each positional argument of a command that takes IDs, when it is all digits, or `sc-` and digits for a story | At most 100. A number is written as a JSON integer, and a number that does not fit in 63 bits is left out. An epic can have the name `sc-12`, so only digits count for an epic. No such command takes a UUID. Any other argument is left out. `IDArgsAnnotation` marks these commands, and a new command does not have it. So a search query, a title or a URL slug is never logged, also in the form of an ID. |
 | `args_n` | Number of positional arguments | Also shows the true count when `ids` is cut. Left out after a flag parse error, because pflag stops at the bad flag. `ids` and `flags` then hold only what came before it. |
 | `flags` | Each flag that the user set, name to value | The value is present only for the names in the allowlist, at most 200 bytes. Other flags have `""`. |
 | `ms` | Duration of the run | |
@@ -82,7 +82,7 @@ Because the entries come from each try, retries and redirects are visible. A cut
 
 **Path of `scut api` (your decision):** `p` is the raw URL path, also when the user gave it to `scut api`. So `scut api /stories/some-text` logs `some-text`. The path shows which missing command each call could become. Its URL query is not logged, as for all other calls.
 
-**Token:** the logger replaces each match of `sct_[^"\\\s]+` in the encoded line with `***`, so a new field is covered with no new code. A secret can hold any character. A quote, a backslash or a space ends the match, so the line stays valid JSON. It uses a pattern, not the value, because a usage error can occur before the token loads. All other token rules of the v1 design stay.
+**Token:** the logger replaces each match of `sct_(?:[^"\\]|\\.)+` in the encoded line with `***`, so a new field is covered with no new code. A secret can hold any character, so the match goes to the end of the JSON string, and the rest of that string is lost. It takes an escape pair as a whole, so the line stays valid JSON. It uses a pattern, not the value, because a usage error can occur before the token loads. All other token rules of the v1 design stay.
 
 ## Where the log is
 

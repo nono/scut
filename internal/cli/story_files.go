@@ -78,7 +78,7 @@ func newStoryFiles(env Env) *cobra.Command {
 		Use:         "files [<story>] --out <dir>",
 		Short:       "Download the files attached to a story",
 		Args:        cobra.MaximumNArgs(1),
-		Annotations: map[string]string{OpsAnnotation: "listStoryFiles", IDArgsAnnotation: "true"},
+		Annotations: map[string]string{OpsAnnotation: "listStoryFiles", IDArgsAnnotation: "sc-"},
 	}
 	outFlag := cmd.Flags().String("out", "", "directory to write the files to")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {

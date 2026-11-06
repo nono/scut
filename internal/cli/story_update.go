@@ -47,7 +47,7 @@ func newStoryUpdate(env Env) *cobra.Command {
 		Long: "Change one story, or make the same change to several stories in one call per 100 stories.\n" +
 			"With several stories, the output is a list, and --name and --description-file are not allowed.",
 		Args:        cobra.MinimumNArgs(1),
-		Annotations: map[string]string{OpsAnnotation: "updateStory,bulkUpdateStories,getStory,listStories,listWorkflows,searchEpics,listMembers,getWhoami,listCustomFields", IDArgsAnnotation: "true"},
+		Annotations: map[string]string{OpsAnnotation: "updateStory,bulkUpdateStories,getStory,listStories,listWorkflows,searchEpics,listMembers,getWhoami,listCustomFields", IDArgsAnnotation: "sc-"},
 	}
 	var u updateFlags
 	f := cmd.Flags()

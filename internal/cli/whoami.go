@@ -15,8 +15,9 @@ import (
 const OpsAnnotation = "scut/ops"
 
 // IDArgsAnnotation marks a command whose positional arguments are IDs or story
-// references. Another command can get a search query or a name in the form of
-// an ID, so the log keeps no IDs for it.
+// references. Its value is a prefix that an ID can have: sc- for a story, none
+// for an epic, whose name can be sc-12. Another command can get a search query
+// or a name in the form of an ID, so the log keeps no IDs for it.
 const IDArgsAnnotation = "scut/id-args"
 
 // Ops returns the operationIds of the OpsAnnotation of c: "*" for scut api,

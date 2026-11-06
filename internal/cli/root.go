@@ -218,12 +218,14 @@ func Execute(args []string, stdout, stderr io.Writer, env Env) int {
 	raw := map[string]string{}
 	cmd.Flags().Visit(func(f *pflag.Flag) { raw[f.Name] = f.Value.String() })
 	_, name, _ := strings.Cut(cmd.CommandPath(), " ")
+	idPrefix, idArgs := cmd.Annotations[IDArgsAnnotation]
 	env.Rec.Finish(runlog.Result{
 		Version:  transport.Version,
 		Dir:      env.Dir,
 		Cmd:      name,
 		Args:     cmd.Flags().Args(),
-		IDArgs:   cmd.Annotations[IDArgsAnnotation] != "",
+		IDArgs:   idArgs,
+		IDPrefix: idPrefix,
 		ArgsCut:  badFlag,
 		Flags:    raw,
 		OutBytes: out.n,

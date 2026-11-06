@@ -175,6 +175,26 @@ func TestFileTimeoutSameTextWithLog(t *testing.T) {
 	}
 }
 
+func TestRunLogIDForms(t *testing.T) {
+	for _, c := range []struct {
+		args []string
+		want any
+	}{
+		{[]string{"story", "view", "sc-12"}, []any{12.0}},
+		{[]string{"story", "view", "00000000-0000-4000-8000-0000000000aa"}, nil},
+		{[]string{"epic", "view", "12"}, []any{12.0}},
+		{[]string{"epic", "view", "sc-12"}, nil}, // the name of an epic
+		{[]string{"epic", "stories", "sc-12"}, nil},
+		{[]string{"epic", "comment", "sc-12"}, nil},
+	} {
+		h := newHarness(t, anyRoute(), "", tokenVars())
+		h.run(c.args...)
+		if got := lastLine(t, h)["ids"]; !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%v: ids = %v, want %v", c.args, got, c.want)
+		}
+	}
+}
+
 func TestRunLogRetries(t *testing.T) {
 	var n atomic.Int32
 	h := newHarness(t, map[string]http.HandlerFunc{"/": func(w http.ResponseWriter, r *http.Request) {

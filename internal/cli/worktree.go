@@ -40,7 +40,7 @@ func newWorktree(env Env) *cobra.Command {
 			"in a worktree, a local branch, a branch on origin (after a fetch if none is found), " +
 			"else a new branch with the name that Shortcut suggests, from origin/HEAD (else origin/main).",
 		Args:        cobra.MaximumNArgs(1),
-		Annotations: map[string]string{OpsAnnotation: "getStory,listWorkflowStatesWithinAWorkflow,getWhoami,updateStory", IDArgsAnnotation: "true"},
+		Annotations: map[string]string{OpsAnnotation: "getStory,listWorkflowStatesWithinAWorkflow,getWhoami,updateStory", IDArgsAnnotation: "sc-"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ids, err := storyIDs(env, args)
 			if err != nil {
