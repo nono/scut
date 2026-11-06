@@ -62,13 +62,13 @@ Write the text to a file with your file tool. Then pass `--description-file <fil
 
 ## Log
 
-Each run that a panic, `SIGKILL` or `SIGTERM` does not stop adds one JSON line to `~/.local/state/scut/scut.log` (older lines are in `scut.log.1`). `$XDG_STATE_HOME` changes the directory. Fields: `t`, `v`, `session`, `cwd`, `cmd`, `ids`, `args_n`, `flags`, `ms`, `out_bytes`, `exit`, `error`, `api`, `http` (the first 100 tries: `m`, `p` or `h`, `s`, `ms`, `err`), `http_n` (the true count, when `http` is cut).
+Each run adds one JSON line to `~/.local/state/scut/scut.log` (older lines are in `scut.log.1`). `$XDG_STATE_HOME` changes the directory. Fields: `t`, `v`, `session`, `cwd`, `cmd`, `ids`, `args_n`, `flags`, `ms`, `out_bytes`, `exit`, `error`, `api`, `http` (the first 100 tries: `m`, `p` or `h`, `s`, `ms`, `err`), `http_n` (the true count, when `http` is cut). A run that a panic or a signal other than SIGINT and SIGPIPE stops has no line, and `SCUT_LOG=off` stops the log.
 
-Read it when the user asks about scut usage or a past failure, or when an error on stderr does not explain itself. Do not read it on each failure. `fromjson?` skips a line that a full disk broke.
+Read it when the user asks about scut usage or a past failure, or when an error on stderr does not explain itself. Do not read it on each failure. The recipes skip a broken line and a blank line, so do not count runs with `wc -l`.
 
 ```sh
-jq -cR 'fromjson?|select(.exit!=0)|{t,cmd,exit,error}' ~/.local/state/scut/scut.log
-jq -R 'fromjson?' ~/.local/state/scut/scut.log | jq -s -c 'map(select(.session))|group_by([.session,.cmd])|map({session:.[0].session,cmd:.[0].cmd,n:length})|map(select(.n>=3))|.[]'  # bulk candidates
+jq -cR 'fromjson?|objects|select(.exit!=0)|{t,cmd,exit,error}' ~/.local/state/scut/scut.log
+jq -cR 'fromjson?|objects' ~/.local/state/scut/scut.log | jq -s -c 'map(select(.session))|group_by([.session,.cmd])|map({session:.[0].session,cmd:.[0].cmd,n:length})|map(select(.n>=3))|.[]'  # bulk candidates
 ```
 
 ## Not supported

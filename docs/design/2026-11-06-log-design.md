@@ -17,7 +17,7 @@ Only the user and Claude Code read the log, on the machine of the user.
 
 ## Goals
 
-- Each run of `scut` adds one JSON line to a local file.
+- Each run of `scut` adds one JSON line to a local file. The non-goals and the size limit below list the exceptions.
 - The line has facts: command, flag names, IDs, each HTTP try, duration, exit code, error.
 - The total size of the log has a limit.
 - The skill tells Claude Code where the log is, what it has, and when to read it.
@@ -27,7 +27,7 @@ Only the user and Claude Code read the log, on the machine of the user.
 - Sending the log to a server, or collecting the logs of other machines.
 - A `scut log` or `scut stats` command. JSON Lines and `jq` are sufficient at first (my call). Add a command only if real use shows a need.
 - Debug output on stderr, or a verbosity flag.
-- A line for a run that a panic, `SIGKILL` or `SIGTERM` stops. `SIGINT` writes a line, with exit 130. A closed stdout pipe writes a line, with exit 141 and nothing on stderr, as a process that `SIGPIPE` stops.
+- A line for a run that a panic or a signal other than `SIGINT` and `SIGPIPE` stops, for example `SIGKILL`, `SIGTERM` or `SIGHUP`. `SIGINT` writes a line, with exit 130. A closed stdout pipe writes a line, with exit 141 and nothing on stderr, as a process that `SIGPIPE` stops.
 - Git commands that `scut worktree` runs.
 
 ## Anti-goals
@@ -107,6 +107,7 @@ The log is on by default, and the README says so, with what it records and how t
 - Two processes can both see a full file. If both rename, the second rename replaces the full `.1` with a small file, and the history is lost. So the rename needs a non-blocking `flock`. The process that gets the lock checks the size again and renames. A process that does not get the lock writes its line and does not rename.
 - A process that opened the file before the rename writes its line to `.1`. This is harmless. A process that holds the file across two rotations writes to a deleted file, and its line is lost. That needs about 17,000 other runs during one write.
 - A short write, for example on a full disk, leaves a line with no newline. The next process sees this and starts with a newline, so that its own line stays whole. The recipes skip the broken line.
+- A process can also see a line that another process is writing, and add a newline that is not necessary. The log then has a blank line (about 1 in 400 lines with 8 processes in a loop). No line is lost or joined. We accept this (your decision, 2026-11-06), because a second look at the size makes it rarer but does not stop it. So `wc -l` can count too many runs.
 
 `syscall.Flock` does not compile on Windows. The release is Linux only, so this is acceptable now. A Windows port needs its own lock.
 
@@ -134,40 +135,41 @@ Claude Code needs a permission to read a file outside the project, or to run `jq
 
 ## Recipes
 
-I ran these on a log from the real binary that has one broken line. `fromjson?` skips a broken line.
+I ran these on a log from the real binary that has one broken line and one blank line. `fromjson?` skips a broken line, and `objects` also skips a blank line on a `jq` that reads it as null.
 
 ```sh
 L=~/.local/state/scut/scut.log
 
 # Usage and failures for each command
-jq -R 'fromjson?' "$L" | jq -s -c 'group_by(.cmd)|map({cmd:.[0].cmd,n:length,failed:(map(select(.exit!=0))|length)})|sort_by(-.n)|.[]'
+jq -cR 'fromjson?|objects' "$L" | jq -s -c 'group_by(.cmd)|map({cmd:.[0].cmd,n:length,failed:(map(select(.exit!=0))|length)})|sort_by(-.n)|.[]'
 
 # Failures
-jq -cR 'fromjson?|select(.exit!=0)|{t,cmd,exit,error}' "$L"
+jq -cR 'fromjson?|objects|select(.exit!=0)|{t,cmd,exit,error}' "$L"
 
 # Bulk candidates: the same command 3 or more times in one session
-jq -R 'fromjson?' "$L" | jq -s -c 'map(select(.session))|group_by([.session,.cmd])|map({session:.[0].session,cmd:.[0].cmd,n:length})|map(select(.n>=3))|.[]'
+jq -cR 'fromjson?|objects' "$L" | jq -s -c 'map(select(.session))|group_by([.session,.cmd])|map({session:.[0].session,cmd:.[0].cmd,n:length})|map(select(.n>=3))|.[]'
 
 # Runs with a rate limit or a server failure
-jq -cR 'fromjson?|select(.http)|select(any(.http[];.s==429 or .s>=500))|{t,cmd,exit,codes:[.http[].s]}' "$L"
+jq -cR 'fromjson?|objects|select(.http)|select(any(.http[];.s==429 or .s>=500))|{t,cmd,exit,codes:[.http[].s]}' "$L"
 
 # What scut api calls: each result is a possible missing command
-jq -cR 'fromjson?|select(.cmd=="api")|.http[]?|{m,p}' "$L"
+jq -cR 'fromjson?|objects|select(.cmd=="api")|.http[]?|{m,p}' "$L"
 ```
 
 ## Tests
 
 `make lint test`, plus:
 
-- **No text, for each command:** walk the command tree. With a valid token and a fake API, make one run with valid arguments, one run with a marker in each place of a positional argument, and one run with a marker in each non-bool flag that is not in the allowlist. A command that calls the API must reach HTTP in the run with valid arguments, and a write must send its write method. A flag run can stop at validation. Assert that the marker is not in `flags`, `ids`, `cmd` or `http`. A new command or flag is thus covered with no new test. The test has its own copy of the allowlist and of the ID commands, so a change to either must also change the test. The check does not cover `error` and `api`, by the rule above. It also does not cover `p` for the positional argument of `scut api`, but the check of the other fields and of the flags of `scut api` stays.
+- **No text, for each command:** walk the command tree. With a valid token and a fake API, make one run with valid arguments, one run with a marker in each place of a positional argument, and one run with a marker in each non-bool flag that is not in the allowlist. A command that calls the API must reach HTTP in the run with valid arguments. A command with a write operation in the spec must have a method in its walk case and send it. A flag run can stop at validation. Assert that the marker is not in `flags`, `ids`, `cmd` or `http`. A new command or flag is thus covered with no new test. The test has its own copy of the allowlist and of the ID commands, so a change to either must also change the test. The check does not cover `error` and `api`, by the rule above. It also does not cover `p` for the positional argument of `scut api`, but the check of the other fields and of the flags of `scut api` stays.
 - **No query:** a search run has its query in no field of the line, on a 200, a 400 and a 503.
 - **No token:** plant a fake `sct_` token in an API error, in a usage error and in a transport error, and a secret with characters outside letters and digits. Assert that it is not in the line.
 - **File download:** the entry has the host, and no path and no query.
 - **Retries:** a run with 503 then 200 gives two `http` entries.
 - **Truncation:** long values and long lists are cut at the limits, the result is valid JSON, and a cut does not split a UTF-8 character.
-- **Rotation:** a file of 5 MiB rotates. An old `.1` is replaced. Concurrent goroutines keep all lines, and at most one rename occurs for a full file. Run with the race detector. Other tests hold the lock and assert no wait and no rename, call the rename step on a small file and assert no rename, and stop at the hard limit when the rename fails.
+- **Rotation:** a file of 5 MiB rotates. An old `.1` is replaced. Concurrent goroutines keep all lines, no line joins another, a blank line is permitted, and at most one rename occurs for a full file. Run with the race detector. Other tests hold the lock and assert no wait and no rename, call the rename step on a small file and assert no rename, and stop at the hard limit when the rename fails.
 - **Broken line:** the next line starts after a newline.
-- **Modes and file type:** an existing 0755 directory and 0644 log get 0700 and 0600. A FIFO at the log path does not block.
+- **Modes and file type:** an existing 0755 directory and 0644 log and `.1` get 0700 and 0600. A directory that cannot be private gets no line. No test covers a failed chmod of the log, because that needs a file of another user that this user can write to. A FIFO at the log path does not block.
+- **Closed pipe:** a real process with no reader on fd 1 exits 141 and writes a line.
 - **Failure of the log:** with a state directory that cannot be written, stdout, stderr and the exit code are the same as with a working log.
 - **`SCUT_LOG=off`:** no file is made.
 - **No HOME:** no file is made, and no error occurs.

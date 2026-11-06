@@ -217,7 +217,7 @@ A command checks its flags and arguments before it reads the token, so such a us
 
 ### Run log
 
-Each run adds one JSON line to a local log (see `2026-11-06-log-design.md`).
+Each run adds one JSON line to a local log, with the exceptions that the log design lists (see `2026-11-06-log-design.md`).
 
 ### Agent skill
 

@@ -150,7 +150,7 @@ Each write is its own subcommand. Thus a Claude Code rule such as `Bash(scut sto
 
 ## Log
 
-`scut` adds one JSON line to a local log for each run that a panic, `SIGKILL` or `SIGTERM` does not stop, to help debug failures and show how `scut` is used. The log is on by default. It stays on your machine: `scut` never sends it.
+`scut` adds one JSON line to a local log for each run, to help debug failures and show how `scut` is used. The log is on by default. It stays on your machine: `scut` never sends it.
 
 - **Location:** `$XDG_STATE_HOME/scut/scut.log`, or `~/.local/state/scut/scut.log`.
 - **Records:** time, version, Claude Code session, directory, command, IDs, flag names, some flag values (`limit`, `comments`, `fields`, `format`, `depth`, `method`, `state`, `workflow`, `team`, `type`), duration, output size, exit code, and the method, path, status and duration of each HTTP try.
@@ -158,9 +158,11 @@ Each write is its own subcommand. Thus a Claude Code rule such as `Bash(scut sto
 - **Exceptions:** an error message can quote your input or text from Shortcut (cut at 1 KB), the log keeps the path that you give to `scut api`, and it keeps any text that you type in the flags listed above.
 - **Size:** at 5 MiB, `scut.log` becomes `scut.log.1`, which replaces the old one. So the log is at most about 10 MiB. If that rename fails, `scut.log` stops at 10 MiB.
 - **Stop it:** set `SCUT_LOG=off`.
+- **No line:** a run that a panic or a signal other than `SIGINT` and `SIGPIPE` stops has no line.
+- **Blank lines:** concurrent runs can add a blank line, so do not count runs with `wc -l`.
 
 ```sh
-jq -cR 'fromjson?|select(.exit!=0)|{t,cmd,exit,error}' ~/.local/state/scut/scut.log
+jq -cR 'fromjson?|objects|select(.exit!=0)|{t,cmd,exit,error}' ~/.local/state/scut/scut.log
 ```
 
 ## Not supported
