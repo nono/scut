@@ -107,6 +107,7 @@ func newStoryFiles(env Env) *cobra.Command {
 				hosts = defaultFileHosts
 			}
 			client := fileClient(env.FileClient, hosts)
+			client.Transport = env.Rec.Files(client.Transport)
 			if len(items) > 0 {
 				if err := os.MkdirAll(out, 0o755); err != nil {
 					return &exit.Error{Code: exit.Other, Msg: err.Error()}

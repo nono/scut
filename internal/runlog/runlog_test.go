@@ -181,10 +181,7 @@ func TestEncodeScrubsToken(t *testing.T) {
 	base := roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 200, Body: http.NoBody}, nil
 	})
-	req := httptest.NewRequest(http.MethodGet, "https://example.test/x/"+tok, nil)
-	if _, err := r.API(base).RoundTrip(req); err != nil {
-		t.Fatal(err)
-	}
+	trip(t, r.API(base), "https://example.test/x/"+tok)
 	for name, res := range map[string]Result{
 		"error": {Err: errors.New("bad " + tok)},
 		"dir":   {Dir: "/x/" + tok},
@@ -225,6 +222,15 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
+func trip(t *testing.T, rt http.RoundTripper, url string) {
+	t.Helper()
+	resp, err := rt.RoundTrip(httptest.NewRequest(http.MethodGet, url, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+}
+
 func TestAPITransport(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
@@ -259,7 +265,9 @@ func TestTransportError(t *testing.T) {
 		return nil, errors.New(strings.Repeat("x", 500))
 	})
 	req := httptest.NewRequest(http.MethodGet, "https://example.test/x", nil)
-	if _, err := r.API(base).RoundTrip(req); err == nil {
+	resp, err := r.API(base).RoundTrip(req)
+	if err == nil {
+		_ = resp.Body.Close()
 		t.Fatal("the error must reach the caller")
 	}
 	e := decodeLine(t, r.encode(Result{}))["http"].([]any)[0].(map[string]any)
@@ -275,9 +283,7 @@ func TestTransportLimit(t *testing.T) {
 	})
 	rt := r.API(base)
 	for range 150 {
-		if _, err := rt.RoundTrip(httptest.NewRequest(http.MethodGet, "https://example.test/x", nil)); err != nil {
-			t.Fatal(err)
-		}
+		trip(t, rt, "https://example.test/x")
 	}
 	m := decodeLine(t, r.encode(Result{}))
 	if n := len(m["http"].([]any)); n != 100 {
@@ -296,10 +302,7 @@ func TestFilesTransport(t *testing.T) {
 	base := roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 200, Body: http.NoBody}, nil
 	})
-	req := httptest.NewRequest(http.MethodGet, "https://files.example.test/a/name.png?x=secret", nil)
-	if _, err := r.Files(base).RoundTrip(req); err != nil {
-		t.Fatal(err)
-	}
+	trip(t, r.Files(base), "https://files.example.test/a/name.png?x=secret")
 	b := r.encode(Result{})
 	if s := string(b); strings.Contains(s, "name.png") || strings.Contains(s, "secret") {
 		t.Errorf("file text in the line: %s", b)

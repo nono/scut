@@ -17,6 +17,7 @@ import (
 
 	"github.com/nono/scut/internal/config"
 	"github.com/nono/scut/internal/exit"
+	"github.com/nono/scut/internal/runlog"
 	"github.com/nono/scut/internal/transport"
 )
 
@@ -34,6 +35,7 @@ type Env struct {
 	Now          func() time.Time             // nil: time.Now
 	FileClient   *http.Client                 // nil: a new client for the file host
 	FileHosts    []string                     // hosts that get the file token; nil: the Shortcut hosts
+	Rec          *runlog.Recorder             // the record of this run, set by Execute; nil: no record
 }
 
 // OSEnv returns the Env of the running process.
@@ -194,9 +196,45 @@ func usageArgs(c *cobra.Command) {
 func Execute(args []string, stdout, stderr io.Writer, env Env) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	return execute(ctx, args, stdout, stderr, env)
+}
+
+// execute runs scut and writes the line of the run to the log.
+func execute(ctx context.Context, args []string, stdout, stderr io.Writer, env Env) int {
+	now := env.Now
+	if now == nil {
+		now = time.Now
+	}
+	env.Rec = runlog.Start(env.Getenv, now)
+	out := &countWriter{w: stdout}
 	root := NewRoot(env)
-	root.SetOut(stdout)
-	return RunContext(ctx, root, args, stderr)
+	root.SetOut(out)
+	code, cmd, err := run(ctx, root, args, stderr)
+	raw := map[string]string{}
+	cmd.Flags().Visit(func(f *pflag.Flag) { raw[f.Name] = f.Value.String() })
+	env.Rec.Finish(runlog.Result{
+		Version:  transport.Version,
+		Dir:      env.Dir,
+		Cmd:      strings.TrimPrefix(strings.TrimPrefix(cmd.CommandPath(), root.Name()), " "),
+		Args:     cmd.Flags().Args(),
+		Flags:    raw,
+		OutBytes: out.n,
+		Exit:     code,
+		Err:      err,
+	})
+	return code
+}
+
+// countWriter counts the bytes that a command writes to stdout.
+type countWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (c *countWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += int64(n)
+	return n, err
 }
 
 // RunContext runs root with args and ctx. It writes any error as JSON to stderr
@@ -204,18 +242,24 @@ func Execute(args []string, stdout, stderr io.Writer, env Env) int {
 // unless the command returns an *exit.Error with code 130: then it is written,
 // so the command can say what it did before the cancel.
 func RunContext(ctx context.Context, root *cobra.Command, args []string, stderr io.Writer) int {
+	code, _, _ := run(ctx, root, args, stderr)
+	return code
+}
+
+// run is RunContext that also returns the command that ran and its error.
+func run(ctx context.Context, root *cobra.Command, args []string, stderr io.Writer) (int, *cobra.Command, error) {
 	root.SetArgs(args)
 	root.SetErr(stderr)
-	err := root.ExecuteContext(ctx)
+	cmd, err := root.ExecuteContextC(ctx)
 	if err == nil {
-		return int(exit.OK)
+		return int(exit.OK), cmd, nil
 	}
 	if ctx.Err() != nil {
 		var e *exit.Error
 		if errors.As(err, &e) && e.Code == exit.Cancelled {
-			return int(exit.Write(stderr, err))
+			return int(exit.Write(stderr, err)), cmd, err
 		}
-		return int(exit.Cancelled)
+		return int(exit.Cancelled), cmd, err
 	}
-	return int(exit.Write(stderr, err))
+	return int(exit.Write(stderr, err)), cmd, err
 }

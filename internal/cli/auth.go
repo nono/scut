@@ -47,6 +47,7 @@ func newAuthLogin(env Env) *cobra.Command {
 			if env.APIBase != "" {
 				opts = append(opts, transport.WithBaseURL(env.APIBase))
 			}
+			opts = append(opts, transport.WithRoundTripper(env.Rec.API(nil)))
 			d := transport.New(config.Settings{Profile: profile, Token: tok, Scopes: scopes, Workspace: workspace}, opts...)
 			w, err := getWhoami(cmd.Context(), d)
 			if err != nil {

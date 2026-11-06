@@ -74,6 +74,7 @@ func TestLive(t *testing.T) {
 		"XDG_CACHE_HOME="+t.TempDir(),
 		"XDG_CONFIG_HOME="+t.TempDir(),
 		"SCUT_OUTPUT=json",
+		"SCUT_LOG=off", // so that tests do not fill the real log
 	)
 	run := func(t *testing.T, args ...string) []byte {
 		t.Helper()

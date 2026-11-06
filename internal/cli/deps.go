@@ -62,6 +62,7 @@ func newDeps(cmd *cobra.Command, env Env) (*deps, error) {
 	if env.Sleep != nil {
 		opts = append(opts, transport.WithSleep(env.Sleep))
 	}
+	opts = append(opts, transport.WithRoundTripper(env.Rec.API(nil)))
 	d := transport.New(s, opts...)
 	c := cache.New(s.CacheDir, cacheTTL, time.Now)
 	human := s.Output == "human"
