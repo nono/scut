@@ -44,6 +44,7 @@ func Logged(flag string) bool { return loggedFlags[flag] }
 type Result struct {
 	Version, Dir, Cmd string
 	Args              []string
+	IDArgs            bool // the arguments of this command are IDs: keep them in ids
 	Flags             map[string]string
 	OutBytes          int64
 	Exit              int
@@ -178,12 +179,14 @@ func (r *Recorder) encode(res Result) []byte {
 		Session:  r.session,
 		Dir:      res.Dir,
 		Cmd:      res.Cmd,
-		IDs:      ids(res.Args),
 		ArgsN:    len(res.Args),
 		Flags:    flags(res.Flags),
 		MS:       r.now().Sub(r.start).Milliseconds(),
 		OutBytes: res.OutBytes,
 		Exit:     res.Exit,
+	}
+	if res.IDArgs {
+		l.IDs = ids(res.Args)
 	}
 	if res.Err != nil {
 		l.Error = cut(res.Err.Error(), maxError)

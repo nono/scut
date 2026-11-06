@@ -87,6 +87,23 @@ func TestRunLogSuccess(t *testing.T) {
 	}
 }
 
+// A search query or a name in ID form is not an ID.
+func TestRunLogIDsOnlyForIDCommands(t *testing.T) {
+	for _, args := range [][]string{
+		{"story", "search", "20261106"},
+		{"epic", "search", "20261106"},
+		{"doc", "search", "20261106"},
+		{"doc", "view", "20261106"},
+		{"spec", "20261106"},
+	} {
+		h := newHarness(t, anyRoute(), "", withToken)
+		h.run(args...)
+		if l := lastLine(t, h); l["ids"] != nil || l["args_n"] != float64(len(args)-len(strings.Fields(l["cmd"].(string)))) {
+			t.Errorf("%v: %v", args, l)
+		}
+	}
+}
+
 func TestRunLogRetries(t *testing.T) {
 	var n atomic.Int32
 	h := newHarness(t, map[string]http.HandlerFunc{"/": func(w http.ResponseWriter, r *http.Request) {

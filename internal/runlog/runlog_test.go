@@ -83,7 +83,7 @@ func TestNilRecorder(t *testing.T) {
 
 func TestEncodeIDs(t *testing.T) {
 	r := newRec(t, nil)
-	m := decodeLine(t, r.encode(Result{Args: []string{
+	m := decodeLine(t, r.encode(Result{IDArgs: true, Args: []string{
 		"sc-12", "13", "007", "99999999999999999999", testUUID, "some text", "misc-12",
 		"https://app.shortcut.com/example-ws/story/14/a-title",
 	}}))
@@ -102,11 +102,21 @@ func TestEncodeIDsLimit(t *testing.T) {
 	for i := range args {
 		args[i] = strconv.Itoa(i + 1)
 	}
-	m := decodeLine(t, r.encode(Result{Args: args}))
+	m := decodeLine(t, r.encode(Result{IDArgs: true, Args: args}))
 	if ids := m["ids"].([]any); len(ids) != 100 {
 		t.Errorf("len(ids) = %d", len(ids))
 	}
 	if m["args_n"] != 150.0 {
+		t.Errorf("args_n = %v", m["args_n"])
+	}
+}
+
+func TestEncodeNoIDArgs(t *testing.T) {
+	m := decodeLine(t, newRec(t, nil).encode(Result{Args: []string{"1234", testUUID}}))
+	if _, ok := m["ids"]; ok {
+		t.Errorf("ids = %v", m["ids"])
+	}
+	if m["args_n"] != 2.0 {
 		t.Errorf("args_n = %v", m["args_n"])
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -196,7 +197,21 @@ func usageArgs(c *cobra.Command) {
 func Execute(args []string, stdout, stderr io.Writer, env Env) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	// With a handler, a write to a closed stdout returns EPIPE and does not
+	// stop the process, so the run can write its log line.
+	signal.Notify(make(chan os.Signal, 1), syscall.SIGPIPE)
 	return execute(ctx, args, stdout, stderr, env)
+}
+
+// idCommands are the commands whose positional arguments are IDs or story
+// references. Another command can get a search query or a name in the form of
+// an ID, so the log keeps no IDs for it.
+var idCommands = map[string]bool{
+	"story view": true, "story update": true, "story comment": true, "story comments": true,
+	"story link": true, "story unlink": true, "story relink": true, "story subtasks": true,
+	"story branch": true, "story files": true,
+	"epic view": true, "epic stories": true, "epic comment": true,
+	"worktree": true,
 }
 
 // execute runs scut and writes the line of the run to the log.
@@ -209,14 +224,19 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer, env E
 	out := &countWriter{w: stdout}
 	root := NewRoot(env)
 	root.SetOut(out)
-	code, cmd, err := run(ctx, root, args, stderr)
+	code, cmd, err := run(ctx, root, args, out.errWriter(stderr))
+	if out.broken != nil {
+		code, err = int(exit.BrokenPipe), out.broken
+	}
 	raw := map[string]string{}
 	cmd.Flags().Visit(func(f *pflag.Flag) { raw[f.Name] = f.Value.String() })
+	name := strings.TrimPrefix(strings.TrimPrefix(cmd.CommandPath(), root.Name()), " ")
 	env.Rec.Finish(runlog.Result{
 		Version:  transport.Version,
 		Dir:      env.Dir,
-		Cmd:      strings.TrimPrefix(strings.TrimPrefix(cmd.CommandPath(), root.Name()), " "),
+		Cmd:      name,
 		Args:     cmd.Flags().Args(),
+		IDArgs:   idCommands[name],
 		Flags:    raw,
 		OutBytes: out.n,
 		Exit:     code,
@@ -225,17 +245,37 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer, env E
 	return code
 }
 
-// countWriter counts the bytes that a command writes to stdout.
+// countWriter counts the bytes that a command writes to stdout, and keeps the
+// error of a write to a closed pipe.
 type countWriter struct {
-	w io.Writer
-	n int64
+	w      io.Writer
+	n      int64
+	broken error
 }
 
 func (c *countWriter) Write(p []byte) (int, error) {
 	n, err := c.w.Write(p)
 	c.n += int64(n)
+	if errors.Is(err, syscall.EPIPE) {
+		c.broken = err
+	}
 	return n, err
 }
+
+// errWriter returns stderr with no output after a write to a closed stdout:
+// such a run prints no error, as a process that SIGPIPE stops.
+func (c *countWriter) errWriter(stderr io.Writer) io.Writer {
+	return writerFunc(func(p []byte) (int, error) {
+		if c.broken != nil {
+			return len(p), nil
+		}
+		return stderr.Write(p)
+	})
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 
 // RunContext runs root with args and ctx. It writes any error as JSON to stderr
 // and returns the exit code. A cancelled context gives 130, with no output
