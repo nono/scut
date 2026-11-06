@@ -66,7 +66,7 @@ A failed run, with a retry:
 | `args_n` | Number of positional arguments | Also shows the true count when `ids` is cut. Left out after a flag parse error, because pflag stops at the bad flag. `ids` and `flags` then hold only what came before it. |
 | `flags` | Each flag that the user set, name to value | The value is present only for the names in the allowlist, at most 200 bytes. Other flags have `""`. |
 | `ms` | Duration of the run | |
-| `out_bytes` | Bytes written to stdout | Shows outputs that are too large for an agent. |
+| `out_bytes` | Bytes written to stdout | Shows outputs that are too large for an agent. On a closed pipe, it also counts the bytes of the write that failed. |
 | `exit` | Exit code | |
 | `error` | `exit.Error.Msg`, or `err.Error()` for another error | Left out on success. At most 1 KB. |
 | `api` | `exit.Error.API`, as a string | Left out when empty. At most 1 KB. |

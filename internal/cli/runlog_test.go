@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -76,6 +77,46 @@ func TestRunLogBrokenPipe(t *testing.T) {
 	l := lastLine(t, h)
 	if l["exit"] != 141.0 || !strings.Contains(l["error"].(string), "broken pipe") {
 		t.Errorf("line = %v", l)
+	}
+	// The size of the output, not what the pipe took: the log must show a large
+	// output that a reader such as head cut.
+	_, full, _ := newHarness(t, nil, "", nil).run("spec", "getStory")
+	if l["out_bytes"] != float64(len(full)) {
+		t.Errorf("out_bytes = %v, want %d", l["out_bytes"], len(full))
+	}
+}
+
+// A real process with no reader on fd 1: only there does the Go runtime stop a
+// process on a closed pipe when it has no handler for SIGPIPE.
+func TestRunLogClosedPipeProcess(t *testing.T) {
+	if os.Getenv("SCUT_TEST_CLOSED_PIPE") != "" {
+		os.Exit(cli.Execute([]string{"spec", "getStory"}, os.Stdout, os.Stderr, cli.Env{Getenv: os.Getenv, Dir: "."}))
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = r.Close()
+	defer func() { _ = w.Close() }()
+	state := t.TempDir()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestRunLogClosedPipeProcess$")
+	cmd.Env = []string{"SCUT_TEST_CLOSED_PIPE=1", "XDG_STATE_HOME=" + state}
+	cmd.Stdout = w
+	var errb strings.Builder
+	cmd.Stderr = &errb
+	_ = cmd.Run()
+	if code := cmd.ProcessState.ExitCode(); code != 141 {
+		t.Fatalf("exit %d, %s: %s", code, cmd.ProcessState, errb.String())
+	}
+	if errb.Len() != 0 {
+		t.Errorf("stderr = %q", errb.String())
+	}
+	b, err := os.ReadFile(filepath.Join(state, "scut", "scut.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"exit":141`) {
+		t.Errorf("log = %s", b)
 	}
 }
 

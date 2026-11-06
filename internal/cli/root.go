@@ -235,8 +235,8 @@ func Execute(args []string, stdout, stderr io.Writer, env Env) int {
 	return code
 }
 
-// countWriter counts the bytes that a command writes to stdout, and keeps the
-// error of a write to a closed pipe.
+// countWriter counts the bytes that a command tries to write to stdout, and
+// keeps the error of a write to a closed pipe.
 type countWriter struct {
 	w      io.Writer
 	n      int64
@@ -248,6 +248,7 @@ func (c *countWriter) Write(p []byte) (int, error) {
 	c.n += int64(n)
 	if errors.Is(err, syscall.EPIPE) {
 		c.broken = err
+		c.n += int64(len(p) - n)
 	}
 	return n, err
 }
