@@ -88,6 +88,57 @@ func TestAppendFixesModes(t *testing.T) {
 	}
 }
 
+// A rotated log and an old .1 must also be private.
+func TestAppendFixesModeOfOldLog(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "scut.log")
+	seed(t, path, maxFile)
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := appendLine(path, []byte("a\n")); err != nil {
+		t.Fatal(err)
+	}
+	if m := mode(t, path+".1"); m != 0o600 {
+		t.Errorf("rotated log: mode %o", m)
+	}
+	if err := os.Chmod(path+".1", 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := appendLine(path, []byte("b\n")); err != nil {
+		t.Fatal(err)
+	}
+	if m := mode(t, path+".1"); m != 0o600 {
+		t.Errorf("old .1: mode %o", m)
+	}
+}
+
+// A directory that this user can write to but cannot chmod: the log cannot be
+// private, so there is no line. The chmod of the log itself needs a file of
+// another user that this user can write to, so no test covers its failure.
+func TestAppendNoLineWhenDirCannotBePrivate(t *testing.T) {
+	fi, err := os.Stat(os.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok || os.Geteuid() == 0 || int(st.Uid) == os.Geteuid() || fi.Mode().Perm()&0o002 == 0 {
+		t.Skip("needs a writable temp directory of another user, and no root")
+	}
+	link := filepath.Join(t.TempDir(), "scut")
+	if err := os.Symlink(os.TempDir(), link); err != nil {
+		t.Fatal(err)
+	}
+	name := "scut-test-" + filepath.Base(filepath.Dir(link)) + ".log"
+	t.Cleanup(func() { _ = os.Remove(filepath.Join(os.TempDir(), name)) })
+	if err := appendLine(filepath.Join(link, name), []byte("a\n")); err == nil {
+		t.Error("no error")
+	}
+	if _, err := os.Stat(filepath.Join(os.TempDir(), name)); !os.IsNotExist(err) {
+		t.Errorf("a line went to a directory that is not private: %v", err)
+	}
+}
+
 // A short write on a full disk leaves a line with no newline. The next line
 // must not join it.
 func TestAppendAfterTornLine(t *testing.T) {

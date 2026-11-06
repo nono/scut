@@ -28,6 +28,7 @@ func appendLine(path string, line []byte) error {
 	if logSize(path) >= maxFile {
 		rotate(path)
 	}
+	_ = os.Chmod(path+".1", 0o600) // usually there: a failure does not stop the write
 	// O_NONBLOCK: the open of a FIFO must not wait for a reader.
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR|syscall.O_NONBLOCK, 0o600)
 	if err != nil {

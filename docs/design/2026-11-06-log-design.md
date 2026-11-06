@@ -88,7 +88,7 @@ Because the entries come from each try, retries and redirects are visible. A cut
 
 - `$XDG_STATE_HOME/scut/scut.log`, or `$HOME/.local/state/scut/scut.log`.
 - A relative value counts as not set, as the XDG specification says, because a log under the current directory can be committed. With neither variable set, there is no log.
-- The directory has mode 0700 and the files have mode 0600, because the log holds IDs, paths and error text. scut also sets these modes on an existing directory and log. If it cannot, it writes no line.
+- The directory has mode 0700 and the files have mode 0600, because the log holds IDs, paths and error text. scut also sets these modes on an existing directory, log and `.1`. If it cannot set them on the directory or the log, it writes no line.
 - A log path that is not a regular file, such as a FIFO, gets no line. The open does not wait.
 - `SCUT_LOG=off` stops the log. There is no other setting. The config files do not control it, because the log must also record a config error.
 
