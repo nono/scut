@@ -87,11 +87,11 @@ func allowed(c *cobra.Command, spec specInfo) bool {
 		(len(cli.Ops(c)) > 0 || localReads[p])
 }
 
-// allowedTools is the allowed-tools value: the usage commands and each
+// allowedTools is the allowed-tools value: the usage commands, the log and each
 // allowed command, so that an agent can read without a permission prompt
 // and each write still asks.
 func allowedTools(root *cobra.Command, spec specInfo) string {
-	rules := []string{"Bash(scut usage:*)"}
+	rules := []string{"Bash(scut usage:*)", "Read(~/.local/state/scut/**)"}
 	for _, c := range root.Commands() {
 		if c.HasSubCommands() {
 			rules = append(rules, "Bash(scut "+c.Name()+" usage:*)")
