@@ -35,8 +35,8 @@ Only the user and Claude Code read the log, on the machine of the user.
 The change is a failure, even if it works, if:
 
 - The log has the token, in any field.
-- The log has text from a user or from Shortcut, other than the two exceptions below (error fields, the path of `scut api`): story names, descriptions, comments, search queries, file contents.
-- A failure of the log changes stdout, stderr or the exit code. A warning on stderr is already an anti-goal of the v1 design.
+- The log has text from a user or from Shortcut, other than the three exceptions below (error fields, the path of `scut api`, the flags in the allowlist): story names, descriptions, comments, search queries, file contents.
+- A write error of the log changes stdout, stderr or the exit code. A file system that blocks a write also blocks the run: scut cannot prevent this. A warning on stderr is already an anti-goal of the v1 design.
 - The log adds a noticeable delay. herdr runs `scut` for each action and event.
 
 ## What a line has
@@ -52,7 +52,7 @@ A successful run:
 A failed run, with a retry:
 
 ```json
-{"t":"2026-11-06T10:16:02.456Z","v":"v0.4.0","cwd":"/home/test/project","cmd":"team list","args_n":0,"ms":20100,"out_bytes":0,"exit":5,"error":"GET /api/v4/example-ws/teams: 503 Service Unavailable","http":[{"m":"GET","p":"/api/v4/example-ws/teams","s":503,"ms":40},{"m":"GET","p":"/api/v4/example-ws/teams","s":0,"ms":30000,"err":"context deadline exceeded"}]}
+{"t":"2026-11-06T10:16:02.456Z","v":"v0.4.0","cwd":"/home/test/project","cmd":"team list","args_n":0,"ms":20100,"out_bytes":0,"exit":5,"error":"GET api.app.shortcut.com /api/v4/example-ws/teams: context deadline exceeded","http":[{"m":"GET","p":"/api/v4/example-ws/teams","s":503,"ms":40},{"m":"GET","p":"/api/v4/example-ws/teams","s":0,"ms":19500,"err":"context deadline exceeded"}]}
 ```
 
 | Field | Content | Rule |
@@ -74,9 +74,9 @@ A failed run, with a retry:
 
 An `http` entry has `m` (method), `s` (status, 0 when there is no response), `ms` (time to the response headers) and `err` (the transport error, at most 200 bytes, only when `s` is 0). An API call has `p`, the URL path. A file download has `h`, the host, and no path, because a file URL holds the name of the file. No entry has a URL query, because a search query is there.
 
-Because the entries come from each try, retries and redirects are visible. A body that is cut after the headers shows in `error`, not in `http`.
+Because the entries come from each try, retries and redirects are visible. A cut 2xx body that no retry heals shows in `error`, not in `http`. A cut file body that a retry heals shows only as one more try.
 
-**Flag allowlist:** `limit`, `comments`, `fields`, `format`, `depth`, `method`, `state`, `workflow`, `team`, `type`. A new flag has no logged value until someone adds it. Values of `name`, `field`, `epic`, `label`, `owner`, `add-owner`, `remove-owner`, `requester`, `body-file`, `description-file`, `token-file`, `input`, `out`, `dir`, `branch`, `repo`, `parent`, `link` and `external-link` are not logged. `-f` of `scut api` also has no value in the log.
+**Flag allowlist (approved 2026-11-06):** `limit`, `comments`, `fields`, `format`, `depth`, `method`, `state`, `workflow`, `team`, `type`. These flags are for a number or a name. The log keeps any text that a user types there. A new flag has no logged value until someone adds it. Values of `name`, `field`, `epic`, `label`, `owner`, `add-owner`, `remove-owner`, `requester`, `body-file`, `description-file`, `token-file`, `input`, `out`, `dir`, `branch`, `repo`, `parent`, `link` and `external-link` are not logged. `-f` of `scut api` also has no value in the log.
 
 **Errors of scut itself:** `error` also holds errors that scut makes, not only API errors. Some of them quote an input, for example `-f "x" is not key=value` or a name that did not resolve. I keep them, because these errors are the best evidence of how an agent misuses scut (purposes 2 to 4). So input text can reach the log here, but only on a failed run.
 
@@ -96,7 +96,7 @@ The log is on by default, and the README says so, with what it records and how t
 
 ## Size limit
 
-- When `scut.log` has 5 MB or more at the start of a write, scut renames it to `scut.log.1`, which replaces the old `scut.log.1`. The log is thus at most about 10 MB.
+- When `scut.log` has 5 MiB or more at the start of a write, scut renames it to `scut.log.1`, which replaces the old `scut.log.1`. The log is thus at most about 10 MiB.
 - A typical line is about 300 bytes, so one file holds about 17,000 runs.
 - There is no compression, because `jq` and the Read tool must read the files directly.
 - If the rename cannot complete, the log grows until it has twice the size that starts a rotation. Then scut writes no more lines, and the run continues.
@@ -165,7 +165,7 @@ jq -cR 'fromjson?|select(.cmd=="api")|.http[]?|{m,p}' "$L"
 - **File download:** the entry has the host, and no path and no query.
 - **Retries:** a run with 503 then 200 gives two `http` entries.
 - **Truncation:** long values and long lists are cut at the limits, the result is valid JSON, and a cut does not split a UTF-8 character.
-- **Rotation:** a file of 5 MB rotates. An old `.1` is replaced. Concurrent goroutines keep all lines, and at most one rename occurs for a full file. Run with the race detector. Other tests hold the lock and assert no wait and no rename, call the rename step on a small file and assert no rename, and stop at the hard limit when the rename fails.
+- **Rotation:** a file of 5 MiB rotates. An old `.1` is replaced. Concurrent goroutines keep all lines, and at most one rename occurs for a full file. Run with the race detector. Other tests hold the lock and assert no wait and no rename, call the rename step on a small file and assert no rename, and stop at the hard limit when the rename fails.
 - **Broken line:** the next line starts after a newline.
 - **Modes and file type:** an existing 0755 directory and 0644 log get 0700 and 0600. A FIFO at the log path does not block.
 - **Failure of the log:** with a state directory that cannot be written, stdout, stderr and the exit code are the same as with a working log.

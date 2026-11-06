@@ -68,7 +68,7 @@ Write the text to a file with your file tool. Then pass `--description-file <fil
 
 ## Log
 
-Each run adds one JSON line to `~/.local/state/scut/scut.log` (older lines are in `scut.log.1`). `$XDG_STATE_HOME` changes the directory. Fields: `t`, `v`, `session`, `cwd`, `cmd`, `ids`, `args_n`, `flags`, `ms`, `out_bytes`, `exit`, `error`, `api`, `http` (each try: `m`, `p` or `h`, `s`, `ms`, `err`).
+Each run that a panic, `SIGKILL` or `SIGTERM` does not stop adds one JSON line to `~/.local/state/scut/scut.log` (older lines are in `scut.log.1`). `$XDG_STATE_HOME` changes the directory. Fields: `t`, `v`, `session`, `cwd`, `cmd`, `ids`, `args_n`, `flags`, `ms`, `out_bytes`, `exit`, `error`, `api`, `http` (the first 100 tries: `m`, `p` or `h`, `s`, `ms`, `err`), `http_n` (the true count, when `http` is cut).
 
 Read it when the user asks about scut usage or a past failure, or when an error on stderr does not explain itself. Do not read it on each failure. `fromjson?` skips a line that a full disk broke.
 

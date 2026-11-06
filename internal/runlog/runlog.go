@@ -1,6 +1,6 @@
 // Package runlog writes one JSON line of facts for each run of scut to a local
-// log. See docs/design/2026-11-06-log-design.md. A failure of the log has no
-// effect on the run.
+// log. See docs/design/2026-11-06-log-design.md. A write error of the log has
+// no effect on the run.
 package runlog
 
 import (
@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/nono/scut/internal/exit"
+	"github.com/nono/scut/internal/ref"
 )
 
 const (
@@ -25,15 +26,14 @@ const (
 )
 
 var (
-	idPattern   = regexp.MustCompile(`^(?:sc-)?([0-9]+)$`)
-	uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+	idPattern = regexp.MustCompile(`^(?:sc-)?([0-9]+)$`)
 	// A secret can hold any character. In the encoded line, a quote, a backslash
 	// or a space ends it, so the line stays valid JSON.
 	tokenPattern = regexp.MustCompile(`sct_[^"\\\s]+`)
 )
 
-// loggedFlags are the flags whose values cannot hold free text. A new flag has
-// no logged value until someone adds it here.
+// loggedFlags are the flags for a number or a name. The log keeps any text that
+// a user types there. A new flag has no logged value until someone adds it here.
 var loggedFlags = map[string]bool{
 	"limit": true, "comments": true, "fields": true, "format": true, "depth": true,
 	"method": true, "state": true, "workflow": true, "team": true, "type": true,
@@ -169,7 +169,7 @@ func (r *Recorder) Finish(res Result) {
 		return
 	}
 	if b := r.encode(res); b != nil {
-		_ = appendLine(r.path, b) // a failure of the log has no effect on the run
+		_ = appendLine(r.path, b) // a write error of the log has no effect on the run
 	}
 }
 
@@ -217,14 +217,15 @@ func (r *Recorder) encode(res Result) []byte {
 	return tokenPattern.ReplaceAll(b.Bytes(), []byte("***"))
 }
 
-// ids keeps each argument that is an ID. An ID cannot hold text.
+// ids keeps each argument in the form of an ID. The caller sets IDArgs only for
+// a command that takes IDs, because a query in that form is not an ID.
 func ids(args []string) []any {
 	var out []any
 	for _, a := range args {
 		if len(out) == maxEntries {
 			break
 		}
-		if uuidPattern.MatchString(a) {
+		if ref.IsUUID(a) {
 			out = append(out, a)
 		} else if m := idPattern.FindStringSubmatch(a); m != nil {
 			if n, err := strconv.ParseInt(m[1], 10, 64); err == nil {
