@@ -64,11 +64,11 @@ Write the text to a file with your file tool. Then pass `--description-file <fil
 
 Each run adds one JSON line to `~/.local/state/scut/scut.log` (older lines are in `scut.log.1`). `$XDG_STATE_HOME` changes the directory. Fields: `t`, `v`, `session`, `cwd`, `cmd`, `ids`, `args_n`, `flags`, `ms`, `out_bytes`, `exit`, `error`, `api`, `http` (each try: `m`, `p` or `h`, `s`, `ms`, `err`).
 
-Read it when the user asks about scut usage or a past failure, or when an error on stderr does not explain itself. Do not read it on each failure.
+Read it when the user asks about scut usage or a past failure, or when an error on stderr does not explain itself. Do not read it on each failure. `fromjson?` skips a line that a full disk broke.
 
 ```sh
-jq -c 'select(.exit!=0)|{t,cmd,exit,error}' ~/.local/state/scut/scut.log
-jq -s -c 'map(select(.session))|group_by([.session,.cmd])|map({session:.[0].session,cmd:.[0].cmd,n:length})|map(select(.n>=3))|.[]' ~/.local/state/scut/scut.log  # bulk candidates
+jq -cR 'fromjson?|select(.exit!=0)|{t,cmd,exit,error}' ~/.local/state/scut/scut.log
+jq -R 'fromjson?' ~/.local/state/scut/scut.log | jq -s -c 'map(select(.session))|group_by([.session,.cmd])|map({session:.[0].session,cmd:.[0].cmd,n:length})|map(select(.n>=3))|.[]'  # bulk candidates
 ```
 
 ## Not supported

@@ -27,7 +27,7 @@ Only the user and Claude Code read the log, on the machine of the user.
 - Sending the log to a server, or collecting the logs of other machines.
 - A `scut log` or `scut stats` command. JSON Lines and `jq` are sufficient at first (my call). Add a command only if real use shows a need.
 - Debug output on stderr, or a verbosity flag.
-- A line for a run that a panic, `SIGKILL` or `SIGTERM` stops. `SIGINT` writes a line, with exit 130.
+- A line for a run that a panic, `SIGKILL` or `SIGTERM` stops. `SIGINT` writes a line, with exit 130. A closed stdout pipe writes a line, with exit 141 and nothing on stderr, as a process that `SIGPIPE` stops.
 - Git commands that `scut worktree` runs.
 
 ## Anti-goals
@@ -62,8 +62,8 @@ A failed run, with a retry:
 | `session` | `CLAUDE_CODE_SESSION_ID` | Left out when not set. This groups the calls of one Claude Code session, and tells an agent run from a human or herdr run. |
 | `cwd` | `env.Dir` | |
 | `cmd` | Command path without `scut`, from the command that cobra returns | An unknown subcommand gives the group, for example `story`. The name that was not known is in `error`. |
-| `ids` | Each positional argument that is all of: digits, `sc-` and digits, or a UUID | At most 100. A number is written as a JSON integer, and a number that does not fit in 64 bits is left out. Any other argument is left out, so a search query, a title or a URL slug is never logged. |
-| `args_n` | Number of positional arguments | Also shows the true count when `ids` is cut. |
+| `ids` | Each positional argument of a command that takes IDs, when it is all of: digits, `sc-` and digits, or a UUID | At most 100. A number is written as a JSON integer, and a number that does not fit in 64 bits is left out. Any other argument is left out. `idCommands` in `internal/cli/root.go` lists these commands, and a new command is not in it. So a search query, a title or a URL slug is never logged, also in the form of an ID. |
+| `args_n` | Number of positional arguments | Also shows the true count when `ids` is cut. Left out after a flag parse error, because pflag stops at the bad flag. `ids` and `flags` then hold only what came before it. |
 | `flags` | Each flag that the user set, name to value | The value is present only for the names in the allowlist, at most 200 bytes. Other flags have `""`. |
 | `ms` | Duration of the run | |
 | `out_bytes` | Bytes written to stdout | Shows outputs that are too large for an agent. |
@@ -82,13 +82,14 @@ Because the entries come from each try, retries and redirects are visible. A bod
 
 **Path of `scut api` (your decision):** `p` is the raw URL path, also when the user gave it to `scut api`. So `scut api /stories/some-text` logs `some-text`. The path shows which missing command each call could become. Its URL query is not logged, as for all other calls.
 
-**Token:** the logger replaces each match of `sct_[A-Za-z0-9_-]+` in the encoded line with `***`, so a new field is covered with no new code. It uses a pattern, not the value, because a usage error can occur before the token loads. All other token rules of the v1 design stay.
+**Token:** the logger replaces each match of `sct_[^"\\\s]+` in the encoded line with `***`, so a new field is covered with no new code. A secret can hold any character. A quote, a backslash or a space ends the match, so the line stays valid JSON. It uses a pattern, not the value, because a usage error can occur before the token loads. All other token rules of the v1 design stay.
 
 ## Where the log is
 
 - `$XDG_STATE_HOME/scut/scut.log`, or `$HOME/.local/state/scut/scut.log`.
-- With neither variable set, there is no log.
-- The directory has mode 0700 and the files have mode 0600, because the log holds IDs, paths and error text.
+- A relative value counts as not set, as the XDG specification says, because a log under the current directory can be committed. With neither variable set, there is no log.
+- The directory has mode 0700 and the files have mode 0600, because the log holds IDs, paths and error text. scut also sets these modes on an existing directory and log. If it cannot, it writes no line.
+- A log path that is not a regular file, such as a FIFO, gets no line. The open does not wait.
 - `SCUT_LOG=off` stops the log. There is no other setting. The config files do not control it, because the log must also record a config error.
 
 The log is on by default, and the README says so, with what it records and how to stop it.
@@ -98,12 +99,14 @@ The log is on by default, and the README says so, with what it records and how t
 - When `scut.log` has 5 MB or more at the start of a write, scut renames it to `scut.log.1`, which replaces the old `scut.log.1`. The log is thus at most about 10 MB.
 - A typical line is about 300 bytes, so one file holds about 17,000 runs.
 - There is no compression, because `jq` and the Read tool must read the files directly.
+- If the rename cannot complete, the log grows until it has twice the size that starts a rotation. Then scut writes no more lines, and the run continues.
 
 **Concurrent runs:** herdr can run many `scut` processes at the same time.
 
 - Each process writes its line with one `write` call on a file opened with `O_APPEND`. Lines from concurrent processes do not mix on a local Linux file system.
 - Two processes can both see a full file. If both rename, the second rename replaces the full `.1` with a small file, and the history is lost. So the rename needs a non-blocking `flock`. The process that gets the lock checks the size again and renames. A process that does not get the lock writes its line and does not rename.
-- A process that opened the file before the rename writes its line to `.1`. This is harmless.
+- A process that opened the file before the rename writes its line to `.1`. This is harmless. A process that holds the file across two rotations writes to a deleted file, and its line is lost. That needs about 17,000 other runs during one write.
+- A short write, for example on a full disk, leaves a line with no newline. The next process sees this and starts with a newline, so that its own line stays whole. The recipes skip the broken line.
 
 `syscall.Flock` does not compile on Windows. The release is Linux only, so this is acceptable now. A Windows port needs its own lock.
 
@@ -131,38 +134,40 @@ Claude Code needs a permission to read a file outside the project, or to run `jq
 
 ## Recipes
 
-I ran these on a sample log.
+I ran these on a log from the real binary that has one broken line. `fromjson?` skips a broken line.
 
 ```sh
 L=~/.local/state/scut/scut.log
 
 # Usage and failures for each command
-jq -s -c 'group_by(.cmd)|map({cmd:.[0].cmd,n:length,failed:(map(select(.exit!=0))|length)})|sort_by(-.n)|.[]' "$L"
+jq -R 'fromjson?' "$L" | jq -s -c 'group_by(.cmd)|map({cmd:.[0].cmd,n:length,failed:(map(select(.exit!=0))|length)})|sort_by(-.n)|.[]'
 
 # Failures
-jq -c 'select(.exit!=0)|{t,cmd,exit,error}' "$L"
+jq -cR 'fromjson?|select(.exit!=0)|{t,cmd,exit,error}' "$L"
 
 # Bulk candidates: the same command 3 or more times in one session
-jq -s -c 'map(select(.session))|group_by([.session,.cmd])|map({session:.[0].session,cmd:.[0].cmd,n:length})|map(select(.n>=3))|.[]' "$L"
+jq -R 'fromjson?' "$L" | jq -s -c 'map(select(.session))|group_by([.session,.cmd])|map({session:.[0].session,cmd:.[0].cmd,n:length})|map(select(.n>=3))|.[]'
 
 # Runs with a rate limit or a server failure
-jq -c 'select(.http)|select(any(.http[];.s==429 or .s>=500))|{t,cmd,exit,codes:[.http[].s]}' "$L"
+jq -cR 'fromjson?|select(.http)|select(any(.http[];.s==429 or .s>=500))|{t,cmd,exit,codes:[.http[].s]}' "$L"
 
 # What scut api calls: each result is a possible missing command
-jq -c 'select(.cmd=="api")|.http[]|{m,p}' "$L"
+jq -cR 'fromjson?|select(.cmd=="api")|.http[]?|{m,p}' "$L"
 ```
 
 ## Tests
 
 `make lint test`, plus:
 
-- **No text, for each command:** walk the command tree. With a valid token and a fake API, make one run for each flag that is not in the allowlist and for each positional argument, with a marker string as the value. So a run reaches HTTP when its command permits it, and one bad value does not hide the others. Assert that the marker is not in `flags`, `ids`, `cmd` or `http`. A new command or flag is thus covered with no new test. The check does not cover `error` and `api`, by the rule above. It also does not cover `p` for the positional argument of `scut api`, but the check of the other fields and of the flags of `scut api` stays.
-- **No query:** a search run has its query in no field of the line.
-- **No token:** plant a fake `sct_` token in an API error, in a usage error and in a transport error. Assert that it is not in the line.
+- **No text, for each command:** walk the command tree. With a valid token and a fake API, make one run with valid arguments, one run with a marker in each place of a positional argument, and one run with a marker in each non-bool flag that is not in the allowlist. A command that calls the API must reach HTTP in the run with valid arguments, and a write must send its write method. A flag run can stop at validation. Assert that the marker is not in `flags`, `ids`, `cmd` or `http`. A new command or flag is thus covered with no new test. The test has its own copy of the allowlist and of the ID commands, so a change to either must also change the test. The check does not cover `error` and `api`, by the rule above. It also does not cover `p` for the positional argument of `scut api`, but the check of the other fields and of the flags of `scut api` stays.
+- **No query:** a search run has its query in no field of the line, on a 200, a 400 and a 503.
+- **No token:** plant a fake `sct_` token in an API error, in a usage error and in a transport error, and a secret with characters outside letters and digits. Assert that it is not in the line.
 - **File download:** the entry has the host, and no path and no query.
 - **Retries:** a run with 503 then 200 gives two `http` entries.
 - **Truncation:** long values and long lists are cut at the limits, the result is valid JSON, and a cut does not split a UTF-8 character.
-- **Rotation:** a file of 5 MB rotates. An old `.1` is replaced. Concurrent processes keep all lines, and at most one rename occurs for a full file. Run with the race detector.
+- **Rotation:** a file of 5 MB rotates. An old `.1` is replaced. Concurrent goroutines keep all lines, and at most one rename occurs for a full file. Run with the race detector. Other tests hold the lock and assert no wait and no rename, call the rename step on a small file and assert no rename, and stop at the hard limit when the rename fails.
+- **Broken line:** the next line starts after a newline.
+- **Modes and file type:** an existing 0755 directory and 0644 log get 0700 and 0600. A FIFO at the log path does not block.
 - **Failure of the log:** with a state directory that cannot be written, stdout, stderr and the exit code are the same as with a working log.
 - **`SCUT_LOG=off`:** no file is made.
 - **No HOME:** no file is made, and no error occurs.

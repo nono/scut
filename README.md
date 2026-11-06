@@ -156,11 +156,11 @@ Each write is its own subcommand. Thus a Claude Code rule such as `Bash(scut sto
 - **Records:** time, version, Claude Code session, directory, command, IDs, flag names, some flag values (`limit`, `comments`, `fields`, `format`, `depth`, `method`, `state`, `workflow`, `team`, `type`), duration, output size, exit code, and the method, path, status and duration of each HTTP try.
 - **Does not record:** the token, story text, comments, search queries, or other flag values.
 - **Exceptions:** an error message can quote your input or text from Shortcut (cut at 1 KB), and the log keeps the path that you give to `scut api`.
-- **Size:** at 5 MiB, `scut.log` becomes `scut.log.1`, which replaces the old one. So the log is at most about 10 MiB.
+- **Size:** at 5 MiB, `scut.log` becomes `scut.log.1`, which replaces the old one. So the log is at most about 10 MiB. If that rename fails, `scut.log` stops at 10 MiB.
 - **Stop it:** set `SCUT_LOG=off`.
 
 ```sh
-jq -c 'select(.exit!=0)|{t,cmd,exit,error}' ~/.local/state/scut/scut.log
+jq -cR 'fromjson?|select(.exit!=0)|{t,cmd,exit,error}' ~/.local/state/scut/scut.log
 ```
 
 ## Not supported
