@@ -269,11 +269,13 @@ func (c *countWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
+func (c *countWriter) closed() bool { return c.broken != nil }
+
 // errWriter returns stderr with no output after a write to a closed stdout:
 // such a run prints no error, as a process that SIGPIPE stops.
 func (c *countWriter) errWriter(stderr io.Writer) io.Writer {
 	return writerFunc(func(p []byte) (int, error) {
-		if c.broken != nil {
+		if c.closed() {
 			return len(p), nil
 		}
 		return stderr.Write(p)
