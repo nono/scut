@@ -66,9 +66,29 @@ func TestEpicUpdateAllFlags(t *testing.T) {
 	if jsonOf(body) != want {
 		t.Errorf("body %s, want %s", jsonOf(body), want)
 	}
-	code, _, errs = h.run("epic", "update", "5387", "--unarchive")
-	if code != 0 || jsonOf(body) != `{"archived":false}` {
-		t.Errorf("code %d, body %s, stderr %s", code, jsonOf(body), errs)
+}
+
+// Each flag alone is a change, and sends only its key.
+func TestEpicUpdateOneFlag(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--name", "New"}, `{"name":"New"}`},
+		{[]string{"--state", "To Do"}, `{"epic_state_id":500000010}`},
+		{[]string{"--add-owner", "bruno"}, `{"owner_ids_add":["u1"]}`},
+		{[]string{"--remove-owner", "gone"}, `{"owner_ids_remove":["u2"]}`},
+		{[]string{"--description-file", "-"}, `{"description":"from stdin"}`},
+		{[]string{"--archive"}, `{"archived":true}`},
+		{[]string{"--unarchive"}, `{"archived":false}`},
+	} {
+		var c calls
+		var body map[string]any
+		h := epicUpdateHarness(t, &c, &body, "from stdin")
+		code, _, errs := h.run(append([]string{"epic", "update", "5387"}, tc.args...)...)
+		if code != 0 || jsonOf(body) != tc.want {
+			t.Errorf("%v: code %d, body %s, stderr %s", tc.args, code, jsonOf(body), errs)
+		}
 	}
 }
 
@@ -77,13 +97,15 @@ func TestEpicUpdateBadNameNoPatch(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"--add-owner", "nobody"}, "nobody"},
-		{[]string{"--state", "in progress"}, "In Progress"},
+		{[]string{"5387", "--add-owner", "nobody"}, "nobody"},
+		{[]string{"5387", "--remove-owner", "nobody"}, "nobody"},
+		{[]string{"5387", "--state", "in progress"}, "In Progress"},
+		{[]string{"No such epic"}, "Big epic"},
 	} {
 		var c calls
 		var body map[string]any
 		h := epicUpdateHarness(t, &c, &body, "")
-		code, _, errs := h.run(append([]string{"epic", "update", "5387", "--name", "x"}, tc.args...)...)
+		code, _, errs := h.run(append(append([]string{"epic", "update"}, tc.args...), "--name", "x")...)
 		if code != 3 || c.count(epicPath) != 0 || !strings.Contains(errs, tc.want) {
 			t.Errorf("%v: code %d, calls %v, stderr %s", tc.args, code, c.paths, errs)
 		}
@@ -98,6 +120,7 @@ func TestEpicUpdateUsage(t *testing.T) {
 		{[]string{"5387"}, ""},
 		{[]string{"5387", "--archive", "--unarchive"}, ""},
 		{[]string{"5387", "--description-file", "-"}, " \n"},
+		{[]string{"5387", "--description-file", "/nonexistent/d.md"}, ""},
 		{[]string{"5387", "5388", "--name", "x"}, ""},
 		{[]string{" ", "--name", "x"}, ""},
 	} {

@@ -294,19 +294,35 @@ func TestShortNestedList(t *testing.T) {
 	}
 }
 
+// The states come in 2 pages; "Done" is on page 2.
 func TestEpicState(t *testing.T) {
 	e := newEnv(t, func(a *api) {
-		a.json("GET /api/v4/acme/epic-workflow/states", list(
-			map[string]any{"id": 500000010, "name": "To Do"}, map[string]any{"id": 500000011, "name": "In Progress"}))
+		a.routes["GET /api/v4/acme/epic-workflow/states"] = func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			p := list(map[string]any{"id": 500000010, "name": "To Do"}, map[string]any{"id": 500000011, "name": "In Progress"})
+			if r.URL.Query().Get("cursor") == "p2" {
+				p = list(map[string]any{"id": 500000012, "name": "Done"},
+					map[string]any{"id": 500000013, "name": "Dup"}, map[string]any{"id": 500000014, "name": "Dup"})
+			} else {
+				p["next_page_url"] = "http://x/api/v4/acme/epic-workflow/states?cursor=p2"
+			}
+			_ = json.NewEncoder(w).Encode(p)
+		}
 	})
-	id, err := e.r.EpicState("In Progress")
-	if err != nil || id != 500000011 {
-		t.Errorf("got %d, %v", id, err)
+	for name, want := range map[string]int64{"In Progress": 500000011, "Done": 500000012} {
+		if id, err := e.r.EpicState(name); err != nil || id != want {
+			t.Errorf("%s: got %d, %v", name, id, err)
+		}
 	}
-	_, err = e.r.EpicState("in progress")
+	_, err := e.r.EpicState("in progress")
 	x := wantErr(t, err, exit.NotFound)
-	if x.Msg != `no epic state "in progress"` || !slices.Equal(x.Valid, []string{"In Progress", "To Do"}) {
+	if x.Msg != `no epic state "in progress"` || !slices.Equal(x.Valid, []string{"Done", "Dup", "In Progress", "To Do"}) {
 		t.Errorf("%q %v", x.Msg, x.Valid)
+	}
+	_, err = e.r.EpicState("Dup")
+	x = wantErr(t, err, exit.Usage)
+	if !slices.Equal(x.Valid, []string{"500000013", "500000014"}) {
+		t.Errorf("dup: %q %v", x.Msg, x.Valid)
 	}
 }
 

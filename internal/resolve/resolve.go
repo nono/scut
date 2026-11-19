@@ -371,22 +371,11 @@ func findState(es []entity, name string, workflowID int64) (int64, error) {
 // EpicState resolves the name of a state of the epic workflow. Epic states
 // are not cached.
 func (r *R) EpicState(name string) (int64, error) {
-	items, err := r.pageAll("/epic-workflow/states", url.Values{"limit": {pageSize}})
+	id, err := r.byName("/epic-workflow/states", url.Values{}, "name", name, "epic state", "")
 	if err != nil {
 		return 0, err
 	}
-	var valid []string
-	for _, b := range items {
-		var s entity
-		if json.Unmarshal(b, &s) != nil {
-			continue
-		}
-		if s.Name == name {
-			return idInt(s.ID)
-		}
-		valid = append(valid, s.Name)
-	}
-	return 0, miss(valid, "no epic state %q", name)
+	return strconv.ParseInt(id, 10, 64)
 }
 
 // Field resolves a custom field name and one of its values.
