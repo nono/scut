@@ -29,7 +29,8 @@ func newEpicUpdate(env Env) *cobra.Command {
 		if *archive && *unarchive {
 			return exit.Usagef("--archive and --unarchive conflict")
 		}
-		given := *archive || *unarchive
+		arch := *archive || *unarchive
+		given := arch
 		for _, n := range []string{"name", "state", "add-owner", "remove-owner", "description-file"} {
 			given = given || changed(n)
 		}
@@ -46,7 +47,7 @@ func newEpicUpdate(env Env) *cobra.Command {
 		if changed("name") {
 			body["name"] = *name
 		}
-		if *archive || *unarchive {
+		if arch {
 			body["archived"] = *archive
 		}
 		return withDeps(env, func(cmd *cobra.Command, _ []string, d *deps) error {

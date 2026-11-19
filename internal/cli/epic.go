@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/nono/scut/internal/exit"
+	"github.com/nono/scut/internal/ref"
 )
 
 // EpicOut is the compact epic shape. Only epic view and epic update set Description.
@@ -100,16 +101,14 @@ func newEpicGroup(env Env) *cobra.Command {
 	return g
 }
 
-// epicArg is the Args check of a command that takes one epic. A blank epic
-// is a usage error before the token loads, as a blank doc is.
+// epicArg is the Args check of a command that takes one epic. It parses the
+// epic before the token loads, so a blank one is a usage error first.
 func epicArg(cmd *cobra.Command, args []string) error {
 	if err := cobra.ExactArgs(1)(cmd, args); err != nil {
 		return err
 	}
-	if strings.TrimSpace(args[0]) == "" {
-		return exit.Usagef("give an epic ID or name")
-	}
-	return nil
+	_, _, err := ref.Epic(args[0])
+	return err
 }
 
 func newEpicView(env Env) *cobra.Command {
