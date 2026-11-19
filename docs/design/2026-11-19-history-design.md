@@ -30,7 +30,7 @@ One JSON array. Each change:
 - `story` only with several stories, and `attribute` only when `--fields` does not name one attribute: else they repeat the request.
 - `tx_id` is left out.
 - An empty `removes` or `adds`, and a null `actor`, are left out.
-- The values are slim entities with names. A member becomes `{id, mention_name}` from the members cache, as in `story view` (`mention_name` is null when the member is not in the cache). An entity with a name (state, epic, team, label, branch) becomes `{id, name}`. Other entities (story link, custom field value, commit) lose `entity_type`, `uri` and `app_url`, and their nested entities follow the same rules. Scalars stay as they are. A description change holds the full text: use `--fields` to leave it out.
+- The values are slim entities with names. A member becomes `{id, mention_name}` from the members cache, as in `story view`. When the cache does not have the member (the cache does not refresh on a miss), `mention_name` is null and `name` is the name that the API sent, so the member is not only an ID. An entity with a name (state, epic, team, label, branch) becomes `{id, name}`. Other entities (story link, custom field value, commit) lose `entity_type`, `uri` and `app_url`, and their nested entities follow the same rules. Scalars stay as they are. A description change holds the full text: use `--fields` to leave it out.
 
 ## Unknown stories
 

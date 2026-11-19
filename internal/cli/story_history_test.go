@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nono/scut/internal/testapi"
 )
@@ -108,7 +109,7 @@ func TestHistoryShape(t *testing.T) {
 	sameJSON(t, out, `[
 		{`+ts+`,"actor":`+me+`,"action":"update","attribute":"workflow_state",
 			"removes":[{"id":7,"name":"To Do"}],"adds":[{"id":8,"name":"Done"}]},
-		{`+ts+`,"actor":{"id":"`+unknownMember+`","mention_name":null},"action":"update","attribute":"owners","adds":[`+me+`]},
+		{`+ts+`,"actor":{"id":"`+unknownMember+`","mention_name":null,"name":"Test User"},"action":"update","attribute":"owners","adds":[`+me+`]},
 		{`+ts+`,"action":"create","attribute":"story_links",
 			"adds":[{"id":50,"verb":"blocks","subject":{"id":5818,"name":"Story 5818"},"object":{"id":9,"name":"Story 9"}}]},
 		{`+ts+`,"actor":{"id":77,"name":"octocat"},"action":"push","attribute":"commits",
@@ -229,6 +230,61 @@ func TestHistoryMany(t *testing.T) {
 		}
 	}
 	if l := decodeList(t, out); len(l) != 1 || l[0]["story"] != float64(5818) {
+		t.Errorf("stdout %s", out)
+	}
+}
+
+// The rules apply at each level: an entity with no name loses app_url, and the
+// member in its nested array gets its mention name. The nested member is the
+// only member of the response, so its lookup comes from the nested walk.
+func TestHistoryNested(t *testing.T) {
+	nested := map[string]any{"entity_type": "x:slim", "id": 60, "uri": "https://api.app.shortcut.com/x", "app_url": "https://app.shortcut.com/x",
+		"items": []any{memberSlim(testMember), map[string]any{"entity_type": "y:slim", "id": 61, "uri": "https://api.app.shortcut.com/x"}}}
+	h := historyHarness(t, map[string]http.HandlerFunc{
+		"GET " + historyPath: jsonHandler(historyBody("", change(5818, "future", "update", nil, []any{}, []any{nested}))),
+	})
+	code, out, errs := h.run("story", "history", "5818")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	sameJSON(t, out, `[{"timestamp":"2026-11-17T14:34:59.372Z","action":"update","attribute":"future",
+		"adds":[{"id":60,"items":[{"id":"`+testMember+`","mention_name":"testuser"},{"id":61}]}]}]`)
+}
+
+// A paging stop prints the changes read, skips the check of the stories, and
+// fails.
+func TestHistoryPagingStop(t *testing.T) {
+	var sc calls
+	h := historyHarness(t, map[string]http.HandlerFunc{
+		"GET " + manyHistoryPath: jsonHandler(historyBody(
+			"https://api.app.shortcut.com"+manyHistoryPath+"?cursor=same", stateChange(5818))),
+		"GET /api/v4/acme/stories": sc.wrap(jsonHandler(listBody())),
+	})
+	code, out, errs := h.run("story", "history", "5818", "5819", "--limit", "all")
+	if code != 1 || !strings.Contains(errs, "the cursor repeats") || sc.total() != 0 {
+		t.Errorf("code %d, %d checks, stderr %s", code, sc.total(), errs)
+	}
+	if l := decodeList(t, out); len(l) != 2 || l[0]["story"] != float64(5818) {
+		t.Errorf("stdout %s", out)
+	}
+}
+
+// A failed check of the stories comes after the changes, with its exit code.
+func TestHistoryCheckFails(t *testing.T) {
+	h := historyHarness(t, map[string]http.HandlerFunc{
+		"GET " + manyHistoryPath: jsonHandler(historyBody("", stateChange(5818))),
+		"GET /api/v4/acme/stories": func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(503)
+			_, _ = w.Write([]byte(`{"message":"unavailable"}`))
+		},
+	})
+	h.env.Sleep = func(time.Duration) {}
+	code, out, errs := h.run("story", "history", "5818", "5819")
+	if code != 5 {
+		t.Errorf("code %d, stderr %s", code, errs)
+	}
+	if l := decodeList(t, out); len(l) != 1 {
 		t.Errorf("stdout %s", out)
 	}
 }

@@ -209,16 +209,29 @@ func (n names) slims(vs []any) []any {
 	return out
 }
 
+// historyMember is a member in the history. Name is the name that the API
+// sent. It is set only when the cache has no mention name, so that the
+// member is not only an ID.
+type historyMember struct {
+	memberOut
+	Name string `json:"name,omitempty"`
+}
+
 // slim makes a slim entity of the history compact, as story view shows it: a
-// member is {id, mention_name}, an entity with a name (state, epic, team,
-// label, branch) is {id, name}. Other entities lose entity_type, uri and
-// app_url. Other values stay as they are.
+// member is {id, mention_name}, plus name when the cache does not have the
+// member. An entity with a name (state, epic, team, label, branch) is
+// {id, name}. Other entities lose entity_type, uri and app_url. Other values
+// stay as they are.
 func (n names) slim(v any) any {
 	switch x := v.(type) {
 	case map[string]any:
 		if x["entity_type"] == "member:slim" {
 			id, _ := x["id"].(string)
-			return n.member(&memberIn{ID: id})
+			m := historyMember{memberOut: *n.member(&memberIn{ID: id})}
+			if m.MentionName == nil {
+				m.Name, _ = x["name"].(string)
+			}
+			return m
 		}
 		if name, ok := x["name"]; ok {
 			return map[string]any{"id": x["id"], "name": name}
