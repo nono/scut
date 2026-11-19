@@ -134,15 +134,30 @@ func TestWorktreeBranchFlagNew(t *testing.T) {
 	}
 }
 
+// A null branch name and a name with no sc-<id> are exit 3, with no
+// worktree. With --start, the name comes from the read during the fetch.
 func TestWorktreeNullBranchName(t *testing.T) {
-	h, _ := wtHarness(t, &calls{}, `null`, wtToken)
-	if code, _, errs := h.run("worktree", "1234"); code != 3 {
-		t.Fatalf("code %d, stderr %s", code, errs)
-	}
-	h, _ = wtHarness(t, &calls{}, `"feature/x"`, wtToken)
-	code, _, errs := h.run("worktree", "1234")
-	if code != 3 || !strings.Contains(errs, "--branch") {
-		t.Fatalf("code %d, stderr %s", code, errs)
+	for _, tc := range []struct{ name, branch, msg string }{
+		{"null", `null`, "no branch name format"},
+		{"no id", `"feature/x"`, "--branch"},
+	} {
+		for _, args := range [][]string{{"worktree", "1234"}, {"worktree", "1234", "--start"}} {
+			t.Run(tc.name+" "+strings.Join(args[2:], ""), func(t *testing.T) {
+				var patch map[string]any
+				story := jsonHandler(`{"id":1234,"formatted_vcs_branch_name":` + tc.branch + `,"workflow":{"id":5}}`)
+				h, main := startHarnessH(t, &calls{}, story, jsonHandler(listBody(wfStates()...)), 200, &patch)
+				code, _, errs := h.run(args...)
+				if code != 3 || !strings.Contains(errs, tc.msg) {
+					t.Fatalf("code %d, stderr %s", code, errs)
+				}
+				if _, has := decode(t, errs)["worktree"]; has {
+					t.Errorf("stderr %s", errs)
+				}
+				if _, err := os.Stat(filepath.Join(filepath.Dir(main), "1234")); err == nil {
+					t.Errorf("worktree made")
+				}
+			})
+		}
 	}
 }
 
@@ -161,16 +176,25 @@ func TestWorktreeDirInUse(t *testing.T) {
 	}
 }
 
+// A worktree with no directory is exit 2, and --start changes nothing.
 func TestWorktreePrunable(t *testing.T) {
-	h, main := wtHarness(t, nil, "", nil)
-	dir := filepath.Join(filepath.Dir(main), "1234")
-	testgit.Git(t, main, "worktree", "add", "-q", "-b", "bug/sc-1234/x", dir)
-	if err := os.RemoveAll(dir); err != nil {
-		t.Fatal(err)
-	}
-	code, _, errs := h.run("worktree", "1234")
-	if code != 2 || !strings.Contains(errs, "worktree prune") {
-		t.Fatalf("code %d, stderr %s", code, errs)
+	for _, args := range [][]string{{"worktree", "1234"}, {"worktree", "1234", "--start"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			var patch map[string]any
+			h, main := startHarness(t, &calls{}, 7, nil, wfStates(), 200, &patch)
+			dir := filepath.Join(filepath.Dir(main), "1234")
+			testgit.Git(t, main, "worktree", "add", "-q", "-b", "bug/sc-1234/x", dir)
+			if err := os.RemoveAll(dir); err != nil {
+				t.Fatal(err)
+			}
+			code, _, errs := h.run(args...)
+			if code != 2 || !strings.Contains(errs, "worktree prune") {
+				t.Fatalf("code %d, stderr %s", code, errs)
+			}
+			if patch != nil {
+				t.Errorf("patch %v", patch)
+			}
+		})
 	}
 }
 
@@ -341,11 +365,17 @@ func TestWorktreeOutputSameOnBothPaths(t *testing.T) {
 	}
 }
 
+// breakOrigin makes the origin of main a path with no repository, so a fetch fails.
+func breakOrigin(t *testing.T, main string) {
+	t.Helper()
+	testgit.Git(t, main, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
+}
+
 // No fetch when a branch exists: an origin that cannot be reached must not matter.
 func TestWorktreeLocalNoFetch(t *testing.T) {
 	h, main := wtHarness(t, nil, "", nil)
 	testgit.Git(t, main, "branch", "bug/sc-1234/x")
-	testgit.Git(t, main, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
+	breakOrigin(t, main)
 	if code, _, errs := h.run("worktree", "1234"); code != 0 {
 		t.Fatalf("code %d, stderr %s", code, errs)
 	}
@@ -605,7 +635,7 @@ func TestWorktreeStartGitErrorCancelsReads(t *testing.T) {
 	var patch map[string]any
 	hang := func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }
 	h, main := startHarnessH(t, &c, hang, hang, 200, &patch)
-	testgit.Git(t, main, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
+	breakOrigin(t, main)
 	t0 := time.Now()
 	code, _, errs := h.run("worktree", "1234", "--start")
 	if code != 1 || !strings.Contains(errs, "git fetch") {
@@ -629,7 +659,7 @@ func TestWorktreeStartGitErrorSkipsKeyring(t *testing.T) {
 	k := blockingKeyring{make(chan struct{})}
 	t.Cleanup(func() { close(k.end) })
 	h.env.Keyring = k
-	testgit.Git(t, main, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
+	breakOrigin(t, main)
 	done := make(chan int, 1)
 	go func() {
 		code, _, _ := h.run("worktree", "1234", "--start")
@@ -642,33 +672,6 @@ func TestWorktreeStartGitErrorSkipsKeyring(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("the run waits for the keyring")
-	}
-}
-
-// With --start, the branch name of a new branch follows the rules of the
-// read with no --start: null and a name with no sc-<id> are exit 3, with no
-// worktree.
-func TestWorktreeStartBadBranchName(t *testing.T) {
-	for _, tc := range []struct{ name, branch, msg string }{
-		{"null", `null`, "no branch name format"},
-		{"no id", `"feature/x"`, "--branch"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var c calls
-			var patch map[string]any
-			story := jsonHandler(`{"id":1234,"formatted_vcs_branch_name":` + tc.branch + `,"workflow":{"id":5}}`)
-			h, main := startHarnessH(t, &c, story, jsonHandler(listBody(wfStates()...)), 200, &patch)
-			code, _, errs := h.run("worktree", "1234", "--start")
-			if code != 3 || !strings.Contains(errs, tc.msg) {
-				t.Fatalf("code %d, stderr %s", code, errs)
-			}
-			if _, has := decode(t, errs)["worktree"]; has {
-				t.Errorf("stderr %s", errs)
-			}
-			if _, err := os.Stat(filepath.Join(filepath.Dir(main), "1234")); err == nil {
-				t.Errorf("worktree made")
-			}
-		})
 	}
 }
 
@@ -700,7 +703,7 @@ func TestWorktreeStartErrorOrder(t *testing.T) {
 			var patch map[string]any
 			h, main := startHarnessH(t, &c, tc.story, tc.states, 200, &patch)
 			if tc.noOrigin {
-				testgit.Git(t, main, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
+				breakOrigin(t, main)
 			}
 			code, _, errs := h.run("worktree", "1234", "--start")
 			if code != tc.code || !strings.Contains(errs, tc.msg) {
@@ -715,24 +718,5 @@ func TestWorktreeStartErrorOrder(t *testing.T) {
 				t.Errorf("patch %v", patch)
 			}
 		})
-	}
-}
-
-// A worktree with no directory stops --start before any change.
-func TestWorktreeStartPrunable(t *testing.T) {
-	var c calls
-	var patch map[string]any
-	h, main := startHarness(t, &c, 7, nil, wfStates(), 200, &patch)
-	dir := filepath.Join(filepath.Dir(main), "1234")
-	testgit.Git(t, main, "worktree", "add", "-q", "-b", "bug/sc-1234/x", dir)
-	if err := os.RemoveAll(dir); err != nil {
-		t.Fatal(err)
-	}
-	code, _, errs := h.run("worktree", "1234", "--start")
-	if code != 2 || !strings.Contains(errs, "worktree prune") {
-		t.Fatalf("code %d, stderr %s", code, errs)
-	}
-	if patch != nil {
-		t.Errorf("patch %v", patch)
 	}
 }
