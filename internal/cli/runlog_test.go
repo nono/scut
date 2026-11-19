@@ -408,7 +408,7 @@ var loggedFlags = map[string]bool{
 
 // idCommands has a copy of the commands whose arguments the log keeps in ids.
 var idCommands = map[string]bool{
-	"story view": true, "story update": true, "story comment": true, "story comments": true,
+	"story view": true, "story update": true, "story comment": true, "story comments": true, "story history": true,
 	"story link": true, "story unlink": true, "story relink": true, "story subtasks": true,
 	"story branch": true, "story files": true,
 	"epic view": true, "epic stories": true, "epic comment": true,

@@ -2,11 +2,13 @@ package cli_test
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"os"
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -96,7 +98,9 @@ func (o *opsRecorder) routes(t *testing.T) map[string]http.HandlerFunc {
 	for k, v := range map[string]http.HandlerFunc{
 		"GET /api/v4/whoami":                             jsonHandler(whoamiBody),
 		"GET /api/v4/acme/labels":                        jsonHandler(listBody(map[string]any{"id": 31, "name": "bug-hunt"})),
-		"GET /api/v4/acme/stories":                       jsonHandler(listBody(story)),
+		"GET /api/v4/acme/stories":                       storiesByID(story),
+		"GET /api/v4/acme/stories/history":               jsonHandler(historyBody("", stateChange(5818))),
+		"GET /api/v4/acme/stories/{id}/history":          jsonHandler(historyBody("", stateChange(5818))),
 		"POST /api/v4/acme/stories":                      created(jsonOf(map[string]any{"entity": story})),
 		"GET /api/v4/acme/stories/search":                jsonHandler(listBody(story)),
 		"GET /api/v4/acme/stories/{id}":                  jsonHandler(jsonOf(map[string]any{"entity": story})),
@@ -132,6 +136,24 @@ func (o *opsRecorder) routes(t *testing.T) map[string]http.HandlerFunc {
 	return m
 }
 
+// storiesByID serves listStories: with ids, a copy of story for each ID.
+func storiesByID(story map[string]any) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ids := r.URL.Query().Get("ids")
+		if ids == "" {
+			jsonHandler(listBody(story))(w, r)
+			return
+		}
+		var items []any
+		for _, id := range strings.Split(ids, ",") {
+			s := maps.Clone(story)
+			s["id"], _ = strconv.Atoi(id)
+			items = append(items, s)
+		}
+		jsonHandler(listBody(items...))(w, r)
+	}
+}
+
 // opsCases are commands, with arguments that make them call the API on each
 // path that can add an operation: names to resolve, @me, and so on.
 var opsCases = [][]string{
@@ -149,6 +171,8 @@ var opsCases = [][]string{
 	{"story", "view", "5818", "5818"},
 	{"story", "search", "x"},
 	{"story", "comments", "5818"},
+	{"story", "history", "5818"},
+	{"story", "history", "5818", "5819"}, // 5819 has no change: the command checks that it exists
 	{"story", "comment", "5818", "--body-file", "-"},
 	{"story", "update", "5818", "--state", "Done", "--epic", "Big epic", "--requester", "@me",
 		"--add-owner", "bruno", "--field", "Technical Area=Back end"},

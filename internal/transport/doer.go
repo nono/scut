@@ -324,15 +324,25 @@ func (d *Doer) Raw(ctx context.Context, method, path string, query url.Values, b
 // List gets one page of a list endpoint. cursor is the cursor parameter of
 // next_page_url, or "" on the last page.
 func (d *Doer) List(ctx context.Context, path string, query url.Values) (items []json.RawMessage, cursor string, err error) {
+	return d.ListKey(ctx, path, query, "entities")
+}
+
+// ListKey is List for an endpoint that puts its items in key, not in
+// "entities" (story history: "changes").
+func (d *Doer) ListKey(ctx context.Context, path string, query url.Values, key string) (items []json.RawMessage, cursor string, err error) {
 	b, err := d.send(ctx, http.MethodGet, path, query, nil)
 	if err != nil {
 		return nil, "", err
 	}
 	var env struct {
-		Entities    *[]json.RawMessage `json:"entities"`
-		NextPageURL string             `json:"next_page_url"`
+		NextPageURL string `json:"next_page_url"`
 	}
-	if err := json.Unmarshal(b, &env); err != nil || env.Entities == nil {
+	var lists map[string]json.RawMessage
+	if json.Unmarshal(b, &env) != nil || json.Unmarshal(b, &lists) != nil {
+		return nil, "", &exit.Error{Code: exit.Other, Msg: "response is not a list"}
+	}
+	var list *[]json.RawMessage
+	if err := json.Unmarshal(lists[key], &list); err != nil || list == nil {
 		return nil, "", &exit.Error{Code: exit.Other, Msg: "response is not a list"}
 	}
 	if env.NextPageURL != "" {
@@ -342,7 +352,7 @@ func (d *Doer) List(ctx context.Context, path string, query url.Values) (items [
 		}
 		cursor = u.Query().Get("cursor")
 	}
-	return *env.Entities, cursor, nil
+	return *list, cursor, nil
 }
 
 func (d *Doer) send(ctx context.Context, method, path string, query url.Values, body any) ([]byte, error) {

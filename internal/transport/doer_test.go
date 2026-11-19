@@ -374,6 +374,32 @@ func TestListNeedsEntities(t *testing.T) {
 	}
 }
 
+// ListKey reads the items of its key and only of it.
+func TestListKey(t *testing.T) {
+	next := `"next_page_url":"https://api.app.shortcut.com/api/v4/acme/stories/1/history?cursor=c1"`
+	for body, ok := range map[string]bool{`{"changes":[{"id":1}],` + next + `}`: true, `{"entities":[{"id":1}],` + next + `}`: false,
+		`{"changes":null}`: false, `[]`: false, `{"changes":[{"id":1}],"next_page_url":null}`: true} {
+		d := newDoer(t, &waits{}, "GET", func(rw http.ResponseWriter, r *http.Request) {
+			rw.Header().Set("Content-Type", "application/json")
+			_, _ = rw.Write([]byte(body))
+		})
+		items, cur, err := d.ListKey(context.Background(), "/stories/1", nil, "changes")
+		if ok != (err == nil) {
+			t.Errorf("%s: err %v", body, err)
+			continue
+		}
+		if !ok {
+			if e := asExit(t, err); e.Code != exit.Other || e.Msg != "response is not a list" {
+				t.Errorf("%s: %+v", body, e)
+			}
+			continue
+		}
+		if want := map[bool]string{true: "c1", false: ""}[strings.Contains(body, "c1")]; len(items) != 1 || cur != want {
+			t.Errorf("%s: items %d, cursor %q", body, len(items), cur)
+		}
+	}
+}
+
 // A 2xx body that is not of a JSON media type is an error, even if it parses.
 func TestDoerNonJSONContentType(t *testing.T) {
 	for _, ct := range []string{"text/html", "text/plain; charset=utf-8", ""} {
