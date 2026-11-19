@@ -337,10 +337,8 @@ func (d *Doer) ListKey(ctx context.Context, path string, query url.Values, key s
 	var env map[string]json.RawMessage
 	var list *[]json.RawMessage
 	var next string
-	if json.Unmarshal(b, &env) != nil || json.Unmarshal(env[key], &list) != nil || list == nil {
-		return nil, "", &exit.Error{Code: exit.Other, Msg: "response is not a list"}
-	}
-	if raw, ok := env["next_page_url"]; ok && json.Unmarshal(raw, &next) != nil {
+	if json.Unmarshal(b, &env) != nil || json.Unmarshal(env[key], &list) != nil || list == nil ||
+		(env["next_page_url"] != nil && json.Unmarshal(env["next_page_url"], &next) != nil) {
 		return nil, "", &exit.Error{Code: exit.Other, Msg: "response is not a list"}
 	}
 	if next != "" {

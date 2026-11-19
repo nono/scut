@@ -29,16 +29,12 @@ type HistoryOut struct {
 	Adds      []any  `json:"adds,omitempty"`
 }
 
+// historyIn is a StoryHistoryChange. It has no "story" key, so Story stays 0.
 type historyIn struct {
-	Timestamp string `json:"timestamp"`
-	Entity    struct {
+	HistoryOut
+	Entity struct {
 		ID int64 `json:"id"`
 	} `json:"entity"`
-	Actor     any    `json:"actor"`
-	Action    string `json:"action"`
-	Attribute string `json:"attribute"`
-	Removes   []any  `json:"removes"`
-	Adds      []any  `json:"adds"`
 }
 
 func newStoryHistory(env Env) *cobra.Command {
@@ -72,24 +68,23 @@ story view names state, type, tasks, links and fields.`,
 		if *descFlag {
 			q.Set("order_dir", "desc")
 		}
-		if len(attrs) > 0 {
-			q.Set("fields", strings.Join(attrs, ","))
-		}
+		fieldsQuery(q, attrs)
+		many := len(uniq) > 1
 		path := "stories/" + strconv.FormatInt(uniq[0], 10) + "/history"
-		if len(uniq) > 1 {
+		if many {
 			path = "stories/history"
 			q.Set("ids", joinIDs(uniq, ","))
 		}
 		return withDeps(env, func(cmd *cobra.Command, _ []string, d *deps) error {
 			var seen map[int64]bool
 			err := printPagesKey(cmd, d, path, q, "changes", limit, func(raw []json.RawMessage) ([]HistoryOut, error) {
-				out, s, err := shapeHistory(raw, d, len(uniq) > 1, len(attrs) != 1)
+				out, s, err := shapeHistory(raw, d, many, len(attrs) != 1)
 				seen = s
 				return out, err
 			})
 			// A list cut short returns its error here, so the check is skipped.
 			// getStoryHistory gives 404 for an unknown story.
-			if err != nil || len(uniq) == 1 {
+			if err != nil || !many {
 				return err
 			}
 			return checkStories(cmd.Context(), d, idsNotIn(uniq, seen))
@@ -123,14 +118,14 @@ func checkStories(ctx context.Context, d *deps, ids []int64) error {
 	if err != nil {
 		return err
 	}
+	ss, err := decodeAll[struct {
+		ID int64 `json:"id"`
+	}](raw, "story")
+	if err != nil {
+		return err
+	}
 	found := map[int64]bool{}
-	for _, r := range raw {
-		var s struct {
-			ID int64 `json:"id"`
-		}
-		if err := json.Unmarshal(r, &s); err != nil {
-			return &exit.Error{Code: exit.Other, Msg: fmt.Sprintf("bad story data: %v", err)}
-		}
+	for _, s := range ss {
 		found[s.ID] = true
 	}
 	return noStory(ids, found)
@@ -158,19 +153,21 @@ func shapeHistory(raw []json.RawMessage, d *deps, withStory, withAttribute bool)
 			return nil, nil, &exit.Error{Code: exit.Other, Msg: fmt.Sprintf("bad history data: %v", err)}
 		}
 		seen[c.Entity.ID] = true
-		h := HistoryOut{Timestamp: c.Timestamp, Actor: members.slim(c.Actor), Action: c.Action,
-			Removes: members.slims(c.Removes), Adds: members.slims(c.Adds)}
+		h := c.HistoryOut
+		h.Actor, h.Removes, h.Adds = members.slim(h.Actor), members.slims(h.Removes), members.slims(h.Adds)
 		if withStory {
 			h.Story = c.Entity.ID
 		}
-		if withAttribute {
-			h.Attribute = c.Attribute
+		if !withAttribute {
+			h.Attribute = ""
 		}
 		out = append(out, h)
 	}
-	ids := make([]string, 0, len(members))
+	var ids []string
 	for _, m := range members {
-		ids = append(ids, m.ID)
+		if !slices.Contains(ids, m.ID) { // a member can be in many changes
+			ids = append(ids, m.ID)
+		}
 	}
 	nm, err := memberNames(d.Resolver, ids)
 	if err != nil {
@@ -196,9 +193,9 @@ func (r *memberRefs) slims(vs []any) []any {
 	return out
 }
 
-// slim makes a slim entity of the history compact, as story view shows it: a
-// member is {id, mention_name}, plus name when the cache does not have the
-// member. An entity with a name (state, epic, team, label, branch) is
+// slim makes a slim entity of the history compact. A member is
+// {id, mention_name}, as in story view, plus name when the cache does not
+// have the member. An entity with a name (state, epic, team, label, branch) is
 // {id, name}. Other entities lose entity_type, uri and app_url. Other values
 // stay as they are.
 func (r *memberRefs) slim(v any) any {
