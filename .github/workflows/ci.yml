@@ -8,9 +8,15 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels its older run. Runs on main all finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       CI: "true"
       HAS_LIVE_TOKEN: ${{ secrets.SCUT_LIVE_TOKEN != '' }}
@@ -43,6 +49,7 @@ jobs:
 
   spec-drift:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     continue-on-error: true
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -52,6 +59,7 @@ jobs:
         # Shortcut renumbers its generated schema names (Body123, Response456) on
         # each publish. The names are replaced and the lines sorted before the
         # diff, because a new number can change the order of the keys.
+        shell: bash
         run: |
           curl -fsSL -o "$RUNNER_TEMP/spec.json" https://developer.shortcut.com/api/rest/v4/shortcut.openapi.json
           norm() { jq -S . "$1" | sed -E 's/(Body|Response)[0-9]+/\1_N/g' | sort; }
