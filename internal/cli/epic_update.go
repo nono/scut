@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"strconv"
 
 	"github.com/spf13/cobra"
@@ -75,11 +74,7 @@ func newEpicUpdate(env Env) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			l, err := shapeEpics(d, []json.RawMessage{raw}, true)
-			if err != nil {
-				return err
-			}
-			return d.Out(l[0])
+			return outEpic(d, raw)
 		})(cmd, args)
 	}
 	return cmd

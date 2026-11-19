@@ -17,14 +17,14 @@ scut epic update <epic> [--name] [--state] [--add-owner …] [--remove-owner …
 - The flags have the names and the behaviour of the same flags of `story update`. `--state` is a state of the epic workflow, not of a story workflow.
 - One `PATCH epics/{id}` (`updateEpic`) with only the given fields: `name`, `description`, `epic_state_id`, `owner_ids_add`, `owner_ids_remove`, `archived`. An owner flag never replaces the set.
 - No flag, `--archive` with `--unarchive`, an empty description or a blank epic exits 2 before a call.
-- All names resolve before the `PATCH`. A name that does not resolve exits 3 with `valid`, and there is no write.
+- All names resolve before the `PATCH`, and a name that does not resolve stops the write. No match exits 3 with `valid`. Two epics or two epic states with the name exit 2 with their IDs in `valid`.
 - The output is the epic, in the shape of `epic view`.
 
 ## Name resolution
 
 - Members (`@me`, mention name, email, UUID) use the resolver of `story update`.
-- `--state` reads `GET epic-workflow/states` (`listEpicWorkflowStates`), all pages. Epic states are not cached, as epics: `--state` adds 1 call. The match is exact and case-sensitive.
+- `--state` reads `GET epic-workflow/states` (`listEpicWorkflowStates`), all pages, with the search code of epic names (`byName`). Epic states are not cached, as epics: `--state` adds 1 call. The match is exact and case-sensitive.
 
 ## Tests
 
-Fake API tests for each flag, each usage error and each name miss. A Prism contract test sends all flags.
+Fake API tests for each flag alone and all together, the usage errors, and a miss of an epic, a member and a state. A Prism contract test sends each flag but `--unarchive`, which conflicts with `--archive`.

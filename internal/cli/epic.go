@@ -12,7 +12,7 @@ import (
 	"github.com/nono/scut/internal/exit"
 )
 
-// EpicOut is the compact epic shape. Description is only set by epic view.
+// EpicOut is the compact epic shape. Only epic view and epic update set Description.
 type EpicOut struct {
 	ID          int64           `json:"id"`
 	Name        string          `json:"name"`
@@ -115,13 +115,18 @@ func newEpicView(env Env) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			l, err := shapeEpics(d, []json.RawMessage{raw}, true)
-			if err != nil {
-				return err
-			}
-			return d.Out(l[0])
+			return outEpic(d, raw)
 		}),
 	}
+}
+
+// outEpic prints one epic, with its description.
+func outEpic(d *deps, raw json.RawMessage) error {
+	l, err := shapeEpics(d, []json.RawMessage{raw}, true)
+	if err != nil {
+		return err
+	}
+	return d.Out(l[0])
 }
 
 func newEpicSearch(env Env) *cobra.Command {

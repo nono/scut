@@ -33,12 +33,12 @@ scut story create --type bug --name "Login fails" --state "To Do" --description-
 scut story update 12 --state "In Review" --add-owner @me
 scut story update 13 14 15 --parent 12  # make sub-tasks of 12
 scut story comment 12 --body-file note.md
-scut epic update 40 --add-owner @me --description-file d.md
 scut story link 12 blocks 13 relates-to 14
 scut story files 12 --out ./files  # download the attachments
 scut story branch 12  # the git branch name
 scut story history 12 --fields workflow_state --desc --limit 10  # the last state changes
 scut worktree 12 --start  # find or make the worktree, and start the story
+scut epic update 40 --add-owner @me --description-file d.md
 ```
 
 ## Output size
