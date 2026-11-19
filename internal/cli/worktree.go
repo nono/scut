@@ -61,6 +61,20 @@ func newWorktree(env Env) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// With --start, the API reads run while git works. All API calls
+			// of the run wait for them, so no two run at the same time.
+			var prep func() prepared
+			if start {
+				pctx, cancel := context.WithCancel(ctx)
+				done := make(chan struct{})
+				var p prepared
+				go func() {
+					defer close(done)
+					p = prepareStart(pctx, api, id)
+				}()
+				defer func() { cancel(); <-done }()
+				prep = func() prepared { <-done; return p }
+			}
 			if dir == "" {
 				dir = r.DefaultDir(id)
 			} else {
@@ -77,7 +91,7 @@ func newWorktree(env Env) *cobra.Command {
 			}
 			var m gitwt.Match
 			if ms == nil {
-				if m, ms, err = newBranch(ctx, r, id, branch, api); err != nil {
+				if m, ms, err = newBranch(ctx, r, id, branch, api, prep); err != nil {
 					return err
 				}
 			}
@@ -101,10 +115,11 @@ func newWorktree(env Env) *cobra.Command {
 				res.Dir = m.Dir
 			}
 			if start {
-				d, err := api()
+				p := prep()
 				started := false
+				err := p.err
 				if err == nil {
-					started, err = startStory(ctx, d, id)
+					started, err = p.apply(ctx, id)
 				}
 				if err != nil {
 					return withWorktree(ctx, err, res)
@@ -127,21 +142,32 @@ func newWorktree(env Env) *cobra.Command {
 }
 
 // newBranch gives the new branch of story id when no branch matches: the
-// --branch name, else the name that Shortcut suggests. After the story read,
+// --branch name, else the name that Shortcut suggests. With --start, prep
+// gives the story read; else newBranch reads the story. After the story read,
 // it looks for the branches of the story again and returns them: another run
 // can make one during the read, and that one is used, not a second one.
-func newBranch(ctx context.Context, r gitwt.Repo, id int64, branch string, api func() (*deps, error)) (gitwt.Match, []gitwt.Match, error) {
+func newBranch(ctx context.Context, r gitwt.Repo, id int64, branch string, api func() (*deps, error), prep func() prepared) (gitwt.Match, []gitwt.Match, error) {
 	if branch != "" {
 		if !ref.HasID(branch, id) {
 			return gitwt.Match{}, nil, exit.Usagef("--branch %q has no sc-%d", branch, id)
 		}
 		return gitwt.Match{Branch: branch, Source: gitwt.New}, nil, nil
 	}
-	d, err := api()
-	if err != nil {
-		return gitwt.Match{}, nil, err
+	var name string
+	var err error
+	if prep != nil {
+		p := prep()
+		if p.story == nil {
+			return gitwt.Match{}, nil, p.err
+		}
+		name, err = suggestedBranch(p.story.Branch)
+	} else {
+		var d *deps
+		if d, err = api(); err != nil {
+			return gitwt.Match{}, nil, err
+		}
+		name, err = branchName(ctx, d, id)
 	}
-	name, err := branchName(ctx, d, id)
 	if err != nil {
 		return gitwt.Match{}, nil, err
 	}
@@ -186,36 +212,63 @@ func withWorktree(ctx context.Context, err error, res worktreeResult) error {
 	return &c
 }
 
-// startStory moves a backlog or unstarted story to the started state with the
-// lowest position in its workflow, and adds @me as owner. It makes one PATCH,
-// or none when there is nothing to change. started tells if the state changed.
-func startStory(ctx context.Context, d *deps, id int64) (started bool, err error) {
-	path := "stories/" + strconv.FormatInt(id, 10)
-	raw, err := d.Doer.Raw(ctx, "GET", path, url.Values{"fields": {"workflow,workflow_state,owners"}}, nil)
+// startStory is the part of a story that --start reads.
+type startStory struct {
+	Branch   *string `json:"formatted_vcs_branch_name"`
+	Workflow struct {
+		ID int64 `json:"id"`
+	} `json:"workflow"`
+	State struct {
+		ID int64 `json:"id"`
+	} `json:"workflow_state"`
+	Owners struct {
+		Entities []member `json:"entities"`
+	} `json:"owners"`
+}
+
+type member struct {
+	ID string `json:"id"`
+}
+
+// prepared is the result of the reads of --start. story is nil when the story
+// read failed; then err is its error.
+type prepared struct {
+	d      *deps
+	story  *startStory
+	target int64 // the state to move to; 0 for no move
+	me     string
+	addMe  bool
+	err    error
+}
+
+// prepareStart reads what --start needs before its change: the story, the
+// states of its workflow and @me. A backlog or unstarted story gets the
+// started state with the lowest position in its workflow as target.
+func prepareStart(ctx context.Context, api func() (*deps, error), id int64) (p prepared) {
+	if p.d, p.err = api(); p.err != nil {
+		return p
+	}
+	raw, err := p.d.Doer.Raw(ctx, "GET", "stories/"+strconv.FormatInt(id, 10),
+		url.Values{"fields": {"formatted_vcs_branch_name,workflow,workflow_state,owners"}}, nil)
 	if err != nil {
-		return false, err
+		p.err = err
+		return p
 	}
-	type member struct {
-		ID string `json:"id"`
-	}
-	var s struct {
-		Workflow struct {
-			ID int64 `json:"id"`
-		} `json:"workflow"`
-		State struct {
-			ID int64 `json:"id"`
-		} `json:"workflow_state"`
-		Owners struct {
-			Entities []member `json:"entities"`
-		} `json:"owners"`
-	}
+	var s startStory
 	if err := json.Unmarshal(raw, &s); err != nil {
-		return false, &exit.Error{Code: exit.Other, Msg: "bad story response"}
+		p.err = &exit.Error{Code: exit.Other, Msg: "bad story response"}
+		return p
 	}
+	p.story = &s
+	p.target, p.me, p.addMe, p.err = plan(ctx, p.d, s)
+	return p
+}
+
+func plan(ctx context.Context, d *deps, s startStory) (target int64, me string, addMe bool, err error) {
 	items, err := transport.PageQuery(ctx, d.Doer, "workflows/"+strconv.FormatInt(s.Workflow.ID, 10)+"/states",
 		url.Values{"fields": {"id,type,position"}, "limit": {"100"}}, -1)
 	if err != nil {
-		return false, err
+		return 0, "", false, err
 	}
 	type state struct {
 		ID       int64  `json:"id"`
@@ -224,7 +277,7 @@ func startStory(ctx context.Context, d *deps, id int64) (started bool, err error
 	}
 	states, err := decodeAll[state](items, "workflow state")
 	if err != nil {
-		return false, err
+		return 0, "", false, err
 	}
 	var cur string
 	var first *state
@@ -236,25 +289,31 @@ func startStory(ctx context.Context, d *deps, id int64) (started bool, err error
 			first = &states[i]
 		}
 	}
-	var target int64 // the state to move to; 0 for no move
 	if cur == "backlog" || cur == "unstarted" {
 		if first == nil {
-			return false, exit.NotFoundf("no started state in workflow %d", s.Workflow.ID)
+			return 0, "", false, exit.NotFoundf("no started state in workflow %d", s.Workflow.ID)
 		}
 		target = first.ID
 	}
-	me, err := d.Resolver.Me()
-	if err != nil {
-		return false, err
+	if me, err = d.Resolver.WithContext(ctx).Me(); err != nil {
+		return 0, "", false, err
 	}
 	// A nested list can be cut short: then me can be an owner that is not in
 	// it, and owner_ids_add of an owner changes nothing.
-	addMe := !slices.Contains(s.Owners.Entities, member{me})
+	return target, me, !slices.Contains(s.Owners.Entities, member{me}), nil
+}
+
+// apply makes the change of --start: it moves the story to p.target and adds
+// @me as owner, in one PATCH, or none when there is nothing to change.
+// started tells if the state changed.
+func (p prepared) apply(ctx context.Context, id int64) (started bool, err error) {
+	path := "stories/" + strconv.FormatInt(id, 10)
+	target := p.target
 	if target != 0 {
 		// Read the state again just before the PATCH, so a story that another
 		// writer moved meanwhile is not moved back. The API has no
 		// conditional update, so this makes the window small, not zero.
-		raw, err := d.Doer.Raw(ctx, "GET", path, url.Values{"fields": {"workflow_state"}}, nil)
+		raw, err := p.d.Doer.Raw(ctx, "GET", path, url.Values{"fields": {"workflow_state"}}, nil)
 		if err != nil {
 			return false, err
 		}
@@ -266,7 +325,7 @@ func startStory(ctx context.Context, d *deps, id int64) (started bool, err error
 		if err := json.Unmarshal(raw, &now); err != nil {
 			return false, &exit.Error{Code: exit.Other, Msg: "bad story response"}
 		}
-		if now.State.ID != s.State.ID {
+		if now.State.ID != p.story.State.ID {
 			target = 0
 		}
 	}
@@ -274,13 +333,13 @@ func startStory(ctx context.Context, d *deps, id int64) (started bool, err error
 	if target != 0 {
 		body["workflow_state_id"] = target
 	}
-	if addMe {
-		body["owner_ids_add"] = []string{me}
+	if p.addMe {
+		body["owner_ids_add"] = []string{p.me}
 	}
 	if len(body) == 0 {
 		return false, nil
 	}
-	if _, err := d.Doer.Raw(ctx, "PATCH", path, nil, body); err != nil {
+	if _, err := p.d.Doer.Raw(ctx, "PATCH", path, nil, body); err != nil {
 		return false, err
 	}
 	return target != 0, nil

@@ -71,7 +71,7 @@ When no source matches, `--branch` gives the name of the new branch, and step 3 
 
 1. `git fetch origin`.
 2. Check `refs/remotes/origin/*` again. A match there gives `from: remote`. This finds a branch that another person pushed after the last fetch.
-3. Else read the story (`GET /stories/{id}`, field `formatted_vcs_branch_name`). Null gives exit 3, as `story branch` does. Strip a trailing `-` or `/`, as `story branch` does. A name with no `sc-<id>` in it is exit 3 with the suggestion to use `--branch`, because the next run would not find the branch. Then look at the sources again: another run can make a branch of the story during the story read, and a match now is used instead of a new branch.
+3. Else read the story (`GET /stories/{id}`, field `formatted_vcs_branch_name`). With `--start`, this read is step 1 of `--start`, which started before the fetch. Null gives exit 3, as `story branch` does. Strip a trailing `-` or `/`, as `story branch` does. A name with no `sc-<id>` in it is exit 3 with the suggestion to use `--branch`, because the next run would not find the branch. Then look at the sources again: another run can make a branch of the story during the story read, and a match now is used instead of a new branch.
 4. `git worktree add --no-track -b <name> <dir> origin/HEAD`, or `origin/main` when `origin/HEAD` is not set. `from: new`. With no `--no-track`, the new branch tracks main: `git pull` merges main, and `git push` fails or pushes to main, by `push.default`.
 
 ### Directory
@@ -82,15 +82,15 @@ When no source matches, `--branch` gives the name of the new branch, and step 3 
 
 ### `--start`
 
-After the git part:
+Steps 1 and 2 run while the git part runs, mostly during `git fetch`. Steps 3 to 5 run after the git part, so a git failure changes nothing in Shortcut.
 
-1. Read the story: `workflow`, `workflow_state`, `owners`. In v4 these are nested objects, not IDs.
-2. Read all pages of the workflow states. If the current state has type `backlog` or `unstarted`, set the state to the `started` state with the lowest position. A story in a `started` or `done` state does not move. A backlog or unstarted story in a workflow with no `started` state is exit 3.
+1. Read the story: `formatted_vcs_branch_name`, `workflow`, `workflow_state`, `owners`. In v4 the last three are nested objects, not IDs. A new branch gets its name from this read, so the run reads the story once before step 3.
+2. Read all pages of the workflow states, and `@me`. If the current state has type `backlog` or `unstarted`, set the state to the `started` state with the lowest position. A story in a `started` or `done` state does not move. A backlog or unstarted story in a workflow with no `started` state is exit 3.
 3. Before the `PATCH` that changes the state, read the state again. If another writer changed it after step 1, do not change the state. The API has no conditional update, so this makes the window small, not zero.
 4. Add `@me` with `owner_ids_add`. Skip it if `@me` is an owner.
 5. One `PATCH` with the changes, or no call when there is none.
 
-If the git part worked and the Shortcut part fails, the worktree stays. The command exits with the Shortcut error code, and the error JSON has the worktree under `worktree`, so a caller can still open it.
+The errors are those of the steps in sequence. A git error is the error of the run, even when a read failed too. A failed story read, when a new branch needs its name, is the error of the run, with no worktree. Else a failed step comes after the git part: the worktree stays, the command exits with the Shortcut error code, and the error JSON has the worktree under `worktree`, so a caller can still open it.
 
 ### Git errors
 

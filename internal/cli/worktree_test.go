@@ -257,7 +257,7 @@ func TestWorktreeStartAlreadyStarted(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code %d, stderr %s", code, errs)
 	}
-	if c.count(wtStory) != 2 || patch != nil {
+	if c.count(wtStory) != 1 || patch != nil {
 		t.Errorf("calls %v, patch %v", c.paths, patch)
 	}
 	if m := decode(t, out); m["started"] != false {
@@ -404,7 +404,7 @@ func TestWorktreeStartRecheck(t *testing.T) {
 	n := 0
 	state := func() int {
 		n++
-		if n <= 2 { // the branch name read and the first --start read
+		if n <= 1 { // the first read, which also gives the branch name
 			return 7
 		}
 		return 10
@@ -471,7 +471,7 @@ func TestWorktreeCancelledStart(t *testing.T) {
 	var patch map[string]any
 	story := storyHandler(func() int { return 7 }, nil)
 	h, _ := startHarnessH(t, &c, func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Query().Get("fields"), "workflow_state") {
+		if r.URL.Query().Get("fields") == "workflow_state" { // the read just before the PATCH
 			cancel()
 			<-r.Context().Done()
 			return
@@ -533,5 +533,90 @@ func TestWorktreeAddFailRemovesDir(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(filepath.Dir(main), "1234")); err == nil {
 		t.Errorf("dir left after the failure")
+	}
+}
+
+// With --start, the story read runs while git fetches.
+func TestWorktreeStartReadsDuringFetch(t *testing.T) {
+	log := testgit.WrapGit(t, `case "$*" in *" fetch "*)
+	i=0; while [ ! -e "$LOG.read" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done
+	[ -e "$LOG.read" ] && echo overlap >> "$LOG";; esac`)
+	var c calls
+	var patch map[string]any
+	story := storyHandler(func() int { return 7 }, nil)
+	h, _ := startHarnessH(t, &c, func(w http.ResponseWriter, r *http.Request) {
+		_ = os.WriteFile(log+".read", nil, 0o644)
+		story(w, r)
+	}, jsonHandler(listBody(wfStates()...)), 200, &patch)
+	if code, _, errs := h.run("worktree", "1234", "--start"); code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if b, _ := os.ReadFile(log); string(b) != "overlap\n" {
+		t.Errorf("the fetch ended before the story read: log %q", b)
+	}
+}
+
+// The concurrent steps fail as the steps in sequence did: a git error comes
+// first, a failed story read comes without the worktree, and a failed later
+// read comes with the worktree.
+func TestWorktreeStartErrorOrder(t *testing.T) {
+	notFound := func(w http.ResponseWriter, r *http.Request) { http.Error(w, `{"message":"no"}`, http.StatusNotFound) }
+	down := func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"message":"down"}`, http.StatusServiceUnavailable)
+	}
+	story := storyHandler(func() int { return 7 }, nil)
+	states := jsonHandler(listBody(wfStates()...))
+	for _, tc := range []struct {
+		name          string
+		noOrigin      bool
+		story, states http.HandlerFunc
+		code          int
+		msg           string
+		worktree      bool
+	}{
+		{"fetch and story fail", true, notFound, states, 1, "git fetch", false},
+		{"fetch fails", true, story, states, 1, "git fetch", false},
+		{"story fails", false, notFound, states, 3, "", false},
+		{"states fail", false, story, down, 5, "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var c calls
+			var patch map[string]any
+			h, main := startHarnessH(t, &c, tc.story, tc.states, 200, &patch)
+			if tc.noOrigin {
+				testgit.Git(t, main, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
+			}
+			code, _, errs := h.run("worktree", "1234", "--start")
+			if code != tc.code || !strings.Contains(errs, tc.msg) {
+				t.Fatalf("code %d, stderr %s", code, errs)
+			}
+			_, has := decode(t, errs)["worktree"]
+			_, err := os.Stat(filepath.Join(filepath.Dir(main), "1234"))
+			if has != tc.worktree || (err == nil) != tc.worktree {
+				t.Errorf("worktree in error %v, dir error %v: %s", has, err, errs)
+			}
+			if patch != nil {
+				t.Errorf("patch %v", patch)
+			}
+		})
+	}
+}
+
+// A worktree with no directory stops --start before any change.
+func TestWorktreeStartPrunable(t *testing.T) {
+	var c calls
+	var patch map[string]any
+	h, main := startHarness(t, &c, 7, nil, wfStates(), 200, &patch)
+	dir := filepath.Join(filepath.Dir(main), "1234")
+	testgit.Git(t, main, "worktree", "add", "-q", "-b", "bug/sc-1234/x", dir)
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errs := h.run("worktree", "1234", "--start")
+	if code != 2 || !strings.Contains(errs, "worktree prune") {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if patch != nil {
+		t.Errorf("patch %v", patch)
 	}
 }
