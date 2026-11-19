@@ -38,6 +38,7 @@ scut story files 12 --out ./files  # download the attachments
 scut story branch 12  # the git branch name
 scut story history 12 --fields workflow_state --desc --limit 10  # the last state changes
 scut worktree 12 --start  # find or make the worktree, and start the story
+scut epic update 40 --add-owner @me --description-file d.md
 ```
 
 ## Output size
@@ -53,7 +54,7 @@ Write the text to a file with your file tool. Then pass `--description-file <fil
 
 ## Writes
 
-- Archive, unlink, `--no-parent`, or a change of parent: only when the user asks.
+- Archive a story or an epic, unlink, `--no-parent`, or a change of parent: only when the user asks.
 - Never add `--yes` yourself. `scut api -X DELETE` needs it.
 
 ## Missing features

@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -21,10 +20,6 @@ import (
 )
 
 const pageSize = "100"
-
-var (
-	digitRe = regexp.MustCompile(`^\d+$`)
-)
 
 // nestedFields lists, for each cached kind, the nested lists to complete.
 var nestedFields = map[string][]string{
@@ -368,6 +363,16 @@ func findState(es []entity, name string, workflowID int64) (int64, error) {
 	}
 }
 
+// EpicState resolves the name of a state of the epic workflow. Epic states
+// are not cached.
+func (r *R) EpicState(name string) (int64, error) {
+	id, err := r.byName("/epic-workflow/states", url.Values{}, "name", name, "epic state", "")
+	if err != nil {
+		return 0, err
+	}
+	return strconv.ParseInt(id, 10, 64)
+}
+
 // Field resolves a custom field name and one of its values.
 func (r *R) Field(name, value string) (fieldID, valueID string, err error) {
 	type pair struct{ f, v string }
@@ -418,21 +423,17 @@ func epicQuery(s string) string {
 	return `"` + s + `"`
 }
 
-// Epic resolves an epic ID or an exact epic name, trimmed. A blank one is a
-// usage error. Epics are not cached.
+// Epic resolves an epic argument (see ref.Epic). Epics are not cached.
 func (r *R) Epic(s string) (int64, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0, exit.Usagef("give an epic ID or name")
+	id, name, err := ref.Epic(s)
+	if err != nil || name == "" {
+		return id, err
 	}
-	if digitRe.MatchString(s) {
-		return strconv.ParseInt(s, 10, 64)
-	}
-	id, err := r.byName("/epics/search", url.Values{"query": {epicQuery(s)}}, "name", s, "epic", "give the epic ID")
+	sid, err := r.byName("/epics/search", url.Values{"query": {epicQuery(name)}}, "name", name, "epic", "give the epic ID")
 	if err != nil {
 		return 0, err
 	}
-	return strconv.ParseInt(id, 10, 64)
+	return strconv.ParseInt(sid, 10, 64)
 }
 
 // DocByTitle resolves an exact doc title (see ref.Doc) to a doc ID. Docs are

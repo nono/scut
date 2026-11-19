@@ -10,9 +10,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/nono/scut/internal/exit"
+	"github.com/nono/scut/internal/ref"
 )
 
-// EpicOut is the compact epic shape. Description is only set by epic view.
+// EpicOut is the compact epic shape. Only epic view and epic update set Description.
 type EpicOut struct {
 	ID          int64           `json:"id"`
 	Name        string          `json:"name"`
@@ -95,16 +96,26 @@ func shapeEpics(d *deps, raw []json.RawMessage, description bool) (epicList, err
 }
 
 func newEpicGroup(env Env) *cobra.Command {
-	g := Group("epic", "View and search epics, list their stories")
-	g.AddCommand(newEpicView(env), newEpicSearch(env), newEpicStories(env), newEpicComment(env))
+	g := Group("epic", "View, search and change epics, list their stories")
+	g.AddCommand(newEpicView(env), newEpicSearch(env), newEpicStories(env), newEpicComment(env), newEpicUpdate(env))
 	return g
+}
+
+// epicArg is the Args check of a command that takes one epic. It parses the
+// epic before the token loads, so a blank one is a usage error first.
+func epicArg(cmd *cobra.Command, args []string) error {
+	if err := cobra.ExactArgs(1)(cmd, args); err != nil {
+		return err
+	}
+	_, _, err := ref.Epic(args[0])
+	return err
 }
 
 func newEpicView(env Env) *cobra.Command {
 	return &cobra.Command{
 		Use:         "view <epic>",
 		Short:       "Show an epic, by ID or exact name",
-		Args:        cobra.ExactArgs(1),
+		Args:        epicArg,
 		Annotations: map[string]string{OpsAnnotation: "getEpic,searchEpics,listMembers", IDArgsAnnotation: ""},
 		RunE: withDeps(env, func(cmd *cobra.Command, args []string, d *deps) error {
 			id, err := d.Resolver.Epic(args[0])
@@ -115,13 +126,18 @@ func newEpicView(env Env) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			l, err := shapeEpics(d, []json.RawMessage{raw}, true)
-			if err != nil {
-				return err
-			}
-			return d.Out(l[0])
+			return outEpic(d, raw)
 		}),
 	}
+}
+
+// outEpic prints one epic, with its description.
+func outEpic(d *deps, raw json.RawMessage) error {
+	l, err := shapeEpics(d, []json.RawMessage{raw}, true)
+	if err != nil {
+		return err
+	}
+	return d.Out(l[0])
 }
 
 func newEpicSearch(env Env) *cobra.Command {
@@ -151,7 +167,7 @@ func newEpicStories(env Env) *cobra.Command {
 		Use:         "stories <epic>",
 		Short:       "List the stories of an epic, in position order",
 		Long:        "List the stories of an epic, in position order. The epic is an ID or an exact name.\nThe API default applies: archived stories are left out.",
-		Args:        cobra.ExactArgs(1),
+		Args:        epicArg,
 		Annotations: map[string]string{OpsAnnotation: "listEpicStories,searchEpics,listMembers", IDArgsAnnotation: ""},
 	}
 	limitFlag := cmd.Flags().String("limit", strconv.Itoa(defaultLimit), "maximum number of stories, or all")
@@ -180,7 +196,7 @@ func newEpicComment(env Env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:         "comment <epic>",
 		Short:       "Add a comment to an epic",
-		Args:        cobra.ExactArgs(1),
+		Args:        epicArg,
 		Annotations: map[string]string{OpsAnnotation: "createEpicComment,searchEpics,listMembers", IDArgsAnnotation: ""},
 	}
 	bodyFile := cmd.Flags().String("body-file", "", "read the comment text from this file; - is stdin")

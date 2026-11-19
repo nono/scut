@@ -125,6 +125,7 @@ Each write is its own subcommand. Thus a Claude Code rule such as `Bash(scut sto
 | `epic comment` | `createEpicComment` | no |
 | `epic search` | no | yes |
 | `epic stories` | no | yes |
+| `epic update` | `updateEpic` | no |
 | `epic view` | no | yes |
 | `field list` | no | yes |
 | `field values` | no | yes |

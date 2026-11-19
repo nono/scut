@@ -1,4 +1,4 @@
-// Package ref parses story and doc references.
+// Package ref parses story, epic and doc references.
 package ref
 
 import (
@@ -70,6 +70,23 @@ func Doc(s string) (id, title string, err error) {
 		}
 	}
 	return "", "", bad
+}
+
+// Epic parses an epic argument: an ID, or else an exact name. It returns
+// the ID, or the trimmed name with ID 0. A blank argument is a usage error.
+func Epic(s string) (id int64, name string, err error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, "", exit.Usagef("give an epic ID or name")
+	}
+	if digits.MatchString(s) {
+		id, err = strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return 0, "", exit.Usagef("bad epic ID %q", s)
+		}
+		return id, "", nil
+	}
+	return 0, s, nil
 }
 
 // Story returns the story ID in s: sc-5409, 5409, a story URL or a branch name.

@@ -3,6 +3,8 @@ package cli_test
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -130,6 +132,19 @@ func TestEpicCommentEmpty(t *testing.T) {
 	}
 }
 
+// A blank epic exits 2 before the token loads: this harness has no token.
+func TestEpicBlankNoToken(t *testing.T) {
+	h := newHarness(t, nil, "x", nil)
+	for _, args := range [][]string{
+		{"view", " "}, {"stories", ""}, {"comment", "\t", "--body-file", "-"}, {"update", " ", "--archive"},
+	} {
+		code, _, errs := h.run(append([]string{"epic"}, args...)...)
+		if code != 2 || !strings.Contains(errs, "give an epic ID or name") {
+			t.Errorf("%q: code %d, stderr %s", args, code, errs)
+		}
+	}
+}
+
 func TestEpicNoOwners(t *testing.T) {
 	e := epicFixture()
 	delete(e, "owners")
@@ -149,7 +164,16 @@ func TestEpicNoOwners(t *testing.T) {
 func TestEpicContract(t *testing.T) {
 	h := newHarness(t, nil, "text", searchEnv)
 	h.env.APIBase = testapi.Prism(t)
-	for _, args := range [][]string{{"epic", "view", "5387"}, {"epic", "search", "x"}, {"epic", "stories", "5387"}, {"epic", "comment", "5387", "--body-file", "-"}} {
+	desc := filepath.Join(t.TempDir(), "d.md")
+	if err := os.WriteFile(desc, []byte("text\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"epic", "view", "5387"}, {"epic", "search", "x"}, {"epic", "stories", "5387"}, {"epic", "comment", "5387", "--body-file", "-"},
+		{"epic", "update", "5387", "--add-owner", "@me", "--description-file", desc},
+		// Prism gives "string" as the name of each epic state.
+		{"epic", "update", "5387", "--name", "x", "--archive", "--state", "string", "--remove-owner", "00000000-0000-4000-8000-0000000000ab"},
+	} {
 		h.env.Stdin = strings.NewReader("text")
 		if code, _, errs := h.run(args...); code != 0 {
 			t.Errorf("%v: code %d, stderr %s", args, code, errs)

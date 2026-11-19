@@ -88,6 +88,32 @@ func TestDocRefBad(t *testing.T) {
 	}
 }
 
+func TestEpicRef(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		id   int64
+		name string
+	}{
+		{"42", 42, ""},
+		{" 42\n", 42, ""},
+		{"Big epic", 0, "Big epic"},
+		{" Big epic\t", 0, "Big epic"},
+		{"sc-42", 0, "sc-42"}, // a name: sc- is a story prefix
+	} {
+		id, name, err := ref.Epic(c.in)
+		if err != nil || id != c.id || name != c.name {
+			t.Errorf("%q: got %d, %q, %v; want %d, %q", c.in, id, name, err, c.id, c.name)
+		}
+	}
+	for _, in := range []string{"", " \t\n", "99999999999999999999"} {
+		_, _, err := ref.Epic(in)
+		var e *exit.Error
+		if !errors.As(err, &e) || e.Code != exit.Usage {
+			t.Errorf("%q: got %v, want usage error", in, err)
+		}
+	}
+}
+
 func TestFromGitOutsideRepo(t *testing.T) {
 	_, err := ref.FromGit(t.TempDir())
 	var e *exit.Error
