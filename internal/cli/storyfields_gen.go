@@ -54,3 +54,20 @@ var apiStoryFields = []string{
 	"workflow",
 	"workflow_state",
 }
+
+// idFieldNames maps each property <f>_id or <f>_ids of the updateStory body,
+// where <f> is a Story field less its final s, to that Story field.
+var idFieldNames = map[string]string{
+	"epic_id":           "epic",
+	"file_ids":          "files",
+	"follower_ids":      "followers",
+	"iteration_id":      "iterations",
+	"label_ids":         "labels",
+	"linked_file_ids":   "linked_files",
+	"owner_ids":         "owners",
+	"parent_story_id":   "parent_story",
+	"project_id":        "project",
+	"requester_id":      "requester",
+	"team_id":           "team",
+	"workflow_state_id": "workflow_state",
+}

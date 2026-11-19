@@ -125,11 +125,14 @@ func TestAllowedToolsFailsClosed(t *testing.T) {
 	out.Flags().String("out", "", "")
 	root.AddCommand(out)
 	got := allowedTools(root, loadSpec(t))
-	if strings.Contains(got, "newcmd") {
+	if strings.Contains(got, "newcmd:") {
 		t.Errorf("a command with no ops is allowed: %q", got)
 	}
-	if strings.Contains(got, "newout") {
+	if strings.Contains(got, "newout:") {
 		t.Errorf("a command with --out is allowed: %q", got)
+	}
+	if !strings.Contains(got, "Bash(scut newcmd usage)") || !strings.Contains(got, "Bash(scut newout usage)") {
+		t.Errorf("no usage rule: %q", got)
 	}
 }
 
@@ -138,14 +141,21 @@ func TestAllowedToolsFailsClosed(t *testing.T) {
 func TestSkillAllowedTools(t *testing.T) {
 	spec := loadSpec(t)
 	line := allowedTools(testRoot(), spec) // TestSkillFrontmatterParses checks that the skill holds it
-	for _, want := range []string{"Bash(scut story view:*)", "Bash(scut story search:*)", "Bash(scut usage:*)", "Bash(scut story usage:*)", "Bash(scut spec:*)", "Bash(scut whoami:*)"} {
+	for _, want := range []string{"Bash(scut story view:*)", "Bash(scut story search:*)", "Bash(scut usage:*)", "Bash(scut story usage:*)", "Bash(scut spec:*)", "Bash(scut whoami:*)",
+		"Bash(scut story create usage)", "Bash(scut worktree usage)", "Bash(scut api usage)"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("allowed-tools lacks %s: %q", want, line)
 		}
 	}
-	for _, bad := range []string{"story update", "story create", "story comment:", "story link", "story unlink", "worktree", "scut api", "auth login", "cache clear", "epic comment", "doc view", "story files"} {
-		if strings.Contains(line, bad) {
-			t.Errorf("allowed-tools has %q: %q", bad, line)
+	// An exact "<command> usage" rule prints the usage and runs nothing.
+	for _, rule := range strings.Split(line, ", ") {
+		if strings.HasSuffix(rule, " usage)") {
+			continue
+		}
+		for _, bad := range []string{"story update", "story create", "story comment:", "story link", "story unlink", "worktree", "scut api", "auth login", "cache clear", "epic comment", "doc view", "story files"} {
+			if strings.Contains(rule, bad) {
+				t.Errorf("allowed-tools has %q: %q", bad, rule)
+			}
 		}
 	}
 	// The lists above cover the commands of today; this loop guards the ones added later.
@@ -294,13 +304,15 @@ func TestStoryFieldsText(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := storyFieldsText(spec)
-	for _, want := range []string{"DO NOT EDIT", "package cli\n", "\t\"estimate\",\n", "\t\"workflow_state\",\n"} {
+	for _, want := range []string{"DO NOT EDIT", "package cli\n", "\t\"estimate\",\n", "\t\"workflow_state\",\n",
+		"var idFieldNames = map[string]string{\n", "\"workflow_state_id\": \"workflow_state\",\n", "\"owner_ids\":         \"owners\",\n",
+		"\"iteration_id\":      \"iterations\",\n"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("no %q in %s", want, got)
 		}
 	}
-	if !slices.IsSorted(spec.storyFields) {
-		t.Errorf("not sorted: %v", spec.storyFields)
+	if !slices.IsSorted(spec.storyFields) || !slices.IsSorted(spec.storyParams) {
+		t.Errorf("not sorted: %v, %v", spec.storyFields, spec.storyParams)
 	}
 }
 

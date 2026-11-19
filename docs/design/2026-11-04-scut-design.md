@@ -84,7 +84,7 @@ A command that does these things is a failure, even if it works:
 The nouns are singular. Each write action is its own subcommand, so a permission rule like `Bash(scut story comment:*)` allows only that action (G10).
 
 ```
-scut story view [<story>…] [--fields f,…] [--comments N|all] [--human]
+scut story view [<story>…] [--fields f,…] [--comments N|all|none] [--human]
 scut story search <query> [--limit N|all] [--fields f,…]
 scut story create --name … [--type] [--team] [--workflow] [--state] [--epic] [--parent <story>]
                   [--owner …] [--requester …] [--label …] [--estimate N] [--field "Name=Value"]…
@@ -107,7 +107,7 @@ scut field list · scut field values <field>
 scut whoami
 scut api <path> [-X METHOD] [-f key=value]… [--input file|-]
 scut spec <operationId|SchemaName> [--depth N]   (see 2026-11-05-spec-design.md)
-scut usage · scut <noun> usage
+scut usage · scut <noun> usage · scut <noun> <command> usage
 scut auth login · scut auth status
 scut cache clear
 ```
@@ -133,7 +133,7 @@ Writes need the story-write or comment-write scope, or `w`. `story unlink` and `
 
 - JSON on stdout by default, on a terminal and in a pipe. A list is an array. A view is an object. A write prints the compact shape of the entity that the API returns. `story unlink` prints `{"deleted": <link id>}`. `story link` prints one result per link.
 - `--human` or `SCUT_OUTPUT=human` prints text. Only `--human` on a terminal can open `$EDITOR` or prompt. Exception: `auth login` on a terminal prompts for the token on stderr, with no echo.
-- Default fields are compact. `story view` returns: id, name, type, state name, owners and requester as mention names, epic id and name, labels, custom fields as `{name: value}`, the description, tasks, links, branches, PRs, and the last 10 comments. `search`, `epic stories` and `story subtasks` leave out the description and comments. `--fields` takes API field names and passes them to the API `fields` parameter. It also takes the output names (`state`, `type`, `tasks`, …) as aliases. An API field that the compact shape does not model is printed as the API sent it, under its API name. `genskill` writes the Story field names from the committed spec to `internal/cli/storyfields_gen.go`, and `make check-skill` fails when that file drifts.
+- Default fields are compact. `story view` returns: id, name, type, state name, owners and requester as mention names, epic id and name, labels, custom fields as `{name: value}`, the description, tasks, links, branches, PRs, and the last 10 comments. `search`, `epic stories` and `story subtasks` leave out the description and comments. `--fields` takes API field names and passes them to the API `fields` parameter. It also takes the output names (`state`, `type`, `tasks`, …) as aliases, and the ID names of the `updateStory` body (`epic_id` for `epic`, `owner_ids` for `owners`, `iteration_id` for `iterations`): a body property `<f>_id` or `<f>_ids`, where `<f>` is a Story field less its final `s`. An API field that the compact shape does not model is printed as the API sent it, under its API name. `genskill` writes the Story field names from the committed spec and the map of ID names to `internal/cli/storyfields_gen.go`, and `make check-skill` fails when that file drifts.
 - Member names in output come from the cache. State and field names come from the API response. The design must keep the IDs as well, so a script can use them.
 - Deleted comments (`text: null`) show as `{"deleted": true}`.
 
@@ -225,9 +225,9 @@ Each run adds one JSON line to a local log, with the exceptions that the log des
 
 - The skill is in this repo at `skills/scut/SKILL.md`, so `npx skills add nono/scut` can install it. `scut` has no command to install the skill.
 - The command reference in `SKILL.md` is generated from the command tree by a dev tool (`go run ./internal/cmd/genskill`). CI fails if the committed file differs from the generated one, so the reference cannot drift from `--help`.
-- `scut usage` prints about 400 bytes (about 100 tokens): the nouns and one line each. `scut <noun> usage` prints that noun's commands and flags.
+- `scut usage` prints about 400 bytes (about 100 tokens): the nouns and one line each. `scut <noun> usage` prints that noun's commands and flags. `scut <noun> <command> usage`, with no other argument or flag, prints the usage line and flags of that command before it runs, with no token: `scut story create usage`. This applies to each command, also to one that takes a free text, such as `story search usage`. With a flag (`story search usage --limit 25`), the command runs as usual.
 - The skill says: use `scut`; read `scut usage` first; JSON output; what to do for each exit code; common tasks; write long text to a file and pass `--body-file`; which writes need the user to ask.
-- Its `allowed-tools` (generated, added 2026-11-05) lists the log path and each command that calls only `GET` operations and writes nothing other than the cache and the log, so reads need no permission prompt and each write still asks. It leaves out `auth login` (keyring), `cache clear`, and the commands with `--out` (`doc view`, `story files`): a rule matches the start of the command, so it cannot leave out one flag. A command with no ops annotation is left out, except the named local reads (`spec`). The README permission table has a column for it.
+- Its `allowed-tools` (generated, added 2026-11-05) lists the log path and each command that calls only `GET` operations and writes nothing other than the cache and the log, so reads need no permission prompt and each write still asks. It leaves out `auth login` (keyring), `cache clear`, and the commands with `--out` (`doc view`, `story files`): a rule matches the start of the command, so it cannot leave out one flag. A command with no ops annotation is left out, except the named local reads (`spec`). For each command it leaves out, it lists the exact `scut <command> usage`, with no `:*`, so the usage needs no prompt and a flag still asks. The README permission table has a column for it.
 - The skill does not mention the MCP.
 - The skill has a "Not supported" list (for example: unlink a PR or branch, docs, bulk). It tells the agent to say that the feature is missing, and not to work around it with `scut api` unless the user asks.
 

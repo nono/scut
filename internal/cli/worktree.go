@@ -156,11 +156,13 @@ func newBranch(ctx context.Context, r gitwt.Repo, id int64, branch string, sugge
 	}
 	if !ref.HasID(name, id) {
 		return gitwt.Match{}, nil, &exit.Error{Code: exit.NotFound,
-			Msg: fmt.Sprintf("the branch name %q has no sc-%d", name, id), Suggestion: "give --branch"}
+			Msg: fmt.Sprintf("the branch name %q has no sc-%d", name, id), Suggestion: fmt.Sprintf("add --branch <name>, with sc-%d in the name", id)}
 	}
 	ms, err := r.Find(ctx, id)
 	return gitwt.Match{Branch: name, Source: gitwt.New}, ms, err
 }
+
+const pickSuggestion = "add --branch <name>, with a name from valid"
 
 // pick selects one of the branches of story id: the --branch one, else the
 // only one.
@@ -169,13 +171,13 @@ func pick(ms []gitwt.Match, branch string, id int64) (gitwt.Match, error) {
 		i := slices.IndexFunc(ms, func(x gitwt.Match) bool { return x.Branch == branch })
 		if i < 0 {
 			return gitwt.Match{}, &exit.Error{Code: exit.Usage,
-				Msg: fmt.Sprintf("--branch %q is not a branch of sc-%d", branch, id), Valid: branchNames(ms)}
+				Msg: fmt.Sprintf("--branch %q is not a branch of sc-%d", branch, id), Suggestion: pickSuggestion, Valid: branchNames(ms)}
 		}
 		return ms[i], nil
 	}
 	if len(ms) > 1 {
 		return gitwt.Match{}, &exit.Error{Code: exit.Usage, Msg: fmt.Sprintf("more than one branch for sc-%d", id),
-			Suggestion: "give --branch", Valid: branchNames(ms)}
+			Suggestion: pickSuggestion, Valid: branchNames(ms)}
 	}
 	return ms[0], nil
 }

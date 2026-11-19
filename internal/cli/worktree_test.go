@@ -104,12 +104,14 @@ func TestWorktreeTwoMatches(t *testing.T) {
 	h, main := wtHarness(t, nil, "", nil)
 	testgit.Git(t, main, "branch", "bug/sc-1234/a")
 	testgit.Git(t, main, "branch", "bug/sc-1234/b")
-	code, _, errs := h.run("worktree", "1234")
-	if code != 2 || !strings.Contains(errs, `"valid":["bug/sc-1234/a","bug/sc-1234/b"]`) {
-		t.Fatalf("code %d, stderr %s", code, errs)
-	}
-	if code, _, errs := h.run("worktree", "1234", "--branch", "nope"); code != 2 {
-		t.Fatalf("nope: code %d, stderr %s", code, errs)
+	for _, args := range [][]string{{"worktree", "1234"}, {"worktree", "1234", "--start"}, {"worktree", "1234", "--branch", "nope"}} {
+		t.Run(strings.Join(args[2:], " "), func(t *testing.T) {
+			code, _, errs := h.run(args...)
+			e := decode(t, errs)
+			if s, _ := e["suggestion"].(string); code != 2 || jsonOf(e["valid"]) != `["bug/sc-1234/a","bug/sc-1234/b"]` || !strings.Contains(s, "--branch <name>") {
+				t.Errorf("code %d, stderr %s", code, errs)
+			}
+		})
 	}
 	code, out, errs := h.run("worktree", "1234", "--branch", "bug/sc-1234/b")
 	if code != 0 {
@@ -139,7 +141,7 @@ func TestWorktreeBranchFlagNew(t *testing.T) {
 func TestWorktreeNullBranchName(t *testing.T) {
 	for _, tc := range []struct{ name, branch, msg string }{
 		{"null", `null`, "no branch name format"},
-		{"no id", `"feature/x"`, "--branch"},
+		{"no id", `"feature/x"`, "--branch <name>, with sc-1234"},
 	} {
 		for _, args := range [][]string{{"worktree", "1234"}, {"worktree", "1234", "--start"}} {
 			t.Run(tc.name+" "+strings.Join(args[2:], ""), func(t *testing.T) {

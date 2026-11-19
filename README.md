@@ -68,6 +68,7 @@ replaces that key of `[fields]`; the other keys stay.
 ```sh
 scut usage                 # all commands
 scut story usage           # the commands of one noun
+scut story create usage    # the flags of one command
 scut story view 1234
 scut story search 'owner:me state:"To Do"'
 scut story create --name "Fix the login" --type bug

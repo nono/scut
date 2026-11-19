@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/url"
 	"slices"
 	"strconv"
@@ -40,7 +41,8 @@ var apiFieldNames = map[string]string{
 var storyFieldNames = []string{"app_url", "branches", "comments", "description", "epic", "field_ids", "fields", "id", "labels",
 	"links", "name", "owners", "pull_requests", "requester", "state", "tasks", "type"}
 
-const fieldsUsage = "comma-separated fields to show: output names or API Story field names (estimate, deadline, …)"
+const fieldsUsage = "comma-separated fields to show: output names, API Story field names (estimate, deadline, …), " +
+	"or the ID names of the updateStory body (epic_id, owner_ids, …)"
 
 // apiName returns the API field name of a --fields name.
 func apiName(f string) string {
@@ -50,10 +52,11 @@ func apiName(f string) string {
 	return f
 }
 
-// validFields returns the names that --fields takes: the CLI names and the
-// properties of the Story schema.
+// validFields returns the names that --fields takes: the CLI names, the
+// properties of the Story schema and the ID names.
 func validFields() []string {
 	v := append(slices.Clone(storyFieldNames), apiStoryFields...)
+	v = slices.AppendSeq(v, maps.Keys(idFieldNames))
 	slices.Sort(v)
 	return slices.Compact(v)
 }
@@ -71,13 +74,16 @@ func extraFields(fields []string) []string {
 }
 
 // apiFields maps a --fields list to the API names and keeps id. It takes the
-// CLI names and the API names. An unknown name is a usage error.
+// CLI names, the API names and the ID names. An unknown name is a usage error.
 func apiFields(list string) ([]string, error) {
 	var out []string
 	for _, f := range strings.Split(list, ",") {
 		f = strings.TrimSpace(f)
 		if f == "" {
 			continue
+		}
+		if a, ok := idFieldNames[f]; ok {
+			f = a
 		}
 		if !slices.Contains(storyFieldNames, f) && !slices.Contains(apiStoryFields, f) {
 			return nil, &exit.Error{Code: exit.Usage, Msg: fmt.Sprintf("unknown field %q", f), Valid: validFields()}
@@ -95,12 +101,15 @@ func apiFields(list string) ([]string, error) {
 
 // parseCommentCount returns the number of comments to fetch, -1 for all.
 func parseCommentCount(s string) (int, error) {
-	if s == "all" {
+	switch s {
+	case "all":
 		return -1, nil
+	case "none":
+		return 0, nil
 	}
 	n, err := strconv.Atoi(s)
 	if err != nil || n < 0 {
-		return 0, exit.Usagef("--comments takes a number or \"all\", not %q", s)
+		return 0, exit.Usagef("--comments takes a number, \"all\" or \"none\", not %q", s)
 	}
 	return n, nil
 }
@@ -112,13 +121,13 @@ func newStoryView(env Env) *cobra.Command {
 		Annotations: map[string]string{OpsAnnotation: "getStory,listStoryComments,listStoryChecklistItems,listStories,listMembers", IDArgsAnnotation: "sc-"},
 	}
 	fieldsFlag := cmd.Flags().String("fields", "", fieldsUsage)
-	commentsFlag := cmd.Flags().String("comments", strconv.Itoa(defaultComments), "number of newest comments, or all")
+	commentsFlag := cmd.Flags().String("comments", strconv.Itoa(defaultComments), "number of newest comments, all, or none")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		nComments, err := parseCommentCount(*commentsFlag)
 		if err != nil {
 			return err
 		}
-		if len(args) > 1 && cmd.Flags().Changed("comments") {
+		if len(args) > 1 && nComments != 0 && cmd.Flags().Changed("comments") {
 			return exit.Usagef("--comments needs a single story")
 		}
 		ids, err := storyIDs(env, args)
@@ -138,7 +147,7 @@ func newStoryView(env Env) *cobra.Command {
 		return withDeps(env, func(cmd *cobra.Command, _ []string, d *deps) error {
 			ctx := cmd.Context()
 			if len(ids) > 1 {
-				return viewMany(ctx, d, uniq, fields)
+				return viewMany(ctx, d, uniq, fields, nComments != 0)
 			}
 			return viewOne(ctx, d, ids[0], fields, nComments)
 		})(cmd, args)
@@ -234,8 +243,9 @@ func uniqueIDs(ids []int64) []int64 {
 }
 
 // viewMany gets several stories in one call. It prints the stories found, in
-// argument order, then fails with exit 3 if some are missing.
-func viewMany(ctx context.Context, d *deps, uniq []int64, fields []string) error {
+// argument order, then fails with exit 3 if some are missing. With comments
+// false, it prints no comments.
+func viewMany(ctx context.Context, d *deps, uniq []int64, fields []string, comments bool) error {
 	q := storiesQuery(uniq)
 	fieldsQuery(q, fields)
 	raw, err := transport.PageQuery(ctx, d.Doer, "stories", q, -1)
@@ -243,7 +253,7 @@ func viewMany(ctx context.Context, d *deps, uniq []int64, fields []string) error
 		return err
 	}
 	byID := map[int64]StoryOut{}
-	opts := shapeOpts{Description: true, Comments: true, Extra: extraFields(fields)}
+	opts := shapeOpts{Description: true, Comments: comments, Extra: extraFields(fields)}
 	for _, r := range raw {
 		s, err := shapeStory(r, d.Resolver, opts)
 		if err != nil {
