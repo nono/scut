@@ -23,8 +23,7 @@ lint: check-skill
 	govulncheck ./...
 	go mod tidy -diff
 	@out=$$(deadcode -test ./...) && [ -z "$$out" ] || { echo "$$out"; exit 1; }
-	actionlint
-	zizmor --offline .github/workflows
+	jactionlint
 
 live:
 	go test -tags live -count=1 -v ./internal/live
