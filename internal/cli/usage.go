@@ -88,22 +88,26 @@ func writeLeafUsage(b *strings.Builder, s *cobra.Command) {
 // usageAfter writes the usage of the command that args name when the last
 // argument is "usage" and there is no other argument or flag, as in
 // "scut story create usage". It runs before the command, so it needs no
-// token. It returns the command, or nil when args are not such a request.
-func usageAfter(root *cobra.Command, args []string) *cobra.Command {
+// token. It returns the command and the write error, or a nil command when
+// args are not such a request.
+func usageAfter(root *cobra.Command, args []string) (*cobra.Command, error) {
 	n := len(args)
 	if n < 2 || args[n-1] != "usage" {
-		return nil
+		return nil, nil
 	}
-	// A group has a usage subcommand. A flag, or another word, leaves rest
-	// not empty.
-	cmd, rest, err := root.Find(args[:n-1])
-	if err != nil || len(rest) > 0 || cmd.HasSubCommands() {
-		return nil
+	// Find fails only when the root has no Args check, and the root has
+	// noArgs. A group has a usage subcommand. A flag, or another word, leaves
+	// rest not empty.
+	cmd, rest, _ := root.Find(args[:n-1])
+	if len(rest) > 0 || cmd.HasSubCommands() {
+		return nil, nil
+	}
+	// The run log reads the arguments from the flag set.
+	if err := cmd.ParseFlags(args[n-1:]); err != nil {
+		return cmd, err
 	}
 	var b strings.Builder
 	writeLeafUsage(&b, cmd)
-	if _, err := io.WriteString(cmd.OutOrStdout(), b.String()); err != nil {
-		return nil
-	}
-	return cmd
+	_, err := io.WriteString(cmd.OutOrStdout(), b.String())
+	return cmd, err
 }

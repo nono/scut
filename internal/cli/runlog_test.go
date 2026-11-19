@@ -632,3 +632,26 @@ func TestRunLogSIGINT(t *testing.T) {
 		t.Errorf("line = %v", l)
 	}
 }
+
+// "<command> usage" logs its one argument. On a closed pipe it stops, and
+// does not run the command with "usage" as its argument.
+func TestRunLogUsageAfterCommand(t *testing.T) {
+	var c calls
+	h := newHarness(t, map[string]http.HandlerFunc{"/": c.wrap(jsonHandler(`{"entities":[]}`))}, "", searchEnv)
+	if code, _, errs := h.run("story", "create", "usage"); code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if l := lastLine(t, h); l["cmd"] != "story create" || l["args_n"] != 1.0 || l["exit"] != 0.0 {
+		t.Errorf("line = %v", l)
+	}
+	var errb strings.Builder
+	if code := cli.Execute([]string{"story", "search", "usage"}, closedPipe{}, &errb, h.env); code != 141 {
+		t.Fatalf("exit %d: %s", code, errb.String())
+	}
+	if c.total() != 0 {
+		t.Errorf("calls %v", c.paths)
+	}
+	if l := lastLine(t, h); l["args_n"] != 1.0 || l["exit"] != 141.0 {
+		t.Errorf("line = %v", l)
+	}
+}
