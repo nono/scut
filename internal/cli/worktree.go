@@ -2,13 +2,13 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
 	"path/filepath"
 	"slices"
 	"strconv"
+	"sync"
 
 	"github.com/spf13/cobra"
 
@@ -49,14 +49,7 @@ func newWorktree(env Env) *cobra.Command {
 			id, ctx := ids[0], cmd.Context()
 			// The API client is made only when a Shortcut call is necessary,
 			// so an existing branch needs no token.
-			var cached *deps
-			api := func() (*deps, error) {
-				var err error
-				if cached == nil {
-					cached, err = newDeps(cmd, env)
-				}
-				return cached, err
-			}
+			api := sync.OnceValues(func() (*deps, error) { return newDeps(cmd, env) })
 			r, err := gitwt.Open(ctx, abs(env.Dir, repo))
 			if err != nil {
 				return err
@@ -67,7 +60,12 @@ func newWorktree(env Env) *cobra.Command {
 				dir = abs(env.Dir, dir)
 			}
 			ms, err := r.Find(ctx, id)
+			var pre *prefetch
 			if err == nil && ms == nil {
+				if start {
+					pre = startPrefetch(ctx, api, id)
+					defer pre.stop()
+				}
 				if err = r.Fetch(ctx); err == nil {
 					ms, err = r.Find(ctx, id)
 				}
@@ -77,7 +75,17 @@ func newWorktree(env Env) *cobra.Command {
 			}
 			var m gitwt.Match
 			if ms == nil {
-				if m, ms, err = newBranch(ctx, r, id, branch, api); err != nil {
+				suggest := func() (string, error) {
+					d, err := api()
+					if err != nil {
+						return "", err
+					}
+					return branchName(ctx, d, id)
+				}
+				if pre != nil {
+					suggest = pre.branchName
+				}
+				if m, ms, err = newBranch(ctx, r, id, branch, suggest); err != nil {
 					return err
 				}
 			}
@@ -101,10 +109,14 @@ func newWorktree(env Env) *cobra.Command {
 				res.Dir = m.Dir
 			}
 			if start {
+				var p prepared
+				if pre != nil {
+					p = pre.wait()
+				}
 				d, err := api()
 				started := false
 				if err == nil {
-					started, err = startStory(ctx, d, id)
+					started, err = startStory(ctx, d, id, p)
 				}
 				if err != nil {
 					return withWorktree(ctx, err, res)
@@ -127,21 +139,18 @@ func newWorktree(env Env) *cobra.Command {
 }
 
 // newBranch gives the new branch of story id when no branch matches: the
-// --branch name, else the name that Shortcut suggests. After the story read,
-// it looks for the branches of the story again and returns them: another run
-// can make one during the read, and that one is used, not a second one.
-func newBranch(ctx context.Context, r gitwt.Repo, id int64, branch string, api func() (*deps, error)) (gitwt.Match, []gitwt.Match, error) {
+// --branch name, else the name that suggest reads from Shortcut. After the
+// story read, it looks for the branches of the story again and returns them:
+// another run can make one during the read, and that one is used, not a
+// second one.
+func newBranch(ctx context.Context, r gitwt.Repo, id int64, branch string, suggest func() (string, error)) (gitwt.Match, []gitwt.Match, error) {
 	if branch != "" {
 		if !ref.HasID(branch, id) {
 			return gitwt.Match{}, nil, exit.Usagef("--branch %q has no sc-%d", branch, id)
 		}
 		return gitwt.Match{Branch: branch, Source: gitwt.New}, nil, nil
 	}
-	d, err := api()
-	if err != nil {
-		return gitwt.Match{}, nil, err
-	}
-	name, err := branchName(ctx, d, id)
+	name, err := suggest()
 	if err != nil {
 		return gitwt.Match{}, nil, err
 	}
@@ -186,15 +195,110 @@ func withWorktree(ctx context.Context, err error, res worktreeResult) error {
 	return &c
 }
 
+// prepared is what a --start run reads while git fetches: the branch name
+// and the workflow of the story, the states of that workflow, and @me. A
+// failed read of the states or of @me leaves them empty, and startStory reads
+// them again. err is the error of the deps or of the story read; then the
+// fields after it are empty.
+type prepared struct {
+	branch   *string
+	workflow int64
+	states   []wfState
+	me       string
+	err      error
+}
+
+// prefetch runs the reads of prepared in a goroutine.
+type prefetch struct {
+	cancel context.CancelFunc
+	done   chan struct{}
+	p      prepared
+}
+
+// startPrefetch starts the reads of prepared. Each API call of the run waits
+// for them, so no two calls run at the same time. The deps load in their own
+// goroutine, which nothing waits for after a cancel: the keyring read takes no
+// context, and can wait for an unlock prompt.
+func startPrefetch(ctx context.Context, api func() (*deps, error), id int64) *prefetch {
+	ctx, cancel := context.WithCancel(ctx)
+	f := &prefetch{cancel: cancel, done: make(chan struct{})}
+	loaded := make(chan struct{})
+	go func() {
+		_, _ = api()
+		close(loaded)
+	}()
+	go func() {
+		defer close(f.done)
+		p := &f.p
+		select {
+		case <-loaded:
+		case <-ctx.Done():
+			p.err = ctx.Err()
+			return
+		}
+		d, err := api()
+		if err != nil {
+			p.err = err
+			return
+		}
+		var s struct {
+			Branch   *string `json:"formatted_vcs_branch_name"`
+			Workflow struct {
+				ID int64 `json:"id"`
+			} `json:"workflow"`
+		}
+		if p.err = readStory(ctx, d, id, "formatted_vcs_branch_name,workflow", &s); p.err != nil {
+			return
+		}
+		p.branch, p.workflow = s.Branch, s.Workflow.ID
+		p.states, _ = workflowStates(ctx, d, s.Workflow.ID)
+		p.me, _ = d.Resolver.WithContext(ctx).Me()
+	}()
+	return f
+}
+
+func (f *prefetch) wait() prepared {
+	<-f.done
+	return f.p
+}
+
+// branchName returns the branch name that Shortcut suggests, from the story
+// read of the prefetch.
+func (f *prefetch) branchName() (string, error) {
+	p := f.wait()
+	if p.err != nil {
+		return "", p.err
+	}
+	return suggestedBranch(p.branch)
+}
+
+// stop ends the reads when the run ends, and waits for the requests in
+// progress, so that the run log sees them all.
+func (f *prefetch) stop() {
+	f.cancel()
+	<-f.done
+}
+
+type wfState struct {
+	ID       int64  `json:"id"`
+	Type     string `json:"type"`
+	Position int64  `json:"position"`
+}
+
+func workflowStates(ctx context.Context, d *deps, workflow int64) ([]wfState, error) {
+	items, err := transport.PageQuery(ctx, d.Doer, "workflows/"+strconv.FormatInt(workflow, 10)+"/states",
+		url.Values{"fields": {"id,type,position"}, "limit": {"100"}}, -1)
+	if err != nil {
+		return nil, err
+	}
+	return decodeAll[wfState](items, "workflow state")
+}
+
 // startStory moves a backlog or unstarted story to the started state with the
 // lowest position in its workflow, and adds @me as owner. It makes one PATCH,
 // or none when there is nothing to change. started tells if the state changed.
-func startStory(ctx context.Context, d *deps, id int64) (started bool, err error) {
-	path := "stories/" + strconv.FormatInt(id, 10)
-	raw, err := d.Doer.Raw(ctx, "GET", path, url.Values{"fields": {"workflow,workflow_state,owners"}}, nil)
-	if err != nil {
-		return false, err
-	}
+// It uses the states and @me of pre when pre has them.
+func startStory(ctx context.Context, d *deps, id int64, pre prepared) (started bool, err error) {
 	type member struct {
 		ID string `json:"id"`
 	}
@@ -209,25 +313,19 @@ func startStory(ctx context.Context, d *deps, id int64) (started bool, err error
 			Entities []member `json:"entities"`
 		} `json:"owners"`
 	}
-	if err := json.Unmarshal(raw, &s); err != nil {
-		return false, &exit.Error{Code: exit.Other, Msg: "bad story response"}
-	}
-	items, err := transport.PageQuery(ctx, d.Doer, "workflows/"+strconv.FormatInt(s.Workflow.ID, 10)+"/states",
-		url.Values{"fields": {"id,type,position"}, "limit": {"100"}}, -1)
-	if err != nil {
+	if err := readStory(ctx, d, id, "workflow,workflow_state,owners", &s); err != nil {
 		return false, err
 	}
-	type state struct {
-		ID       int64  `json:"id"`
-		Type     string `json:"type"`
-		Position int64  `json:"position"`
-	}
-	states, err := decodeAll[state](items, "workflow state")
-	if err != nil {
-		return false, err
+	// read tells if a request came after the story read.
+	states, me, read := pre.states, pre.me, false
+	if states == nil || pre.workflow != s.Workflow.ID {
+		if states, err = workflowStates(ctx, d, s.Workflow.ID); err != nil {
+			return false, err
+		}
+		read = true
 	}
 	var cur string
-	var first *state
+	var first *wfState
 	for i, st := range states {
 		if st.ID == s.State.ID {
 			cur = st.Type
@@ -243,28 +341,26 @@ func startStory(ctx context.Context, d *deps, id int64) (started bool, err error
 		}
 		target = first.ID
 	}
-	me, err := d.Resolver.Me()
-	if err != nil {
-		return false, err
+	if me == "" {
+		if me, err = d.Resolver.Me(); err != nil {
+			return false, err
+		}
+		read = true
 	}
 	// A nested list can be cut short: then me can be an owner that is not in
 	// it, and owner_ids_add of an owner changes nothing.
 	addMe := !slices.Contains(s.Owners.Entities, member{me})
-	if target != 0 {
+	if target != 0 && read {
 		// Read the state again just before the PATCH, so a story that another
 		// writer moved meanwhile is not moved back. The API has no
 		// conditional update, so this makes the window small, not zero.
-		raw, err := d.Doer.Raw(ctx, "GET", path, url.Values{"fields": {"workflow_state"}}, nil)
-		if err != nil {
-			return false, err
-		}
 		var now struct {
 			State struct {
 				ID int64 `json:"id"`
 			} `json:"workflow_state"`
 		}
-		if err := json.Unmarshal(raw, &now); err != nil {
-			return false, &exit.Error{Code: exit.Other, Msg: "bad story response"}
+		if err := readStory(ctx, d, id, "workflow_state", &now); err != nil {
+			return false, err
 		}
 		if now.State.ID != s.State.ID {
 			target = 0
@@ -280,7 +376,7 @@ func startStory(ctx context.Context, d *deps, id int64) (started bool, err error
 	if len(body) == 0 {
 		return false, nil
 	}
-	if _, err := d.Doer.Raw(ctx, "PATCH", path, nil, body); err != nil {
+	if _, err := d.Doer.Raw(ctx, "PATCH", "stories/"+strconv.FormatInt(id, 10), nil, body); err != nil {
 		return false, err
 	}
 	return target != 0, nil

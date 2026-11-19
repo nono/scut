@@ -71,7 +71,7 @@ When no source matches, `--branch` gives the name of the new branch, and step 3 
 
 1. `git fetch origin`.
 2. Check `refs/remotes/origin/*` again. A match there gives `from: remote`. This finds a branch that another person pushed after the last fetch.
-3. Else read the story (`GET /stories/{id}`, field `formatted_vcs_branch_name`). Null gives exit 3, as `story branch` does. Strip a trailing `-` or `/`, as `story branch` does. A name with no `sc-<id>` in it is exit 3 with the suggestion to use `--branch`, because the next run would not find the branch. Then look at the sources again: another run can make a branch of the story during the story read, and a match now is used instead of a new branch.
+3. Else read the story (`GET /stories/{id}`, field `formatted_vcs_branch_name`). With `--start`, this read starts with the fetch (see `--start`). Null gives exit 3, as `story branch` does. Strip a trailing `-` or `/`, as `story branch` does. A name with no `sc-<id>` in it is exit 3 with the suggestion to use `--branch`, because the next run would not find the branch. Then look at the sources again: another run can make a branch of the story during the story read, and a match now is used instead of a new branch.
 4. `git worktree add --no-track -b <name> <dir> origin/HEAD`, or `origin/main` when `origin/HEAD` is not set. `from: new`. With no `--no-track`, the new branch tracks main: `git pull` merges main, and `git push` fails or pushes to main, by `push.default`.
 
 ### Directory
@@ -90,7 +90,9 @@ After the git part:
 4. Add `@me` with `owner_ids_add`. Skip it if `@me` is an owner.
 5. One `PATCH` with the changes, or no call when there is none.
 
-If the git part worked and the Shortcut part fails, the worktree stays. The command exits with the Shortcut error code, and the error JSON has the worktree under `worktree`, so a caller can still open it.
+When the run fetches, the reads that do not depend on the git part run during the fetch: the story (`formatted_vcs_branch_name`, `workflow`), the states of that workflow, and `@me`. The branch name of a new branch comes from this read. Steps 2 and 4 use the states and `@me` of this read, unless the read failed or the workflow changed. When they use both, no request comes between step 1 and the `PATCH`, so step 3 is skipped. The decision uses the state and the owners of step 1, as without the early read.
+
+The errors are those of the steps in sequence. A git error is the error of the run, and the run does not wait for the token read from the keyring, which can wait for an unlock prompt. A failed story read, when a new branch needs its name, is the error of the run, with no worktree. A failed read of the states or of `@me` during the fetch is done again at its step. If the git part worked and the Shortcut part fails, the worktree stays. The command exits with the Shortcut error code, and the error JSON has the worktree under `worktree`, so a caller can still open it.
 
 ### Git errors
 

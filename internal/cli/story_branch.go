@@ -34,22 +34,35 @@ func newStoryBranch(env Env) *cobra.Command {
 	}
 }
 
-// branchName returns the branch name that Shortcut suggests for story id,
-// with no trailing "-" or "/". No branch name format gives exit 3.
+// branchName returns the branch name that Shortcut suggests for story id
+// (see suggestedBranch).
 func branchName(ctx context.Context, d *deps, id int64) (string, error) {
-	raw, err := d.Doer.Raw(ctx, "GET", "stories/"+strconv.FormatInt(id, 10),
-		url.Values{"fields": {"formatted_vcs_branch_name"}}, nil)
-	if err != nil {
-		return "", err
-	}
 	var s struct {
 		Branch *string `json:"formatted_vcs_branch_name"`
 	}
-	if err := json.Unmarshal(raw, &s); err != nil {
-		return "", &exit.Error{Code: exit.Other, Msg: "bad story response"}
+	if err := readStory(ctx, d, id, "formatted_vcs_branch_name", &s); err != nil {
+		return "", err
 	}
-	if s.Branch == nil {
+	return suggestedBranch(s.Branch)
+}
+
+// readStory reads the fields of story id into v.
+func readStory(ctx context.Context, d *deps, id int64, fields string, v any) error {
+	raw, err := d.Doer.Raw(ctx, "GET", "stories/"+strconv.FormatInt(id, 10), url.Values{"fields": {fields}}, nil)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(raw, v); err != nil {
+		return &exit.Error{Code: exit.Other, Msg: "bad story response"}
+	}
+	return nil
+}
+
+// suggestedBranch returns the formatted_vcs_branch_name b of a story, with no
+// trailing "-" or "/". A nil b (no branch name format) gives exit 3.
+func suggestedBranch(b *string) (string, error) {
+	if b == nil {
 		return "", exit.NotFoundf("the workspace has no branch name format")
 	}
-	return strings.TrimRight(*s.Branch, "-/"), nil
+	return strings.TrimRight(*b, "-/"), nil
 }

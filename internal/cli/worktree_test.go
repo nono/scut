@@ -134,15 +134,30 @@ func TestWorktreeBranchFlagNew(t *testing.T) {
 	}
 }
 
+// A null branch name and a name with no sc-<id> are exit 3, with no
+// worktree. With --start, the name comes from the read during the fetch.
 func TestWorktreeNullBranchName(t *testing.T) {
-	h, _ := wtHarness(t, &calls{}, `null`, wtToken)
-	if code, _, errs := h.run("worktree", "1234"); code != 3 {
-		t.Fatalf("code %d, stderr %s", code, errs)
-	}
-	h, _ = wtHarness(t, &calls{}, `"feature/x"`, wtToken)
-	code, _, errs := h.run("worktree", "1234")
-	if code != 3 || !strings.Contains(errs, "--branch") {
-		t.Fatalf("code %d, stderr %s", code, errs)
+	for _, tc := range []struct{ name, branch, msg string }{
+		{"null", `null`, "no branch name format"},
+		{"no id", `"feature/x"`, "--branch"},
+	} {
+		for _, args := range [][]string{{"worktree", "1234"}, {"worktree", "1234", "--start"}} {
+			t.Run(tc.name+" "+strings.Join(args[2:], ""), func(t *testing.T) {
+				var patch map[string]any
+				story := jsonHandler(`{"id":1234,"formatted_vcs_branch_name":` + tc.branch + `,"workflow":{"id":5}}`)
+				h, main := startHarnessH(t, &calls{}, story, jsonHandler(listBody(wfStates()...)), 200, &patch)
+				code, _, errs := h.run(args...)
+				if code != 3 || !strings.Contains(errs, tc.msg) {
+					t.Fatalf("code %d, stderr %s", code, errs)
+				}
+				if _, has := decode(t, errs)["worktree"]; has {
+					t.Errorf("stderr %s", errs)
+				}
+				if _, err := os.Stat(filepath.Join(filepath.Dir(main), "1234")); err == nil {
+					t.Errorf("worktree made")
+				}
+			})
+		}
 	}
 }
 
@@ -161,16 +176,25 @@ func TestWorktreeDirInUse(t *testing.T) {
 	}
 }
 
+// A worktree with no directory is exit 2, and --start changes nothing.
 func TestWorktreePrunable(t *testing.T) {
-	h, main := wtHarness(t, nil, "", nil)
-	dir := filepath.Join(filepath.Dir(main), "1234")
-	testgit.Git(t, main, "worktree", "add", "-q", "-b", "bug/sc-1234/x", dir)
-	if err := os.RemoveAll(dir); err != nil {
-		t.Fatal(err)
-	}
-	code, _, errs := h.run("worktree", "1234")
-	if code != 2 || !strings.Contains(errs, "worktree prune") {
-		t.Fatalf("code %d, stderr %s", code, errs)
+	for _, args := range [][]string{{"worktree", "1234"}, {"worktree", "1234", "--start"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			var patch map[string]any
+			h, main := startHarness(t, &calls{}, 7, nil, wfStates(), 200, &patch)
+			dir := filepath.Join(filepath.Dir(main), "1234")
+			testgit.Git(t, main, "worktree", "add", "-q", "-b", "bug/sc-1234/x", dir)
+			if err := os.RemoveAll(dir); err != nil {
+				t.Fatal(err)
+			}
+			code, _, errs := h.run(args...)
+			if code != 2 || !strings.Contains(errs, "worktree prune") {
+				t.Fatalf("code %d, stderr %s", code, errs)
+			}
+			if patch != nil {
+				t.Errorf("patch %v", patch)
+			}
+		})
 	}
 }
 
@@ -243,6 +267,11 @@ func TestWorktreeStartUnstarted(t *testing.T) {
 	}
 	if got := jsonOf(patch); got != `{"owner_ids_add":["u1"],"workflow_state_id":9}` {
 		t.Errorf("patch %s", got)
+	}
+	// One read during the fetch, one after the git part. The states and @me
+	// are read during the fetch, so no re-read comes before the PATCH.
+	if n := c.count(wtStory); n != 3 { // with the PATCH
+		t.Errorf("calls %v", c.paths)
 	}
 	if m := decode(t, out); m["started"] != true || m["from"] != "new" {
 		t.Errorf("out %s", out)
@@ -336,11 +365,17 @@ func TestWorktreeOutputSameOnBothPaths(t *testing.T) {
 	}
 }
 
+// breakOrigin makes the origin of main a path with no repository, so a fetch fails.
+func breakOrigin(t *testing.T, main string) {
+	t.Helper()
+	testgit.Git(t, main, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
+}
+
 // No fetch when a branch exists: an origin that cannot be reached must not matter.
 func TestWorktreeLocalNoFetch(t *testing.T) {
 	h, main := wtHarness(t, nil, "", nil)
 	testgit.Git(t, main, "branch", "bug/sc-1234/x")
-	testgit.Git(t, main, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
+	breakOrigin(t, main)
 	if code, _, errs := h.run("worktree", "1234"); code != 0 {
 		t.Fatalf("code %d, stderr %s", code, errs)
 	}
@@ -397,19 +432,22 @@ func TestWorktreeStartStatesPaged(t *testing.T) {
 	}
 }
 
-// A story that another writer moved to done after the first read is not moved back.
+// A story that another writer moved to done after the first read is not moved
+// back. With a local branch there is no fetch, so the states and @me are read
+// after the story, and the state is read again before the PATCH.
 func TestWorktreeStartRecheck(t *testing.T) {
 	var c calls
 	var patch map[string]any
 	n := 0
 	state := func() int {
 		n++
-		if n <= 2 { // the branch name read and the first --start read
+		if n <= 1 {
 			return 7
 		}
 		return 10
 	}
-	h, _ := startHarnessH(t, &c, storyHandler(state, nil), jsonHandler(listBody(wfStates()...)), 200, &patch)
+	h, main := startHarnessH(t, &c, storyHandler(state, nil), jsonHandler(listBody(wfStates()...)), 200, &patch)
+	testgit.Git(t, main, "branch", "bug/sc-1234/x")
 	code, out, errs := h.run("worktree", "1234", "--start")
 	if code != 0 {
 		t.Fatalf("code %d, stderr %s", code, errs)
@@ -471,7 +509,7 @@ func TestWorktreeCancelledStart(t *testing.T) {
 	var patch map[string]any
 	story := storyHandler(func() int { return 7 }, nil)
 	h, _ := startHarnessH(t, &c, func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Query().Get("fields"), "workflow_state") {
+		if r.URL.Query().Get("fields") == "workflow,workflow_state,owners" { // the read after the git part
 			cancel()
 			<-r.Context().Done()
 			return
@@ -533,5 +571,232 @@ func TestWorktreeAddFailRemovesDir(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(filepath.Dir(main), "1234")); err == nil {
 		t.Errorf("dir left after the failure")
+	}
+}
+
+// With --start, the story read runs while git fetches: the fetch waits for
+// the read, and the read waits for the fetch. Steps in sequence time out.
+func TestWorktreeStartReadsDuringFetch(t *testing.T) {
+	log := testgit.WrapGit(t, `case "$*" in *" fetch "*)
+	: > "$LOG.fetch"
+	i=0; while [ ! -e "$LOG.read" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done
+	[ -e "$LOG.read" ] && echo overlap >> "$LOG";; esac`)
+	var c calls
+	var patch map[string]any
+	story := storyHandler(func() int { return 7 }, nil)
+	h, _ := startHarnessH(t, &c, func(w http.ResponseWriter, r *http.Request) {
+		for i := 0; i < 100; i++ {
+			if _, err := os.Stat(log + ".fetch"); err == nil {
+				_ = os.WriteFile(log+".read", nil, 0o644)
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		story(w, r)
+	}, jsonHandler(listBody(wfStates()...)), 200, &patch)
+	if code, _, errs := h.run("worktree", "1234", "--start"); code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if b, _ := os.ReadFile(log); string(b) != "overlap\n" {
+		t.Errorf("the story read and the fetch did not run at the same time: log %q", b)
+	}
+}
+
+// The decision uses the state after the git part, as with the steps in
+// sequence: a story that another writer moves to unstarted during the fetch
+// is started.
+func TestWorktreeStartStateChangedDuringFetch(t *testing.T) {
+	var c calls
+	var patch map[string]any
+	n := 0
+	state := func() int {
+		n++
+		if n <= 1 { // the read during the fetch
+			return 10
+		}
+		return 7
+	}
+	h, _ := startHarnessH(t, &c, storyHandler(state, []string{"u1"}), jsonHandler(listBody(wfStates()...)), 200, &patch)
+	code, out, errs := h.run("worktree", "1234", "--start")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if got := jsonOf(patch); got != `{"workflow_state_id":9}` {
+		t.Errorf("patch %s", got)
+	}
+	if m := decode(t, out); m["started"] != true {
+		t.Errorf("out %s", out)
+	}
+}
+
+// startRoutes serves story 1234 with story, the states of workflows 5 and 6,
+// whoami with me, and a PATCH that records its body.
+func startRoutes(t *testing.T, story, me http.HandlerFunc, patch *map[string]any) *harness {
+	t.Helper()
+	h, _ := wtHarness(t, nil, "", wtToken)
+	states6 := listBody(map[string]any{"id": 17, "type": "unstarted", "position": 0},
+		map[string]any{"id": 18, "type": "started", "position": 1})
+	h.env.APIBase = testapi.Fake(t, map[string]http.HandlerFunc{
+		"GET " + wtStory:                      story,
+		"GET /api/v4/acme/workflows/5/states": jsonHandler(listBody(wfStates()...)),
+		"GET /api/v4/acme/workflows/6/states": jsonHandler(states6),
+		"GET /api/v4/whoami":                  me,
+		"PATCH " + wtStory: func(w http.ResponseWriter, r *http.Request) {
+			b, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(b, patch)
+			jsonHandler(`{"id":1234}`)(w, r)
+		},
+	})
+	h.env.Sleep = func(time.Duration) {}
+	return h
+}
+
+// A story that moves to another workflow during the fetch is judged by the
+// states of its new workflow.
+func TestWorktreeStartWorkflowChangedDuringFetch(t *testing.T) {
+	var patch map[string]any
+	n := 0
+	story := func(w http.ResponseWriter, r *http.Request) {
+		n++
+		wf, state := 5, 7
+		if n > 1 { // after the read during the fetch
+			wf, state = 6, 17
+		}
+		jsonHandler(jsonOf(map[string]any{"id": 1234, "formatted_vcs_branch_name": "bug/sc-1234/x",
+			"workflow": map[string]any{"id": wf}, "workflow_state": map[string]any{"id": state},
+			"owners": nestedList(map[string]any{"id": "u1"})}))(w, r)
+	}
+	h := startRoutes(t, story, jsonHandler(whoamiBody), &patch)
+	code, _, errs := h.run("worktree", "1234", "--start")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if got := jsonOf(patch); got != `{"workflow_state_id":18}` {
+		t.Errorf("patch %s", got)
+	}
+}
+
+// When @me is read again after the story read, the state is read again before
+// the PATCH: a story that another writer moved meanwhile is not moved back.
+func TestWorktreeStartMeReadAgain(t *testing.T) {
+	var patch map[string]any
+	n := 0
+	state := func() int {
+		n++
+		if n <= 2 { // the read during the fetch and the read after git
+			return 7
+		}
+		return 10
+	}
+	sh := storyHandler(state, nil)
+	me := func(w http.ResponseWriter, r *http.Request) {
+		if n < 2 { // whoami fails during the fetch
+			http.Error(w, `{"message":"down"}`, http.StatusServiceUnavailable)
+			return
+		}
+		jsonHandler(whoamiBody)(w, r)
+	}
+	h := startRoutes(t, sh, me, &patch)
+	code, out, errs := h.run("worktree", "1234", "--start")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if got := jsonOf(patch); got != `{"owner_ids_add":["u1"]}` {
+		t.Errorf("patch %s", got)
+	}
+	if m := decode(t, out); m["started"] != false {
+		t.Errorf("out %s", out)
+	}
+}
+
+// A git error does not wait for the reads: the run cancels them.
+func TestWorktreeStartGitErrorCancelsReads(t *testing.T) {
+	var c calls
+	var patch map[string]any
+	hang := func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }
+	h, main := startHarnessH(t, &c, hang, hang, 200, &patch)
+	breakOrigin(t, main)
+	t0 := time.Now()
+	code, _, errs := h.run("worktree", "1234", "--start")
+	if code != 1 || !strings.Contains(errs, "git fetch") {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if d := time.Since(t0); d > 10*time.Second {
+		t.Errorf("the run took %v", d)
+	}
+}
+
+// blockingKeyring blocks each Get until the test ends, as a keyring that
+// waits for an unlock prompt.
+type blockingKeyring struct{ end chan struct{} }
+
+func (k blockingKeyring) Get(string, string) (string, error) { <-k.end; return "", nil }
+func (k blockingKeyring) Set(string, string, string) error   { return nil }
+
+// A git error does not wait for the keyring read of the token.
+func TestWorktreeStartGitErrorSkipsKeyring(t *testing.T) {
+	h, main := wtHarness(t, nil, "", nil)
+	k := blockingKeyring{make(chan struct{})}
+	t.Cleanup(func() { close(k.end) })
+	h.env.Keyring = k
+	breakOrigin(t, main)
+	done := make(chan int, 1)
+	go func() {
+		code, _, _ := h.run("worktree", "1234", "--start")
+		done <- code
+	}()
+	select {
+	case code := <-done:
+		if code != 1 {
+			t.Errorf("code %d", code)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the run waits for the keyring")
+	}
+}
+
+// The concurrent steps fail as the steps in sequence did: a git error comes
+// first, a failed story read comes without the worktree, and a failed later
+// read comes with the worktree.
+func TestWorktreeStartErrorOrder(t *testing.T) {
+	notFound := func(w http.ResponseWriter, r *http.Request) { http.Error(w, `{"message":"no"}`, http.StatusNotFound) }
+	down := func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"message":"down"}`, http.StatusServiceUnavailable)
+	}
+	story := storyHandler(func() int { return 7 }, nil)
+	states := jsonHandler(listBody(wfStates()...))
+	for _, tc := range []struct {
+		name          string
+		noOrigin      bool
+		story, states http.HandlerFunc
+		code          int
+		msg           string
+		worktree      bool
+	}{
+		{"fetch and story fail", true, notFound, states, 1, "git fetch", false},
+		{"fetch fails", true, story, states, 1, "git fetch", false},
+		{"story fails", false, notFound, states, 3, "", false},
+		{"states fail", false, story, down, 5, "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var c calls
+			var patch map[string]any
+			h, main := startHarnessH(t, &c, tc.story, tc.states, 200, &patch)
+			if tc.noOrigin {
+				breakOrigin(t, main)
+			}
+			code, _, errs := h.run("worktree", "1234", "--start")
+			if code != tc.code || !strings.Contains(errs, tc.msg) {
+				t.Fatalf("code %d, stderr %s", code, errs)
+			}
+			_, has := decode(t, errs)["worktree"]
+			_, err := os.Stat(filepath.Join(filepath.Dir(main), "1234"))
+			if has != tc.worktree || (err == nil) != tc.worktree {
+				t.Errorf("worktree in error %v, dir error %v: %s", has, err, errs)
+			}
+			if patch != nil {
+				t.Errorf("patch %v", patch)
+			}
+		})
 	}
 }
