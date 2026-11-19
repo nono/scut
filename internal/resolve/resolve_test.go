@@ -294,6 +294,22 @@ func TestShortNestedList(t *testing.T) {
 	}
 }
 
+func TestEpicState(t *testing.T) {
+	e := newEnv(t, func(a *api) {
+		a.json("GET /api/v4/acme/epic-workflow/states", list(
+			map[string]any{"id": 500000010, "name": "To Do"}, map[string]any{"id": 500000011, "name": "In Progress"}))
+	})
+	id, err := e.r.EpicState("In Progress")
+	if err != nil || id != 500000011 {
+		t.Errorf("got %d, %v", id, err)
+	}
+	_, err = e.r.EpicState("in progress")
+	x := wantErr(t, err, exit.NotFound)
+	if x.Msg != `no epic state "in progress"` || !slices.Equal(x.Valid, []string{"In Progress", "To Do"}) {
+		t.Errorf("%q %v", x.Msg, x.Valid)
+	}
+}
+
 func TestEpic(t *testing.T) {
 	var query string
 	e := newEnv(t, func(a *api) {

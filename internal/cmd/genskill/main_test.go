@@ -152,7 +152,7 @@ func TestSkillAllowedTools(t *testing.T) {
 		if strings.HasSuffix(rule, " usage)") {
 			continue
 		}
-		for _, bad := range []string{"story update", "story create", "story comment:", "story link", "story unlink", "worktree", "scut api", "auth login", "cache clear", "epic comment", "doc view", "story files"} {
+		for _, bad := range []string{"story update", "story create", "story comment:", "story link", "story unlink", "worktree", "scut api", "auth login", "cache clear", "epic comment", "epic update", "doc view", "story files"} {
 			if strings.Contains(rule, bad) {
 				t.Errorf("allowed-tools has %q: %q", bad, rule)
 			}

@@ -231,6 +231,8 @@ func TestRunLogIDForms(t *testing.T) {
 		{[]string{"epic", "view", "sc-12"}, nil}, // the name of an epic
 		{[]string{"epic", "stories", "sc-12"}, nil},
 		{[]string{"epic", "comment", "sc-12"}, nil},
+		{[]string{"epic", "update", "12", "--archive"}, []any{12.0}},
+		{[]string{"epic", "update", "sc-12", "--archive"}, nil},
 	} {
 		h := newHarness(t, anyRoute(), "", tokenVars())
 		h.run(c.args...)
@@ -411,7 +413,7 @@ var idCommands = map[string]bool{
 	"story view": true, "story update": true, "story comment": true, "story comments": true, "story history": true,
 	"story link": true, "story unlink": true, "story relink": true, "story subtasks": true,
 	"story branch": true, "story files": true,
-	"epic view": true, "epic stories": true, "epic comment": true,
+	"epic view": true, "epic stories": true, "epic comment": true, "epic update": true,
 	"worktree": true,
 }
 
@@ -448,6 +450,7 @@ func walkCases(t *testing.T) map[string]walkCase {
 		"api":           {args: []string{"stories/1"}, npos: 1},
 		"auth login":    {stdin: token + "\n"},
 		"epic comment":  {args: []string{"1", "--body-file", "-"}, npos: 1, stdin: "x", method: "POST"},
+		"epic update":   {args: []string{"1", "--description-file", "-"}, npos: 1, stdin: "x", method: "PATCH"},
 		"story comment": {args: []string{"1", "--body-file", "-"}, npos: 1, stdin: "x", method: "POST"},
 		"story create": {args: []string{"--name", "n", "--type", "bug", "--team", "Software Dev", "--state", "To Do"},
 			method: "POST", harness: create},

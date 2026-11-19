@@ -33,6 +33,7 @@ scut story create --type bug --name "Login fails" --state "To Do" --description-
 scut story update 12 --state "In Review" --add-owner @me
 scut story update 13 14 15 --parent 12  # make sub-tasks of 12
 scut story comment 12 --body-file note.md
+scut epic update 40 --add-owner @me --description-file d.md
 scut story link 12 blocks 13 relates-to 14
 scut story files 12 --out ./files  # download the attachments
 scut story branch 12  # the git branch name
@@ -53,7 +54,7 @@ Write the text to a file with your file tool. Then pass `--description-file <fil
 
 ## Writes
 
-- Archive, unlink, `--no-parent`, or a change of parent: only when the user asks.
+- Archive a story or an epic, unlink, `--no-parent`, or a change of parent: only when the user asks.
 - Never add `--yes` yourself. `scut api -X DELETE` needs it.
 
 ## Missing features

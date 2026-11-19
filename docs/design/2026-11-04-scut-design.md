@@ -101,6 +101,8 @@ scut story relink <story> <old-verb> <story> <new-verb>
 scut story branch [<story>]
 scut story files [<story>] --out <dir>
 scut epic view <epic> · scut epic search <query> · scut epic stories <epic> · scut epic comment <epic> --body-file f|-
+scut epic update <epic> [--name] [--state] [--add-owner …] [--remove-owner …] [--description-file f|-]
+                 [--archive|--unarchive]   (see 2026-11-19-epic-update-design.md)
 scut doc view <doc> [--format markdown|html] [--out f] · scut doc search <text> [--limit N|all]
 scut team list · scut member list · scut workflow list · scut workflow states [<workflow>]
 scut field list · scut field values <field>
@@ -234,7 +236,7 @@ Each run adds one JSON line to a local log, with the exceptions that the log des
 ## Build and test
 
 - Commit the v4 spec (`api/shortcut.openapi.json`). It is the contract for the Prism tests, the operation check of the `scut/ops` annotations and the coverage table. No Go client is generated from it: commands shape raw JSON (decision of 2026-11-04). CI downloads the live spec and shows a diff when it changed.
-- Unit tests for each package. Contract tests run against Prism (Stoplight) in mock mode on the committed spec. They cover `story view`, `search`, `comments`, `comment`, `create`, `update` and `subtasks`, `epic view`, `search`, `stories` and `comment`, `doc view` and `search`, `team list`, `member list`, `workflow list` and `states`, `field list` and `values`, and `cache clear`. `story link`, `unlink`, `relink`, `branch`, `files`, `whoami`, `api` and `auth` have no Prism test. A write test checks the request body against the schema (shortcut-cli #366).
+- Unit tests for each package. Contract tests run against Prism (Stoplight) in mock mode on the committed spec. They cover `story view`, `search`, `comments`, `comment`, `create`, `update` and `subtasks`, `epic view`, `search`, `stories`, `comment` and `update`, `doc view` and `search`, `team list`, `member list`, `workflow list` and `states`, `field list` and `values`, and `cache clear`. `story link`, `unlink`, `relink`, `branch`, `files`, `whoami`, `api` and `auth` have no Prism test. A write test checks the request body against the schema (shortcut-cli #366).
 - Recorded responses (fixtures) for flows that Prism cannot model: G8 retry, paging loop, file download error page, name resolution.
 - One live smoke test, run by hand or in CI with a read-only token: `whoami`, `story view`, `story search`, `story files` and `story branch` on a story with one attachment, and `doc view` and `doc search` on a doc. The story and the expected values come from `SCUT_LIVE_*` environment variables, because the repository is public.
 - Generate a coverage table of the v4 endpoints that `scut` calls, and check it in CI.

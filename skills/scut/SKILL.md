@@ -1,7 +1,7 @@
 ---
 name: scut
 description: "Use when a task reads or changes Shortcut stories, epics, comments, links or attachments: a story ID such as sc-1234, an app.shortcut.com URL, a git branch with sc-NNNN in it, a ticket or bug to file, a sub-task, a state change such as \"move it to In Review\", a Shortcut doc, or the branch name of a story."
-allowed-tools: "Bash(scut api usage), Bash(scut auth login usage), Bash(scut auth status:*), Bash(scut auth usage:*), Bash(scut cache clear usage), Bash(scut cache usage:*), Bash(scut doc search:*), Bash(scut doc usage:*), Bash(scut doc view usage), Bash(scut epic comment usage), Bash(scut epic search:*), Bash(scut epic stories:*), Bash(scut epic usage:*), Bash(scut epic view:*), Bash(scut field list:*), Bash(scut field usage:*), Bash(scut field values:*), Bash(scut member list:*), Bash(scut member usage:*), Bash(scut spec:*), Bash(scut story branch:*), Bash(scut story comment usage), Bash(scut story comments:*), Bash(scut story create usage), Bash(scut story files usage), Bash(scut story history:*), Bash(scut story link usage), Bash(scut story relink usage), Bash(scut story search:*), Bash(scut story subtasks:*), Bash(scut story unlink usage), Bash(scut story update usage), Bash(scut story usage:*), Bash(scut story view:*), Bash(scut team list:*), Bash(scut team usage:*), Bash(scut usage:*), Bash(scut whoami:*), Bash(scut workflow list:*), Bash(scut workflow states:*), Bash(scut workflow usage:*), Bash(scut worktree usage), Read(~/.local/state/scut/**)"
+allowed-tools: "Bash(scut api usage), Bash(scut auth login usage), Bash(scut auth status:*), Bash(scut auth usage:*), Bash(scut cache clear usage), Bash(scut cache usage:*), Bash(scut doc search:*), Bash(scut doc usage:*), Bash(scut doc view usage), Bash(scut epic comment usage), Bash(scut epic search:*), Bash(scut epic stories:*), Bash(scut epic update usage), Bash(scut epic usage:*), Bash(scut epic view:*), Bash(scut field list:*), Bash(scut field usage:*), Bash(scut field values:*), Bash(scut member list:*), Bash(scut member usage:*), Bash(scut spec:*), Bash(scut story branch:*), Bash(scut story comment usage), Bash(scut story comments:*), Bash(scut story create usage), Bash(scut story files usage), Bash(scut story history:*), Bash(scut story link usage), Bash(scut story relink usage), Bash(scut story search:*), Bash(scut story subtasks:*), Bash(scut story unlink usage), Bash(scut story update usage), Bash(scut story usage:*), Bash(scut story view:*), Bash(scut team list:*), Bash(scut team usage:*), Bash(scut usage:*), Bash(scut whoami:*), Bash(scut workflow list:*), Bash(scut workflow states:*), Bash(scut workflow usage:*), Bash(scut worktree usage), Read(~/.local/state/scut/**)"
 ---
 
 # scut
@@ -39,6 +39,7 @@ scut story create --type bug --name "Login fails" --state "To Do" --description-
 scut story update 12 --state "In Review" --add-owner @me
 scut story update 13 14 15 --parent 12  # make sub-tasks of 12
 scut story comment 12 --body-file note.md
+scut epic update 40 --add-owner @me --description-file d.md
 scut story link 12 blocks 13 relates-to 14
 scut story files 12 --out ./files  # download the attachments
 scut story branch 12  # the git branch name
@@ -59,7 +60,7 @@ Write the text to a file with your file tool. Then pass `--description-file <fil
 
 ## Writes
 
-- Archive, unlink, `--no-parent`, or a change of parent: only when the user asks.
+- Archive a story or an epic, unlink, `--no-parent`, or a change of parent: only when the user asks.
 - Never add `--yes` yourself. `scut api -X DELETE` needs it.
 
 ## Missing features
@@ -98,6 +99,7 @@ Each line: command, summary, flags. A flag that ends in `…` is repeatable. Run
 - `epic comment` `<epic>` Add a comment to an epic. Flags: --body-file.
 - `epic search` `<query>` Search epics. Flags: --limit.
 - `epic stories` `<epic>` List the stories of an epic, in position order. Flags: --fields, --limit.
+- `epic update` `<epic>` Change an epic, by ID or exact name. Flags: --add-owner …, --archive, --description-file, --name, --remove-owner …, --state, --unarchive.
 - `epic view` `<epic>` Show an epic, by ID or exact name.
 - `field list` List custom fields.
 - `field values` `<field>` List the values of a custom field.

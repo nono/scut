@@ -95,8 +95,8 @@ func shapeEpics(d *deps, raw []json.RawMessage, description bool) (epicList, err
 }
 
 func newEpicGroup(env Env) *cobra.Command {
-	g := Group("epic", "View and search epics, list their stories")
-	g.AddCommand(newEpicView(env), newEpicSearch(env), newEpicStories(env), newEpicComment(env))
+	g := Group("epic", "View, search and change epics, list their stories")
+	g.AddCommand(newEpicView(env), newEpicSearch(env), newEpicStories(env), newEpicComment(env), newEpicUpdate(env))
 	return g
 }
 
