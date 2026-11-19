@@ -3,12 +3,10 @@ package cli_test
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -65,23 +63,6 @@ func historyHarness(t *testing.T, routes map[string]http.HandlerFunc) *harness {
 	t.Helper()
 	routes["GET /api/v4/acme/members"] = membersRoute()
 	return newHarness(t, routes, "", searchEnv)
-}
-
-// sameJSON fails t when got and want are not the same JSON value.
-func sameJSON(t *testing.T, got, want string) {
-	t.Helper()
-	norm := func(s string) any {
-		d := json.NewDecoder(strings.NewReader(s))
-		d.UseNumber()
-		var v any
-		if err := d.Decode(&v); err != nil {
-			t.Fatalf("not JSON: %q: %v", s, err)
-		}
-		return v
-	}
-	if !reflect.DeepEqual(norm(got), norm(want)) {
-		t.Errorf("got  %s\nwant %s", got, want)
-	}
 }
 
 func TestHistoryShape(t *testing.T) {
@@ -154,45 +135,15 @@ func TestHistoryFlags(t *testing.T) {
 	}
 }
 
-// historyPaged serves total changes in pages of the limit parameter of the
-// first call, as the API does: a later page takes only the cursor.
-func historyPaged(c *calls, total int) http.HandlerFunc {
-	return c.wrap(func(w http.ResponseWriter, r *http.Request) {
-		q := r.URL.Query()
-		if q.Has("cursor") && len(q) > 1 {
-			w.WriteHeader(422)
-			_, _ = fmt.Fprint(w, `{"message":"Other parameters can't be used with cursor."}`)
-			return
-		}
-		offset, size := 0, 10
-		if cur := q.Get("cursor"); cur != "" {
-			_, _ = fmt.Sscanf(cur, "o%ds%d", &offset, &size)
-		} else if l := q.Get("limit"); l != "" {
-			size, _ = strconv.Atoi(l)
-		}
-		if size < 1 || size > 100 {
-			w.WriteHeader(400)
-			return
-		}
-		var items []any
-		for i := offset; i < min(total, offset+size); i++ {
-			items = append(items, change(5818, "estimate", "update", nil, []any{}, []any{i}))
-		}
-		next := ""
-		if offset+size < total {
-			next = fmt.Sprintf("https://api.app.shortcut.com%s?cursor=o%ds%d", r.URL.Path, offset+size, size)
-		}
-		jsonHandler(historyBody(next, items...))(w, r)
-	})
-}
-
 func TestHistoryPaging(t *testing.T) {
 	for _, tc := range []struct {
 		limit        string
 		items, calls int
 	}{{"all", 250, 3}, {"120", 120, 2}, {"25", 25, 1}, {"300", 250, 3}} {
 		var c calls
-		h := historyHarness(t, map[string]http.HandlerFunc{"GET " + historyPath: historyPaged(&c, 250)})
+		h := historyHarness(t, map[string]http.HandlerFunc{"GET " + historyPath: paged(&c, 250, func(i int) any {
+			return change(5818, "estimate", "update", nil, []any{}, []any{i})
+		}, historyBody)})
 		code, out, errs := h.run("story", "history", "5818", "--limit", tc.limit)
 		if code != 0 {
 			t.Fatalf("--limit %s: code %d, stderr %s", tc.limit, code, errs)

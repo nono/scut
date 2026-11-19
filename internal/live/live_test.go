@@ -57,11 +57,6 @@ func want(t *testing.T, name string) string {
 	return v
 }
 
-type idName struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
-}
-
 func TestLive(t *testing.T) {
 	story := want(t, "SCUT_LIVE_STORY")
 	id, err := strconv.ParseInt(story, 10, 64)
@@ -129,9 +124,9 @@ func TestLive(t *testing.T) {
 	})
 	t.Run("story history", func(t *testing.T) {
 		var v []struct {
-			Story     int64    `json:"story"`
-			Attribute string   `json:"attribute"`
-			Adds      []idName `json:"adds"`
+			Story     int64                   `json:"story"`
+			Attribute string                  `json:"attribute"`
+			Adds      []struct{ Name string } `json:"adds"`
 		}
 		if err := json.Unmarshal(run(t, "story", "history", story, "--fields", "workflow_state", "--desc", "--limit", "2"), &v); err != nil {
 			t.Fatal(err)

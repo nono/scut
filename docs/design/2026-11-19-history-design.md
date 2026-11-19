@@ -13,9 +13,9 @@ scut story history [<story>…] [--fields a,…] [--limit N|all] [--desc]
 ```
 
 - Story forms and the default story from the git branch are as in `story view`.
-- One story calls `getStoryHistory` (`GET stories/{id}/history`). Several stories call `getMultipleStoriesHistory` (`GET stories/history?ids=…`) once: one list, in time order. At most 100 stories, as in `story view`.
+- One story calls `getStoryHistory` (`GET stories/{id}/history`). Several stories call `getMultipleStoriesHistory` (`GET stories/history?ids=…`), not one call for each story: one list, in time order. At most 100 stories, as in `story view`.
 - `--fields` is the API attribute filter. It also takes the `story view` names `state`, `type`, `tasks`, `links`, `fields`. scut does not check the names: the API gives 400 with the valid list, and it will track more attributes.
-- `--limit` defaults to 25, as the other lists. `--desc` sends `order_dir=desc`.
+- `--limit` defaults to 25, as searches and comment lists. `--desc` sends `order_dir=desc`.
 
 ## Output
 
@@ -34,10 +34,10 @@ One JSON array. Each change:
 
 ## Unknown stories
 
-`getStoryHistory` gives 404 for an unknown story: exit 3. `getMultipleStoriesHistory` leaves an unknown ID out, with no error. When a story of several has no change in the output, scut checks the IDs with one `GET /stories?ids=…&fields=id&filter=include_archived` call, prints the changes, then exits 3 with `no story N`, as `story view` does. When each story has a change, there is no extra call.
+`getStoryHistory` gives 404 for an unknown story: exit 3. `getMultipleStoriesHistory` leaves an unknown ID out, with no error. When a story of several has no change in the output, scut checks the IDs with one `GET /stories?ids=…&fields=id&filter=include_archived` call, prints the changes, then exits 3 with `no story N`, as `story view` does. When each story has a change in the output, there is no extra call. `--limit` can leave out all the changes of a story, and then the check call is made for it too.
 
 ## API calls
 
-With a warm cache: 1 call, plus 1 for each more page. Later pages send only the cursor: it carries `fields` and `order_dir` (live test). Several stories add the check call above when a story has no change.
+With a warm cache: 1 call, plus 1 for each more page. Later pages send only the cursor: it carries `fields`, `order_dir` and `ids` (live test). Several stories add the check call above when a story has no change in the output.
 
 `transport.Doer.ListKey` reads the items of a list from a key other than `entities`: the history list is in `changes`.

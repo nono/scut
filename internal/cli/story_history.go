@@ -68,7 +68,7 @@ story view names state, type, tasks, links and fields.`,
 			return exit.Usagef("story history takes at most %d stories, not %d", maxPageSize, len(uniq))
 		}
 		attrs := historyAttributes(*fieldsFlag)
-		q := url.Values{"order_dir": {"asc"}, "limit": {strconv.Itoa(pageSize(limit))}}
+		q := url.Values{"order_dir": {"asc"}}
 		if *descFlag {
 			q.Set("order_dir", "desc")
 		}
@@ -81,22 +81,18 @@ story view names state, type, tasks, links and fields.`,
 			q.Set("ids", joinIDs(uniq, ","))
 		}
 		return withDeps(env, func(cmd *cobra.Command, _ []string, d *deps) error {
-			ctx := cmd.Context()
-			raw, stop := transport.PageQueryKey(ctx, d.Doer, path, q, "changes", limit)
-			if raw == nil && stop != nil {
-				return stop
-			}
-			out, seen, err := shapeHistory(raw, d, len(uniq) > 1, len(attrs) != 1)
-			if err != nil {
+			var seen map[int64]bool
+			err := printPagesKey(cmd, d, path, q, "changes", limit, func(raw []json.RawMessage) ([]HistoryOut, error) {
+				out, s, err := shapeHistory(raw, d, len(uniq) > 1, len(attrs) != 1)
+				seen = s
+				return out, err
+			})
+			// A list cut short returns its error here, so the check is skipped.
+			// getStoryHistory gives 404 for an unknown story.
+			if err != nil || len(uniq) == 1 {
 				return err
 			}
-			if err := d.Out(out); err != nil {
-				return err
-			}
-			if stop != nil || len(uniq) == 1 { // getStoryHistory gives 404 for an unknown story
-				return stop
-			}
-			return checkStories(ctx, d, idsNotIn(uniq, seen))
+			return checkStories(cmd.Context(), d, idsNotIn(uniq, seen))
 		})(cmd, args)
 	}
 	return cmd
@@ -107,8 +103,8 @@ story view names state, type, tasks, links and fields.`,
 func historyAttributes(list string) []string {
 	var out []string
 	for _, f := range strings.Split(list, ",") {
-		if f = strings.TrimSpace(f); f != "" && !slices.Contains(out, apiName(f)) {
-			out = append(out, apiName(f))
+		if f = apiName(strings.TrimSpace(f)); f != "" && !slices.Contains(out, f) {
+			out = append(out, f)
 		}
 	}
 	return out
@@ -121,7 +117,8 @@ func checkStories(ctx context.Context, d *deps, ids []int64) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	q := url.Values{"ids": {joinIDs(ids, ",")}, "filter": {"include_archived"}, "fields": {"id"}, "limit": {strconv.Itoa(len(ids))}}
+	q := storiesQuery(ids)
+	q.Set("fields", "id")
 	raw, err := transport.PageQuery(ctx, d.Doer, "stories", q, -1)
 	if err != nil {
 		return err
@@ -136,17 +133,23 @@ func checkStories(ctx context.Context, d *deps, ids []int64) error {
 		}
 		found[s.ID] = true
 	}
-	if missing := idsNotIn(ids, found); len(missing) > 0 {
-		return exit.NotFoundf("no story %s", joinIDs(missing, ", "))
-	}
-	return nil
+	return noStory(ids, found)
+}
+
+// historyMember is a member in the history. Name is the name that the API
+// sent. It is kept only when the cache has no mention name, so that the
+// member is not only an ID.
+type historyMember struct {
+	memberOut
+	Name string `json:"name,omitempty"`
 }
 
 // shapeHistory converts StoryHistoryChange items to the compact shape. It
 // also returns the stories that have a change.
 func shapeHistory(raw []json.RawMessage, d *deps, withStory, withAttribute bool) ([]HistoryOut, map[int64]bool, error) {
-	in := make([]historyIn, 0, len(raw))
-	var memberIDs []string
+	var members memberRefs
+	seen := map[int64]bool{}
+	out := make([]HistoryOut, 0, len(raw))
 	for _, r := range raw {
 		var c historyIn
 		dec := json.NewDecoder(bytes.NewReader(r))
@@ -154,21 +157,9 @@ func shapeHistory(raw []json.RawMessage, d *deps, withStory, withAttribute bool)
 		if err := dec.Decode(&c); err != nil {
 			return nil, nil, &exit.Error{Code: exit.Other, Msg: fmt.Sprintf("bad history data: %v", err)}
 		}
-		for _, v := range append(append([]any{c.Actor}, c.Adds...), c.Removes...) {
-			memberIDs = append(memberIDs, slimMembers(v)...)
-		}
-		in = append(in, c)
-	}
-	nm, err := memberNames(d.Resolver, memberIDs)
-	if err != nil {
-		return nil, nil, err
-	}
-	seen := map[int64]bool{}
-	out := make([]HistoryOut, 0, len(in))
-	for _, c := range in {
 		seen[c.Entity.ID] = true
-		h := HistoryOut{Timestamp: c.Timestamp, Actor: nm.slim(c.Actor), Action: c.Action,
-			Removes: nm.slims(c.Removes), Adds: nm.slims(c.Adds)}
+		h := HistoryOut{Timestamp: c.Timestamp, Actor: members.slim(c.Actor), Action: c.Action,
+			Removes: members.slims(c.Removes), Adds: members.slims(c.Adds)}
 		if withStory {
 			h.Story = c.Entity.ID
 		}
@@ -177,44 +168,32 @@ func shapeHistory(raw []json.RawMessage, d *deps, withStory, withAttribute bool)
 		}
 		out = append(out, h)
 	}
+	ids := make([]string, 0, len(members))
+	for _, m := range members {
+		ids = append(ids, m.ID)
+	}
+	nm, err := memberNames(d.Resolver, ids)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, m := range members {
+		if s, ok := nm[m.ID]; ok {
+			m.MentionName, m.Name = &s, ""
+		}
+	}
 	return out, seen, nil
 }
 
-// slimMembers returns the IDs of the member:slim objects in v.
-func slimMembers(v any) []string {
-	var ids []string
-	switch x := v.(type) {
-	case map[string]any:
-		if x["entity_type"] == "member:slim" {
-			if id, ok := x["id"].(string); ok {
-				ids = append(ids, id)
-			}
-		}
-		for _, e := range x {
-			ids = append(ids, slimMembers(e)...)
-		}
-	case []any:
-		for _, e := range x {
-			ids = append(ids, slimMembers(e)...)
-		}
-	}
-	return ids
-}
+// memberRefs collects the members that slim puts in the output, so that one
+// cache lookup after the walk gives their mention names.
+type memberRefs []*historyMember
 
-func (n names) slims(vs []any) []any {
+func (r *memberRefs) slims(vs []any) []any {
 	out := make([]any, 0, len(vs))
 	for _, v := range vs {
-		out = append(out, n.slim(v))
+		out = append(out, r.slim(v))
 	}
 	return out
-}
-
-// historyMember is a member in the history. Name is the name that the API
-// sent. It is set only when the cache has no mention name, so that the
-// member is not only an ID.
-type historyMember struct {
-	memberOut
-	Name string `json:"name,omitempty"`
 }
 
 // slim makes a slim entity of the history compact, as story view shows it: a
@@ -222,15 +201,14 @@ type historyMember struct {
 // member. An entity with a name (state, epic, team, label, branch) is
 // {id, name}. Other entities lose entity_type, uri and app_url. Other values
 // stay as they are.
-func (n names) slim(v any) any {
+func (r *memberRefs) slim(v any) any {
 	switch x := v.(type) {
 	case map[string]any:
 		if x["entity_type"] == "member:slim" {
-			id, _ := x["id"].(string)
-			m := historyMember{memberOut: *n.member(&memberIn{ID: id})}
-			if m.MentionName == nil {
-				m.Name, _ = x["name"].(string)
-			}
+			m := &historyMember{}
+			m.ID, _ = x["id"].(string)
+			m.Name, _ = x["name"].(string)
+			*r = append(*r, m)
 			return m
 		}
 		if name, ok := x["name"]; ok {
@@ -239,12 +217,12 @@ func (n names) slim(v any) any {
 		out := map[string]any{}
 		for k, e := range x {
 			if k != "entity_type" && k != "uri" && k != "app_url" {
-				out[k] = n.slim(e)
+				out[k] = r.slim(e)
 			}
 		}
 		return out
 	case []any:
-		return n.slims(x)
+		return r.slims(x)
 	}
 	return v
 }

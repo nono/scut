@@ -127,9 +127,27 @@ func TestSearchFieldsDescriptionComments(t *testing.T) {
 	}
 }
 
-// pagedHandler serves total stories in pages of the limit parameter of the
-// first call (the API default of 10 without it), as the API does.
+// pagedHandler serves total stories in pages, as paged does.
 func pagedHandler(t *testing.T, c *calls, total int) http.HandlerFunc {
+	story := func(i int) any {
+		s := storyFixture(t)
+		s["id"] = 1000 + i
+		return s
+	}
+	return paged(c, total, story, func(next string, items ...any) string {
+		body := listBody(items...)
+		if next != "" {
+			body = strings.TrimSuffix(body, "}") + `,"next_page_url":"` + next + `"}`
+		}
+		return body
+	})
+}
+
+// paged serves total items in pages of the limit parameter of the first call
+// (the API default of 10 without it), as the API does: a later page takes
+// only the cursor. item makes item i. body makes a page, with its
+// next_page_url, or "" on the last page.
+func paged(c *calls, total int, item func(int) any, body func(next string, items ...any) string) http.HandlerFunc {
 	return c.wrap(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		if q.Has("cursor") && len(q) > 1 {
@@ -149,16 +167,13 @@ func pagedHandler(t *testing.T, c *calls, total int) http.HandlerFunc {
 		}
 		var items []any
 		for i := offset; i < min(total, offset+size); i++ {
-			s := storyFixture(t)
-			s["id"] = 1000 + i
-			items = append(items, s)
+			items = append(items, item(i))
 		}
-		body := listBody(items...)
+		next := ""
 		if offset+size < total {
-			body = strings.TrimSuffix(body, "}") +
-				fmt.Sprintf(`,"next_page_url":"/api/v4/acme/stories/search?cursor=o%ds%d"}`, offset+size, size)
+			next = fmt.Sprintf("%s?cursor=o%ds%d", r.URL.Path, offset+size, size)
 		}
-		jsonHandler(body)(w, r)
+		jsonHandler(body(next, items...))(w, r)
 	})
 }
 

@@ -334,19 +334,17 @@ func (d *Doer) ListKey(ctx context.Context, path string, query url.Values, key s
 	if err != nil {
 		return nil, "", err
 	}
-	var env struct {
-		NextPageURL string `json:"next_page_url"`
-	}
-	var lists map[string]json.RawMessage
-	if json.Unmarshal(b, &env) != nil || json.Unmarshal(b, &lists) != nil {
-		return nil, "", &exit.Error{Code: exit.Other, Msg: "response is not a list"}
-	}
+	var env map[string]json.RawMessage
 	var list *[]json.RawMessage
-	if err := json.Unmarshal(lists[key], &list); err != nil || list == nil {
+	var next string
+	if json.Unmarshal(b, &env) != nil || json.Unmarshal(env[key], &list) != nil || list == nil {
 		return nil, "", &exit.Error{Code: exit.Other, Msg: "response is not a list"}
 	}
-	if env.NextPageURL != "" {
-		u, err := url.Parse(env.NextPageURL)
+	if raw, ok := env["next_page_url"]; ok && json.Unmarshal(raw, &next) != nil {
+		return nil, "", &exit.Error{Code: exit.Other, Msg: "response is not a list"}
+	}
+	if next != "" {
+		u, err := url.Parse(next)
 		if err != nil {
 			return nil, "", &exit.Error{Code: exit.Other, Msg: "bad next_page_url"}
 		}

@@ -378,7 +378,7 @@ func TestListNeedsEntities(t *testing.T) {
 func TestListKey(t *testing.T) {
 	next := `"next_page_url":"https://api.app.shortcut.com/api/v4/acme/stories/1/history?cursor=c1"`
 	for body, ok := range map[string]bool{`{"changes":[{"id":1}],` + next + `}`: true, `{"entities":[{"id":1}],` + next + `}`: false,
-		`{"changes":null}`: false, `[]`: false, `{"changes":[{"id":1}],"next_page_url":null}`: true} {
+		`{"changes":null}`: false, `[]`: false, `{"changes":[{"id":1}],"next_page_url":null}`: true, `{"changes":[{"id":1}],"next_page_url":5}`: false} {
 		d := newDoer(t, &waits{}, "GET", func(rw http.ResponseWriter, r *http.Request) {
 			rw.Header().Set("Content-Type", "application/json")
 			_, _ = rw.Write([]byte(body))

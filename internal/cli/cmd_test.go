@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -81,6 +82,23 @@ const whoamiBody = `{"entity":{"entity_type":"whoami","authorization":{"scopes":
 "workspace":{"slug":"example-ws","name":"Template Systems"},
 "default_workflow":{"id":5,"name":"Default"},
 "default_workflow_state":{"id":6,"name":"Backlog"}}}`
+
+// sameJSON fails t when got and want are not the same JSON value.
+func sameJSON(t *testing.T, got, want string) {
+	t.Helper()
+	norm := func(s string) any {
+		d := json.NewDecoder(strings.NewReader(s))
+		d.UseNumber()
+		var v any
+		if err := d.Decode(&v); err != nil {
+			t.Fatalf("not JSON: %q: %v", s, err)
+		}
+		return v
+	}
+	if !reflect.DeepEqual(norm(got), norm(want)) {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+}
 
 func decode(t *testing.T, s string) map[string]any {
 	t.Helper()
