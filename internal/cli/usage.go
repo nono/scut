@@ -102,10 +102,9 @@ func usageAfter(root *cobra.Command, args []string) (*cobra.Command, error) {
 	if len(rest) > 0 || cmd.HasSubCommands() {
 		return nil, nil
 	}
-	// The run log reads the arguments from the flag set.
-	if err := cmd.ParseFlags(args[n-1:]); err != nil {
-		return cmd, err
-	}
+	// The run log reads the arguments from the flag set. pflag cannot fail
+	// on a word with no dash.
+	_ = cmd.ParseFlags(args[n-1:])
 	var b strings.Builder
 	writeLeafUsage(&b, cmd)
 	_, err := io.WriteString(cmd.OutOrStdout(), b.String())

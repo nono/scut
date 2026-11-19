@@ -44,22 +44,6 @@ var storyFieldNames = []string{"app_url", "branches", "comments", "description",
 const fieldsUsage = "comma-separated fields to show: output names, API Story field names (estimate, deadline, …), " +
 	"or the ID names of the updateStory body (epic_id, owner_ids, …)"
 
-// idFieldNames maps the ID names of the updateStory body to the Story field
-// that each one sets: epic_id to epic, owner_ids to owners, iteration_id to
-// iterations.
-var idFieldNames = func() map[string]string {
-	m := map[string]string{}
-	for _, f := range apiStoryFields {
-		one := strings.TrimSuffix(f, "s")
-		for _, p := range []string{one + "_id", one + "_ids"} {
-			if slices.Contains(apiStoryParams, p) {
-				m[p] = f
-			}
-		}
-	}
-	return m
-}()
-
 // apiName returns the API field name of a --fields name.
 func apiName(f string) string {
 	if a, ok := apiFieldNames[f]; ok {
