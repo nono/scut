@@ -1,12 +1,16 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+
+	"github.com/nono/scut/internal/exit"
 )
 
 func skipInUsage(c *cobra.Command) bool {
@@ -50,32 +54,52 @@ func writeNounUsage(w io.Writer, noun *cobra.Command) error {
 	var walk func(c *cobra.Command)
 	walk = func(c *cobra.Command) {
 		for _, s := range c.Commands() {
-			if skipInUsage(s) {
-				continue
-			}
-			path := strings.TrimPrefix(s.CommandPath(), s.Root().Name()+" ")
-			use := path
-			if _, args, ok := strings.Cut(s.Use, " "); ok {
-				use += " " + args
-			}
-			if s.HasSubCommands() {
+			switch {
+			case skipInUsage(s):
+			case s.HasSubCommands():
 				walk(s)
-				continue
+			default:
+				writeLeafUsage(&b, s)
 			}
-			fmt.Fprintf(&b, "%s  %s\n", use, s.Short)
-			s.LocalFlags().VisitAll(func(f *pflag.Flag) {
-				if f.Hidden {
-					return
-				}
-				name := "--" + f.Name
-				if f.Shorthand != "" {
-					name = "-" + f.Shorthand + ", " + name
-				}
-				fmt.Fprintf(&b, "  %s %s  %s\n", name, f.Value.Type(), f.Usage)
-			})
 		}
 	}
 	walk(noun)
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+// writeLeafUsage writes the usage line and the flags of a command with no
+// subcommands.
+func writeLeafUsage(b *strings.Builder, s *cobra.Command) {
+	use := strings.TrimPrefix(s.CommandPath(), s.Root().Name()+" ")
+	if _, args, ok := strings.Cut(s.Use, " "); ok {
+		use += " " + args
+	}
+	fmt.Fprintf(b, "%s  %s\n", use, s.Short)
+	s.LocalFlags().VisitAll(func(f *pflag.Flag) {
+		// cobra adds --help only to the command that runs.
+		if f.Hidden || f.Name == "help" {
+			return
+		}
+		name := "--" + f.Name
+		if f.Shorthand != "" {
+			name = "-" + f.Shorthand + ", " + name
+		}
+		fmt.Fprintf(b, "  %s %s  %s\n", name, f.Value.Type(), f.Usage)
+	})
+}
+
+// usageAfter writes the usage of cmd when its run failed with a usage error
+// and its only argument is "usage", as in "scut story create usage". Where
+// "usage" is a valid argument, such as a search query, the command runs as
+// usual. It reports whether it wrote the usage.
+func usageAfter(cmd *cobra.Command, err error) bool {
+	var e *exit.Error
+	if cmd.HasSubCommands() || !errors.As(err, &e) || e.Code != exit.Usage || !slices.Equal(cmd.Flags().Args(), []string{"usage"}) {
+		return false
+	}
+	var b strings.Builder
+	writeLeafUsage(&b, cmd)
+	_, werr := io.WriteString(cmd.OutOrStdout(), b.String())
+	return werr == nil
 }

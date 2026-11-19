@@ -40,7 +40,24 @@ var apiFieldNames = map[string]string{
 var storyFieldNames = []string{"app_url", "branches", "comments", "description", "epic", "field_ids", "fields", "id", "labels",
 	"links", "name", "owners", "pull_requests", "requester", "state", "tasks", "type"}
 
-const fieldsUsage = "comma-separated fields to show: output names or API Story field names (estimate, deadline, …)"
+const fieldsUsage = "comma-separated fields to show: output names, API Story field names (estimate, deadline, …), " +
+	"or the ID names of the updateStory body (epic_id, owner_ids, …)"
+
+// idFieldNames maps the ID names of the updateStory body to the Story field
+// that each one sets: epic_id to epic, owner_ids to owners, iteration_id to
+// iterations.
+var idFieldNames = func() map[string]string {
+	m := map[string]string{}
+	for _, f := range apiStoryFields {
+		one := strings.TrimSuffix(f, "s")
+		for _, p := range []string{one + "_id", one + "_ids"} {
+			if slices.Contains(apiStoryParams, p) {
+				m[p] = f
+			}
+		}
+	}
+	return m
+}()
 
 // apiName returns the API field name of a --fields name.
 func apiName(f string) string {
@@ -71,13 +88,16 @@ func extraFields(fields []string) []string {
 }
 
 // apiFields maps a --fields list to the API names and keeps id. It takes the
-// CLI names and the API names. An unknown name is a usage error.
+// CLI names, the API names and the ID names. An unknown name is a usage error.
 func apiFields(list string) ([]string, error) {
 	var out []string
 	for _, f := range strings.Split(list, ",") {
 		f = strings.TrimSpace(f)
 		if f == "" {
 			continue
+		}
+		if a, ok := idFieldNames[f]; ok {
+			f = a
 		}
 		if !slices.Contains(storyFieldNames, f) && !slices.Contains(apiStoryFields, f) {
 			return nil, &exit.Error{Code: exit.Usage, Msg: fmt.Sprintf("unknown field %q", f), Valid: validFields()}
@@ -95,12 +115,15 @@ func apiFields(list string) ([]string, error) {
 
 // parseCommentCount returns the number of comments to fetch, -1 for all.
 func parseCommentCount(s string) (int, error) {
-	if s == "all" {
+	switch s {
+	case "all":
 		return -1, nil
+	case "none":
+		return 0, nil
 	}
 	n, err := strconv.Atoi(s)
 	if err != nil || n < 0 {
-		return 0, exit.Usagef("--comments takes a number or \"all\", not %q", s)
+		return 0, exit.Usagef("--comments takes a number, \"all\" or \"none\", not %q", s)
 	}
 	return n, nil
 }
@@ -112,7 +135,7 @@ func newStoryView(env Env) *cobra.Command {
 		Annotations: map[string]string{OpsAnnotation: "getStory,listStoryComments,listStoryChecklistItems,listStories,listMembers", IDArgsAnnotation: "sc-"},
 	}
 	fieldsFlag := cmd.Flags().String("fields", "", fieldsUsage)
-	commentsFlag := cmd.Flags().String("comments", strconv.Itoa(defaultComments), "number of newest comments, or all")
+	commentsFlag := cmd.Flags().String("comments", strconv.Itoa(defaultComments), "number of newest comments, all, or none")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		nComments, err := parseCommentCount(*commentsFlag)
 		if err != nil {

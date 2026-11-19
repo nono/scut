@@ -4,7 +4,7 @@
 
 ## Rules
 
-- Run `scut usage` first. Then run `scut <noun> usage` for the noun you need. Do not guess a command or a flag.
+- Run `scut usage` first. Then run `scut <noun> usage` for the noun you need, or `scut <noun> <command> usage` for one command. Do not guess a command or a flag.
 - Output is JSON on stdout. An error is one JSON object on stderr: `error`, `status`, `api`, `suggestion`, `valid`.
 - Use names, not IDs: teams, states, members (`@me`), epics, fields (`--field "Name=Value"`).
 - A story is an ID (`1234`, `sc-1234`), a URL, or a branch name. With no story, `story view`, `story history`, `story branch`, `story files`, `story subtasks` and `worktree` use the story of the current git branch.
@@ -42,7 +42,7 @@ scut worktree 12 --start  # find or make the worktree, and start the story
 
 ## Output size
 
-- `story view`, `story search`, `story subtasks` and `epic stories` take `--fields`. `story history --fields` takes the attributes to show the changes of (`workflow_state,owners`).
+- `story view`, `story search`, `story subtasks` and `epic stories` take `--fields`: output names (`state`, `epic`), API Story field names (`estimate`), or ID names (`epic_id`, `owner_ids`). `story view --comments none` gives no comments. `story history --fields` takes the attributes to show the changes of (`workflow_state,owners`).
 - Searches, comment lists and story history give 25 items. Use `--limit N` or `--limit all`. Lookup lists give all items.
 - `story search` takes the Shortcut query syntax unchanged. It can lag: use `story view` for current data.
 - A doc is a doc URL, a doc ID or an exact title. A doc can be large: `doc view --out <file>` writes the content to a file, so read the file in parts.

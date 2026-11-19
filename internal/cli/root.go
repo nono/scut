@@ -283,7 +283,7 @@ func run(ctx context.Context, root *cobra.Command, args []string, stderr io.Writ
 	root.SetArgs(args)
 	root.SetErr(stderr)
 	cmd, err := root.ExecuteContextC(ctx)
-	if err == nil {
+	if err == nil || ctx.Err() == nil && usageAfter(cmd, err) {
 		return int(exit.OK), cmd, nil
 	}
 	if ctx.Err() != nil {

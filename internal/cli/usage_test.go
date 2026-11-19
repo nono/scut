@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/nono/scut/internal/cli"
 )
 
@@ -79,5 +81,51 @@ func TestOpsAnnotations(t *testing.T) {
 		if err != nil || cmd.Annotations["scut/ops"] != ops {
 			t.Errorf("%s: %v %v", path, err, cmd.Annotations)
 		}
+	}
+}
+
+// "<command> usage" prints the usage of the command when "usage" is not a
+// valid argument of it: then the command fails with a usage error. Where
+// "usage" is valid (a search query, a name, a path), the command runs as usual.
+func TestUsageAfterCommand(t *testing.T) {
+	h := newHarness(t, nil, "", nil)
+	printed := map[string]bool{}
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		for _, s := range c.Commands() {
+			if s.HasSubCommands() {
+				walk(s)
+				continue
+			}
+			if s.Hidden || s.Name() == "help" || s.Name() == "usage" {
+				continue
+			}
+			path := strings.TrimPrefix(s.CommandPath(), "scut ")
+			code, out, errs := h.run(append(strings.Fields(path), "usage")...)
+			switch code {
+			case 0:
+				if !strings.HasPrefix(out, path) || !strings.Contains(out, s.Short) || strings.Contains(out, "--help") {
+					t.Errorf("%s usage: stdout %q", path, out)
+				}
+				printed[path] = true
+			case 2:
+				t.Errorf("%s usage: code 2, stderr %s", path, errs)
+			}
+		}
+	}
+	walk(cli.NewRoot(emptyEnv()))
+	for _, p := range []string{"story create", "story view", "story update", "worktree", "whoami", "auth login"} {
+		if !printed[p] {
+			t.Errorf("%s usage: no usage", p)
+		}
+	}
+	for _, p := range []string{"story search", "api"} {
+		if printed[p] {
+			t.Errorf("%s usage: usage printed, want a run with the argument", p)
+		}
+	}
+	code, out, _ := h.run("story", "create", "usage")
+	if code != 0 || !strings.Contains(out, "--name string") || strings.Contains(out, "story view") {
+		t.Errorf("story create usage: code %d, stdout %q", code, out)
 	}
 }

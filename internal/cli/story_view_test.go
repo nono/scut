@@ -243,17 +243,19 @@ func TestViewFieldsComments(t *testing.T) {
 }
 
 func TestViewCommentsZero(t *testing.T) {
-	var c calls
-	h := viewHarness(t, &c, storyFixture(t), nil)
-	code, out, errs := h.run("story", "view", "5818", "--comments", "0")
-	if code != 0 {
-		t.Fatalf("code %d, stderr %s", code, errs)
-	}
-	if c.total() != 1 {
-		t.Errorf("calls %v", c.paths)
-	}
-	if _, ok := decode(t, out)["comments"]; ok {
-		t.Errorf("comments in %s", out)
+	for _, v := range []string{"0", "none"} {
+		var c calls
+		h := viewHarness(t, &c, storyFixture(t), nil)
+		code, out, errs := h.run("story", "view", "5818", "--comments", v)
+		if code != 0 {
+			t.Fatalf("--comments %s: code %d, stderr %s", v, code, errs)
+		}
+		if c.total() != 1 {
+			t.Errorf("--comments %s: calls %v", v, c.paths)
+		}
+		if _, ok := decode(t, out)["comments"]; ok {
+			t.Errorf("--comments %s: comments in %s", v, out)
+		}
 	}
 }
 
@@ -688,18 +690,52 @@ func TestViewFieldsAPINames(t *testing.T) {
 func TestListFieldsAPINames(t *testing.T) {
 	story := storyFixture(t)
 	story["estimate"] = 5
-	for _, args := range [][]string{{"story", "search", "x"}, {"epic", "stories", "5387"}} {
+	story["epic"] = map[string]any{"id": 5387, "name": "Test Epic"}
+	for _, args := range [][]string{{"story", "search", "x"}, {"epic", "stories", "5387"}, {"story", "subtasks", "5428"}} {
+		var c calls
 		h := newHarness(t, map[string]http.HandlerFunc{
-			"GET " + searchPath:                   jsonHandler(listBody(story)),
-			"GET /api/v4/acme/epics/5387/stories": jsonHandler(listBody(story)),
+			"GET " + searchPath:                   c.wrap(jsonHandler(listBody(story))),
+			"GET /api/v4/acme/epics/5387/stories": c.wrap(jsonHandler(listBody(story))),
+			"GET " + subPath:                      c.wrap(jsonHandler(listBody(story))),
 			"GET /api/v4/acme/members":            membersRoute(),
 		}, "", searchEnv)
-		code, out, errs := h.run(append(args, "--fields", "estimate,name")...)
+		code, out, errs := h.run(append(args, "--fields", "estimate,name,epic_id,owner_ids")...)
 		if code != 0 {
 			t.Fatalf("%v: code %d, stderr %s", args, code, errs)
 		}
-		if l := decodeList(t, out); l[0]["estimate"] != float64(5) {
+		l := decodeList(t, out)
+		if l[0]["estimate"] != float64(5) || l[0]["epic"] == nil || l[0]["owners"] == nil {
 			t.Errorf("%v: out %s", args, out)
+		}
+		if got := c.firstParam(c.paths[0], "fields"); got != "id,estimate,name,epic,owners" {
+			t.Errorf("%v: fields %q", args, got)
+		}
+	}
+}
+
+// --fields takes the ID names of the story write parameters too: epic_id
+// gives epic. A name that no write parameter has is unknown.
+func TestViewFieldsIDNames(t *testing.T) {
+	var c calls
+	story := storyFixture(t)
+	story["epic"] = map[string]any{"id": 5387, "name": "Test Epic"}
+	h := viewHarness(t, &c, story, nil)
+	code, out, errs := h.run("story", "view", "5818", "--fields", "epic_id,owner_ids,workflow_state_id,requester_id,label_ids,team_id", "--comments", "0")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if got := c.param("/api/v4/acme/stories/5818", "fields"); got != "id,epic,owners,workflow_state,requester,labels,team" {
+		t.Errorf("fields %q", got)
+	}
+	m := decode(t, out)
+	for _, k := range []string{"epic", "owners", "state", "requester", "labels"} {
+		if _, ok := m[k]; !ok {
+			t.Errorf("no %s: out %s", k, out)
+		}
+	}
+	for _, f := range []string{"story_type_id", "name_id", "owner_id"} {
+		if code, _, _ := h.run("story", "view", "5818", "--fields", f); code != 2 {
+			t.Errorf("--fields %s: code %d, want 2", f, code)
 		}
 	}
 }

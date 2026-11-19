@@ -294,13 +294,14 @@ func TestStoryFieldsText(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := storyFieldsText(spec)
-	for _, want := range []string{"DO NOT EDIT", "package cli\n", "\t\"estimate\",\n", "\t\"workflow_state\",\n"} {
+	for _, want := range []string{"DO NOT EDIT", "package cli\n", "\t\"estimate\",\n", "\t\"workflow_state\",\n",
+		"var apiStoryParams = []string{\n", "\t\"workflow_state_id\",\n", "\t\"owner_ids\",\n"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("no %q in %s", want, got)
 		}
 	}
-	if !slices.IsSorted(spec.storyFields) {
-		t.Errorf("not sorted: %v", spec.storyFields)
+	if !slices.IsSorted(spec.storyFields) || !slices.IsSorted(spec.storyParams) {
+		t.Errorf("not sorted: %v, %v", spec.storyFields, spec.storyParams)
 	}
 }
 
