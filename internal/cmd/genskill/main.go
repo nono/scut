@@ -306,6 +306,9 @@ func readSpec(path string) (specInfo, error) {
 	if err != nil {
 		return specInfo{}, fmt.Errorf("%s: %w", path, err)
 	}
+	// The body is a generated schema name that Shortcut renumbers on each
+	// publish, so read it through the operation. The compact view marks an
+	// optional key with a final "?".
 	o, _ := parsed.Lookup("updateStory", 0)
 	op, _ := o.(apispec.Operation)
 	body, _ := op.Body.(map[string]any)
@@ -332,6 +335,7 @@ func storyFieldsText(spec specInfo) string {
 	}
 	b.WriteString("}\n\n")
 	b.WriteString("// apiStoryParams are the top-level properties of the updateStory body.\n")
+	b.WriteString("// --fields takes their ID names (epic_id, owner_ids) for the Story fields.\n")
 	b.WriteString("var apiStoryParams = []string{\n")
 	for _, f := range spec.storyParams {
 		fmt.Fprintf(&b, "\t%q,\n", f)

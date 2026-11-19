@@ -56,6 +56,7 @@ var apiStoryFields = []string{
 }
 
 // apiStoryParams are the top-level properties of the updateStory body.
+// --fields takes their ID names (epic_id, owner_ids) for the Story fields.
 var apiStoryParams = []string{
 	"archived",
 	"custom_field_values",

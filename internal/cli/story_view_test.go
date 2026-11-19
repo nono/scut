@@ -619,6 +619,27 @@ func TestViewManyCommentsFlag(t *testing.T) {
 	}
 }
 
+// --comments none, or 0, with several stories gives no comments.
+func TestViewManyCommentsNone(t *testing.T) {
+	s1 := storyFixture(t)
+	s1["comments"] = map[string]any{"current_items": 1, "total_items": 7, "entities": []any{
+		map[string]any{"id": 1, "text": "hi", "deleted": false},
+	}}
+	s2 := storyFixture(t)
+	s2["id"] = 5819
+	for _, v := range []string{"none", "0"} {
+		var c calls
+		h := manyHarness(t, &c, s1, s2)
+		code, out, errs := h.run("story", "view", "5818", "5819", "--comments", v)
+		if code != 0 {
+			t.Fatalf("--comments %s: code %d, stderr %s", v, code, errs)
+		}
+		if strings.Contains(out, "comments") {
+			t.Errorf("--comments %s: stdout %s", v, out)
+		}
+	}
+}
+
 func TestViewCommentsTotal(t *testing.T) {
 	for _, tc := range []struct {
 		args []string

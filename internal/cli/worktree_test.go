@@ -105,11 +105,13 @@ func TestWorktreeTwoMatches(t *testing.T) {
 	testgit.Git(t, main, "branch", "bug/sc-1234/a")
 	testgit.Git(t, main, "branch", "bug/sc-1234/b")
 	for _, args := range [][]string{{"worktree", "1234"}, {"worktree", "1234", "--start"}, {"worktree", "1234", "--branch", "nope"}} {
-		code, _, errs := h.run(args...)
-		e := decode(t, errs)
-		if code != 2 || jsonOf(e["valid"]) != `["bug/sc-1234/a","bug/sc-1234/b"]` || !strings.Contains(e["suggestion"].(string), "--branch <name>") {
-			t.Fatalf("%v: code %d, stderr %s", args, code, errs)
-		}
+		t.Run(strings.Join(args[2:], " "), func(t *testing.T) {
+			code, _, errs := h.run(args...)
+			e := decode(t, errs)
+			if s, _ := e["suggestion"].(string); code != 2 || jsonOf(e["valid"]) != `["bug/sc-1234/a","bug/sc-1234/b"]` || !strings.Contains(s, "--branch <name>") {
+				t.Errorf("code %d, stderr %s", code, errs)
+			}
+		})
 	}
 	code, out, errs := h.run("worktree", "1234", "--branch", "bug/sc-1234/b")
 	if code != 0 {

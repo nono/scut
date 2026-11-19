@@ -143,7 +143,7 @@ func newStoryView(env Env) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if len(args) > 1 && cmd.Flags().Changed("comments") {
+		if len(args) > 1 && nComments != 0 && cmd.Flags().Changed("comments") {
 			return exit.Usagef("--comments needs a single story")
 		}
 		ids, err := storyIDs(env, args)
@@ -163,7 +163,7 @@ func newStoryView(env Env) *cobra.Command {
 		return withDeps(env, func(cmd *cobra.Command, _ []string, d *deps) error {
 			ctx := cmd.Context()
 			if len(ids) > 1 {
-				return viewMany(ctx, d, uniq, fields)
+				return viewMany(ctx, d, uniq, fields, nComments != 0)
 			}
 			return viewOne(ctx, d, ids[0], fields, nComments)
 		})(cmd, args)
@@ -259,8 +259,9 @@ func uniqueIDs(ids []int64) []int64 {
 }
 
 // viewMany gets several stories in one call. It prints the stories found, in
-// argument order, then fails with exit 3 if some are missing.
-func viewMany(ctx context.Context, d *deps, uniq []int64, fields []string) error {
+// argument order, then fails with exit 3 if some are missing. With comments
+// false, it prints no comments.
+func viewMany(ctx context.Context, d *deps, uniq []int64, fields []string, comments bool) error {
 	q := storiesQuery(uniq)
 	fieldsQuery(q, fields)
 	raw, err := transport.PageQuery(ctx, d.Doer, "stories", q, -1)
@@ -268,7 +269,7 @@ func viewMany(ctx context.Context, d *deps, uniq []int64, fields []string) error
 		return err
 	}
 	byID := map[int64]StoryOut{}
-	opts := shapeOpts{Description: true, Comments: true, Extra: extraFields(fields)}
+	opts := shapeOpts{Description: true, Comments: comments, Extra: extraFields(fields)}
 	for _, r := range raw {
 		s, err := shapeStory(r, d.Resolver, opts)
 		if err != nil {
