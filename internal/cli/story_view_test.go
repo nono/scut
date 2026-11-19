@@ -733,9 +733,10 @@ func TestViewFieldsIDNames(t *testing.T) {
 			t.Errorf("no %s: out %s", k, out)
 		}
 	}
-	for _, f := range []string{"story_type_id", "name_id", "owner_id"} {
-		if code, _, _ := h.run("story", "view", "5818", "--fields", f); code != 2 {
-			t.Errorf("--fields %s: code %d, want 2", f, code)
+	for _, f := range []string{"story_type_id", "name_id", "owner_id", "requested_by_id"} {
+		code, _, errs := h.run("story", "view", "5818", "--fields", f)
+		if code != 2 || !strings.Contains(errs, `"owner_ids"`) || !strings.Contains(errs, `"requester_id"`) {
+			t.Errorf("--fields %s: code %d, stderr %s", f, code, errs)
 		}
 	}
 }

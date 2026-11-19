@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/url"
 	"slices"
 	"strconv"
@@ -67,10 +68,11 @@ func apiName(f string) string {
 	return f
 }
 
-// validFields returns the names that --fields takes: the CLI names and the
-// properties of the Story schema.
+// validFields returns the names that --fields takes: the CLI names, the
+// properties of the Story schema and the ID names.
 func validFields() []string {
 	v := append(slices.Clone(storyFieldNames), apiStoryFields...)
+	v = slices.AppendSeq(v, maps.Keys(idFieldNames))
 	slices.Sort(v)
 	return slices.Compact(v)
 }

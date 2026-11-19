@@ -1,16 +1,12 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-
-	"github.com/nono/scut/internal/exit"
 )
 
 func skipInUsage(c *cobra.Command) bool {
@@ -89,17 +85,25 @@ func writeLeafUsage(b *strings.Builder, s *cobra.Command) {
 	})
 }
 
-// usageAfter writes the usage of cmd when its run failed with a usage error
-// and its only argument is "usage", as in "scut story create usage". Where
-// "usage" is a valid argument, such as a search query, the command runs as
-// usual. It reports whether it wrote the usage.
-func usageAfter(cmd *cobra.Command, err error) bool {
-	var e *exit.Error
-	if cmd.HasSubCommands() || !errors.As(err, &e) || e.Code != exit.Usage || !slices.Equal(cmd.Flags().Args(), []string{"usage"}) {
-		return false
+// usageAfter writes the usage of the command that args name when the last
+// argument is "usage" and there is no other argument or flag, as in
+// "scut story create usage". It runs before the command, so it needs no
+// token. It returns the command, or nil when args are not such a request.
+func usageAfter(root *cobra.Command, args []string) *cobra.Command {
+	n := len(args)
+	if n < 2 || args[n-1] != "usage" {
+		return nil
+	}
+	// A group has a usage subcommand. A flag, or another word, leaves rest
+	// not empty.
+	cmd, rest, err := root.Find(args[:n-1])
+	if err != nil || len(rest) > 0 || cmd.HasSubCommands() {
+		return nil
 	}
 	var b strings.Builder
 	writeLeafUsage(&b, cmd)
-	_, werr := io.WriteString(cmd.OutOrStdout(), b.String())
-	return werr == nil
+	if _, err := io.WriteString(cmd.OutOrStdout(), b.String()); err != nil {
+		return nil
+	}
+	return cmd
 }

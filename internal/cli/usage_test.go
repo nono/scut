@@ -84,12 +84,11 @@ func TestOpsAnnotations(t *testing.T) {
 	}
 }
 
-// "<command> usage" prints the usage of the command when "usage" is not a
-// valid argument of it: then the command fails with a usage error. Where
-// "usage" is valid (a search query, a name, a path), the command runs as usual.
+// "<command> usage", with no other argument or flag, prints the usage of
+// each command before the run: no token, no API call. With a flag, the
+// command runs as usual and its errors stay.
 func TestUsageAfterCommand(t *testing.T) {
 	h := newHarness(t, nil, "", nil)
-	printed := map[string]bool{}
 	var walk func(c *cobra.Command)
 	walk = func(c *cobra.Command) {
 		for _, s := range c.Commands() {
@@ -102,30 +101,30 @@ func TestUsageAfterCommand(t *testing.T) {
 			}
 			path := strings.TrimPrefix(s.CommandPath(), "scut ")
 			code, out, errs := h.run(append(strings.Fields(path), "usage")...)
-			switch code {
-			case 0:
-				if !strings.HasPrefix(out, path) || !strings.Contains(out, s.Short) || strings.Contains(out, "--help") {
-					t.Errorf("%s usage: stdout %q", path, out)
-				}
-				printed[path] = true
-			case 2:
-				t.Errorf("%s usage: code 2, stderr %s", path, errs)
+			if code != 0 || !strings.HasPrefix(out, path) || !strings.Contains(out, s.Short) || strings.Contains(out, "--help") {
+				t.Errorf("%s usage: code %d, stdout %q, stderr %s", path, code, out, errs)
 			}
 		}
 	}
 	walk(cli.NewRoot(emptyEnv()))
-	for _, p := range []string{"story create", "story view", "story update", "worktree", "whoami", "auth login"} {
-		if !printed[p] {
-			t.Errorf("%s usage: no usage", p)
-		}
-	}
-	for _, p := range []string{"story search", "api"} {
-		if printed[p] {
-			t.Errorf("%s usage: usage printed, want a run with the argument", p)
-		}
-	}
 	code, out, _ := h.run("story", "create", "usage")
 	if code != 0 || !strings.Contains(out, "--name string") || strings.Contains(out, "story view") {
 		t.Errorf("story create usage: code %d, stdout %q", code, out)
+	}
+	for _, tc := range []struct {
+		args []string
+		code int
+		err  string
+	}{
+		{[]string{"story", "search", "usage", "--limit", "0"}, 2, "--limit takes"},
+		{[]string{"story", "search", "usage", "--bogus"}, 2, "unknown flag"},
+		{[]string{"story", "create", "usage", "--type", "zzz"}, 2, "usage"},
+		{[]string{"story", "search", "usage", "--limit", "5"}, 4, "no token"},
+		{[]string{"--human", "whoami", "usage"}, 2, "takes no arguments"},
+	} {
+		code, out, errs := h.run(tc.args...)
+		if code != tc.code || out != "" || !strings.Contains(errs, tc.err) {
+			t.Errorf("%v: code %d, stdout %q, stderr %s", tc.args, code, out, errs)
+		}
 	}
 }
