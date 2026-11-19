@@ -122,6 +122,24 @@ func TestLive(t *testing.T) {
 			t.Errorf("%d items, want 1", len(v))
 		}
 	})
+	t.Run("story history", func(t *testing.T) {
+		var v []struct {
+			Story     int64                   `json:"story"`
+			Attribute string                  `json:"attribute"`
+			Adds      []struct{ Name string } `json:"adds"`
+		}
+		if err := json.Unmarshal(run(t, "story", "history", story, "--fields", "workflow_state", "--desc", "--limit", "2"), &v); err != nil {
+			t.Fatal(err)
+		}
+		if len(v) == 0 || len(v) > 2 {
+			t.Fatalf("%d changes, want 1 or 2", len(v))
+		}
+		for _, c := range v {
+			if c.Story != 0 || c.Attribute != "" || len(c.Adds) != 1 || c.Adds[0].Name == "" {
+				t.Errorf("change %+v: want no story, no attribute, and one state with a name", c)
+			}
+		}
+	})
 	t.Run("story files", func(t *testing.T) {
 		file := want(t, "SCUT_LIVE_FILE")
 		size, err := strconv.ParseInt(want(t, "SCUT_LIVE_FILE_SIZE"), 10, 64)

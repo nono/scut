@@ -72,7 +72,7 @@ func TestSkillNotSupported(t *testing.T) {
 	}
 	sec, _, _ = strings.Cut(sec, "\n## ")
 	sec = strings.ToLower(sec)
-	for _, want := range []string{"pr", "branch", "update a doc", "history", "bulk"} {
+	for _, want := range []string{"pr", "branch", "update a doc", "bulk", "iterations"} {
 		if !strings.Contains(sec, want) {
 			t.Errorf("Not supported lacks %q", want)
 		}

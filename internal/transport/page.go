@@ -56,11 +56,17 @@ func Page(ctx context.Context, fetch func(cursor string) ([]json.RawMessage, str
 // Page 1 sends query. Each later page sends only the cursor, which carries the
 // query.
 func PageQuery(ctx context.Context, d *Doer, path string, query url.Values, limit int) ([]json.RawMessage, error) {
+	return PageQueryKey(ctx, d, path, query, "entities", limit)
+}
+
+// PageQueryKey is PageQuery for an endpoint that puts its items in key (see
+// Doer.ListKey).
+func PageQueryKey(ctx context.Context, d *Doer, path string, query url.Values, key string, limit int) ([]json.RawMessage, error) {
 	return Page(ctx, func(cursor string) ([]json.RawMessage, string, error) {
 		q := query
 		if cursor != "" {
 			q = url.Values{"cursor": {cursor}}
 		}
-		return d.List(ctx, path, q)
+		return d.ListKey(ctx, path, q, key)
 	}, limit)
 }

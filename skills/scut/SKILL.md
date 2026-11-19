@@ -1,7 +1,7 @@
 ---
 name: scut
 description: "Use when a task reads or changes Shortcut stories, epics, comments, links or attachments: a story ID such as sc-1234, an app.shortcut.com URL, a git branch with sc-NNNN in it, a ticket or bug to file, a sub-task, a state change such as \"move it to In Review\", a Shortcut doc, or the branch name of a story."
-allowed-tools: "Bash(scut auth status:*), Bash(scut auth usage:*), Bash(scut cache usage:*), Bash(scut doc search:*), Bash(scut doc usage:*), Bash(scut epic search:*), Bash(scut epic stories:*), Bash(scut epic usage:*), Bash(scut epic view:*), Bash(scut field list:*), Bash(scut field usage:*), Bash(scut field values:*), Bash(scut member list:*), Bash(scut member usage:*), Bash(scut spec:*), Bash(scut story branch:*), Bash(scut story comments:*), Bash(scut story search:*), Bash(scut story subtasks:*), Bash(scut story usage:*), Bash(scut story view:*), Bash(scut team list:*), Bash(scut team usage:*), Bash(scut usage:*), Bash(scut whoami:*), Bash(scut workflow list:*), Bash(scut workflow states:*), Bash(scut workflow usage:*), Read(~/.local/state/scut/**)"
+allowed-tools: "Bash(scut auth status:*), Bash(scut auth usage:*), Bash(scut cache usage:*), Bash(scut doc search:*), Bash(scut doc usage:*), Bash(scut epic search:*), Bash(scut epic stories:*), Bash(scut epic usage:*), Bash(scut epic view:*), Bash(scut field list:*), Bash(scut field usage:*), Bash(scut field values:*), Bash(scut member list:*), Bash(scut member usage:*), Bash(scut spec:*), Bash(scut story branch:*), Bash(scut story comments:*), Bash(scut story history:*), Bash(scut story search:*), Bash(scut story subtasks:*), Bash(scut story usage:*), Bash(scut story view:*), Bash(scut team list:*), Bash(scut team usage:*), Bash(scut usage:*), Bash(scut whoami:*), Bash(scut workflow list:*), Bash(scut workflow states:*), Bash(scut workflow usage:*), Read(~/.local/state/scut/**)"
 ---
 
 # scut
@@ -13,7 +13,7 @@ allowed-tools: "Bash(scut auth status:*), Bash(scut auth usage:*), Bash(scut cac
 - Run `scut usage` first. Then run `scut <noun> usage` for the noun you need. Do not guess a command or a flag.
 - Output is JSON on stdout. An error is one JSON object on stderr: `error`, `status`, `api`, `suggestion`, `valid`.
 - Use names, not IDs: teams, states, members (`@me`), epics, fields (`--field "Name=Value"`).
-- A story is an ID (`1234`, `sc-1234`), a URL, or a branch name. With no story, `story view`, `story branch`, `story files`, `story subtasks` and `worktree` use the story of the current git branch.
+- A story is an ID (`1234`, `sc-1234`), a URL, or a branch name. With no story, `story view`, `story history`, `story branch`, `story files`, `story subtasks` and `worktree` use the story of the current git branch.
 - Put global flags after the command: `scut story view 12 --human`. Global flags: `--profile <name>` (workspace profile), `--token-file <path>`, `--human` (text output).
 
 ## When a command fails
@@ -42,13 +42,14 @@ scut story comment 12 --body-file note.md
 scut story link 12 blocks 13 relates-to 14
 scut story files 12 --out ./files  # download the attachments
 scut story branch 12  # the git branch name
+scut story history 12 --fields workflow_state --desc --limit 10  # the last state changes
 scut worktree 12 --start  # find or make the worktree, and start the story
 ```
 
 ## Output size
 
-- `story view`, `story search`, `story subtasks` and `epic stories` take `--fields`.
-- Searches and comment lists give 25 items. Use `--limit N` or `--limit all`. Lookup lists give all items.
+- `story view`, `story search`, `story subtasks` and `epic stories` take `--fields`. `story history --fields` takes the attributes to show the changes of (`workflow_state,owners`).
+- Searches, comment lists and story history give 25 items. Use `--limit N` or `--limit all`. Lookup lists give all items.
 - `story search` takes the Shortcut query syntax unchanged. It can lag: use `story view` for current data.
 - A doc is a doc URL, a doc ID or an exact title. A doc can be large: `doc view --out <file>` writes the content to a file, so read the file in parts.
 
@@ -81,7 +82,6 @@ jq -cR 'fromjson?|objects' ~/.local/state/scut/scut.log | jq -s -c 'map(select(.
 
 - Unlink a PR, branch or commit from a story (the v4 API has no endpoint).
 - Create or update a doc.
-- Story history.
 - Bulk create, and a batch file of changes.
 - Iterations, objectives and labels as commands.
 
@@ -108,6 +108,7 @@ Each line: command, summary, flags. A flag that ends in `…` is repeatable. Run
 - `story comments` `<story>` List the comments of a story, oldest first. Flags: --limit.
 - `story create` Create a story. Flags: --description-file, --epic, --estimate, --external-link …, --field …, --label …, --link …, --name, --owner …, --parent, --requester, --state, --team, --type, --workflow.
 - `story files` `[<story>] --out <dir>` Download the files attached to a story. Flags: --out.
+- `story history` `[<story>…]` List the changes of stories, oldest first; default story from the git branch. Flags: --desc, --fields, --limit.
 - `story link` `<story> <verb> <story> [<verb> <story>]...` Link stories.
 - `story relink` `<story> <old-verb> <story> <new-verb>` Change the verb of a link.
 - `story search` `<query>` Search stories. Flags: --fields, --limit.

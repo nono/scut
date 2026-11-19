@@ -92,8 +92,8 @@ func writeChunks(ctx context.Context, ids []int64, write func(chunk []int64) (st
 func storyWorkflows(ctx context.Context, d *deps, ids []int64) (map[int64]int64, error) {
 	out := map[int64]int64{}
 	for chunk := range slices.Chunk(ids, maxPageSize) {
-		q := url.Values{"ids": {joinIDs(chunk, ",")}, "filter": {"include_archived"},
-			"fields": {"id,workflow"}, "limit": {strconv.Itoa(len(chunk))}}
+		q := storiesQuery(chunk)
+		q.Set("fields", "id,workflow")
 		items, err := transport.PageQuery(ctx, d.Doer, "stories", q, -1)
 		if err != nil {
 			return nil, err

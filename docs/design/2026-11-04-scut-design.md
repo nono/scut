@@ -29,7 +29,7 @@ v1 ships:
 
 - Changes to the skills `file-story`, `story` and `grid-video`. They continue to use the MCP until a later change.
 - U12 (docs): create and update. `doc view` and `doc search` are in (see Docs, added 2026-11-05).
-- U13 (history), U14 (external links).
+- U14 (external links). U13 (history) is in (see `2026-11-19-history-design.md`).
 - G2: unlink a PR, branch or commit. v4 has no endpoint for it. v1 can list them as part of `story view`.
 - G12: bulk commands. v1 accepts several links in one `story link` command, as one call per link (see Links). `story update` on several stories is in (see `2026-11-05-bulk-design.md`).
 - N1 `scut worktree` (see `2026-11-05-worktree-design.md`), N2 shell completion.
@@ -77,6 +77,7 @@ A command that does these things is a failure, even if it works:
 | Archived | Spec, 2026-11-05: `GET /stories` takes `filter`, default `exclude_archived`. | The G8 check, `story view`, and the read and the write of a bulk `story update` send `filter=include_archived`. The spec gives the same default for `PATCH /stories/bulk`. |
 | Docs, live | Test on 2026-11-05: `GET /documents/{id}` with no `content_format` gives no content, as the parameter text of the spec says (its summary says markdown is the default). `fields` works with `content_markdown`. A doc URL of the web app ends in base64 of `"Doc":#uuid "<id>"`. `GET /documents/search` matches words of the title. | `doc view` always sends `content_format`. It decodes the URL. |
 | Paging | Cursor pages, `limit` 1–100, default 10. | The CLI default is 25 (my call). `--limit all` pages to the end. |
+| History, live | Test on 2026-11-19: the history values (`adds`, `removes`, `actor`) are slim entities with `name` (`workflow-state:slim`, `member:slim`, `epic:slim`), or scalars. The list is in `changes`, not `entities`. The cursor of `next_page_url` carries `fields`, `order_dir` and `ids`: page 2 of `stories/{id}/history` and of `stories/history?ids=…`, with `fields=workflow_state` and `order_dir=desc`, sent with only the cursor, gave the next state changes in the same order. And a cursor sent with another parameter (`limit`) gives 422. An unknown `fields` attribute gives 400 with the valid list: archived, blocked, blocker, branches, checklist_items, commits, completed, custom_field_values, deadline, description, epic, estimate, followers, iterations, labels, mentioned_members, name, owners, parent_story, project, requester, started, story_links, story_type, team, workflow_state (the list of the `getStoryHistory` description). `getStoryHistory` gives 404 for an unknown story; `getMultipleStoriesHistory` leaves an unknown ID out, with no error, and gives 422 with no `ids`. | `story history` shows the names, and members as mention names from the cache. It checks the stories that have no change in the output (see `2026-11-19-history-design.md`). |
 
 ## Command tree (v1)
 
@@ -93,6 +94,7 @@ scut story update <story>… [--name] [--state] [--epic] [--requester] [--add-ow
 scut story subtasks [<story>] [--limit N|all] [--fields f,…]
 scut story comment <story> --body-file f|-
 scut story comments <story> [--limit N|all]
+scut story history [<story>…] [--fields a,…] [--limit N|all] [--desc]   (see 2026-11-19-history-design.md)
 scut story link <story> <verb> <story> [<verb> <story>]…
 scut story unlink <story> <verb> <story>
 scut story relink <story> <old-verb> <story> <new-verb>
@@ -227,7 +229,7 @@ Each run adds one JSON line to a local log, with the exceptions that the log des
 - The skill says: use `scut`; read `scut usage` first; JSON output; what to do for each exit code; common tasks; write long text to a file and pass `--body-file`; which writes need the user to ask.
 - Its `allowed-tools` (generated, added 2026-11-05) lists the log path and each command that calls only `GET` operations and writes nothing other than the cache and the log, so reads need no permission prompt and each write still asks. It leaves out `auth login` (keyring), `cache clear`, and the commands with `--out` (`doc view`, `story files`): a rule matches the start of the command, so it cannot leave out one flag. A command with no ops annotation is left out, except the named local reads (`spec`). The README permission table has a column for it.
 - The skill does not mention the MCP.
-- The skill has a "Not supported" list (for example: unlink a PR or branch, docs, history, bulk). It tells the agent to say that the feature is missing, and not to work around it with `scut api` unless the user asks.
+- The skill has a "Not supported" list (for example: unlink a PR or branch, docs, bulk). It tells the agent to say that the feature is missing, and not to work around it with `scut api` unless the user asks.
 
 ## Build and test
 

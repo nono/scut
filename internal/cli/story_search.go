@@ -54,7 +54,14 @@ func listStories(cmd *cobra.Command, d *deps, path string, q url.Values, limit i
 // printPages prints up to limit items of a list endpoint, shaped by shape. A
 // list cut short prints the items read, then returns the error that stopped it.
 func printPages[T any](cmd *cobra.Command, d *deps, path string, q url.Values, limit int, shape func([]json.RawMessage) (T, error)) error {
-	raw, stop := listPages(cmd, d, path, q, limit)
+	return printPagesKey(cmd, d, path, q, "entities", limit, shape)
+}
+
+// printPagesKey is printPages for an endpoint that puts its items in key (see
+// transport.Doer.ListKey).
+func printPagesKey[T any](cmd *cobra.Command, d *deps, path string, q url.Values, key string, limit int, shape func([]json.RawMessage) (T, error)) error {
+	q.Set("limit", strconv.Itoa(pageSize(limit)))
+	raw, stop := transport.PageQueryKey(cmd.Context(), d.Doer, path, q, key, limit)
 	if raw == nil && stop != nil {
 		return stop
 	}
@@ -66,12 +73,6 @@ func printPages[T any](cmd *cobra.Command, d *deps, path string, q url.Values, l
 		return err
 	}
 	return stop
-}
-
-// listPages gets up to limit items (all with limit < 0) from a list endpoint.
-func listPages(cmd *cobra.Command, d *deps, path string, q url.Values, limit int) ([]json.RawMessage, error) {
-	q.Set("limit", strconv.Itoa(pageSize(limit)))
-	return transport.PageQuery(cmd.Context(), d.Doer, path, q, limit)
 }
 
 // listStoryFields returns the API field names to ask for in a story list. With
