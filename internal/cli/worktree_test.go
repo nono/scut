@@ -629,6 +629,86 @@ func TestWorktreeStartStateChangedDuringFetch(t *testing.T) {
 	}
 }
 
+// startRoutes serves story 1234 with story, the states of workflows 5 and 6,
+// whoami with me, and a PATCH that records its body.
+func startRoutes(t *testing.T, story, me http.HandlerFunc, patch *map[string]any) *harness {
+	t.Helper()
+	h, _ := wtHarness(t, nil, "", wtToken)
+	states6 := listBody(map[string]any{"id": 17, "type": "unstarted", "position": 0},
+		map[string]any{"id": 18, "type": "started", "position": 1})
+	h.env.APIBase = testapi.Fake(t, map[string]http.HandlerFunc{
+		"GET " + wtStory:                      story,
+		"GET /api/v4/acme/workflows/5/states": jsonHandler(listBody(wfStates()...)),
+		"GET /api/v4/acme/workflows/6/states": jsonHandler(states6),
+		"GET /api/v4/whoami":                  me,
+		"PATCH " + wtStory: func(w http.ResponseWriter, r *http.Request) {
+			b, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(b, patch)
+			jsonHandler(`{"id":1234}`)(w, r)
+		},
+	})
+	h.env.Sleep = func(time.Duration) {}
+	return h
+}
+
+// A story that moves to another workflow during the fetch is judged by the
+// states of its new workflow.
+func TestWorktreeStartWorkflowChangedDuringFetch(t *testing.T) {
+	var patch map[string]any
+	n := 0
+	story := func(w http.ResponseWriter, r *http.Request) {
+		n++
+		wf, state := 5, 7
+		if n > 1 { // after the read during the fetch
+			wf, state = 6, 17
+		}
+		jsonHandler(jsonOf(map[string]any{"id": 1234, "formatted_vcs_branch_name": "bug/sc-1234/x",
+			"workflow": map[string]any{"id": wf}, "workflow_state": map[string]any{"id": state},
+			"owners": nestedList(map[string]any{"id": "u1"})}))(w, r)
+	}
+	h := startRoutes(t, story, jsonHandler(whoamiBody), &patch)
+	code, _, errs := h.run("worktree", "1234", "--start")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if got := jsonOf(patch); got != `{"workflow_state_id":18}` {
+		t.Errorf("patch %s", got)
+	}
+}
+
+// When @me is read again after the story read, the state is read again before
+// the PATCH: a story that another writer moved meanwhile is not moved back.
+func TestWorktreeStartMeReadAgain(t *testing.T) {
+	var patch map[string]any
+	n := 0
+	state := func() int {
+		n++
+		if n <= 2 { // the read during the fetch and the read after git
+			return 7
+		}
+		return 10
+	}
+	sh := storyHandler(state, nil)
+	me := func(w http.ResponseWriter, r *http.Request) {
+		if n < 2 { // whoami fails during the fetch
+			http.Error(w, `{"message":"down"}`, http.StatusServiceUnavailable)
+			return
+		}
+		jsonHandler(whoamiBody)(w, r)
+	}
+	h := startRoutes(t, sh, me, &patch)
+	code, out, errs := h.run("worktree", "1234", "--start")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if got := jsonOf(patch); got != `{"owner_ids_add":["u1"]}` {
+		t.Errorf("patch %s", got)
+	}
+	if m := decode(t, out); m["started"] != false {
+		t.Errorf("out %s", out)
+	}
+}
+
 // A git error does not wait for the reads: the run cancels them.
 func TestWorktreeStartGitErrorCancelsReads(t *testing.T) {
 	var c calls
