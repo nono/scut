@@ -100,11 +100,23 @@ func newEpicGroup(env Env) *cobra.Command {
 	return g
 }
 
+// epicArg is the Args check of a command that takes one epic. A blank epic
+// is a usage error before the token loads, as a blank doc is.
+func epicArg(cmd *cobra.Command, args []string) error {
+	if err := cobra.ExactArgs(1)(cmd, args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(args[0]) == "" {
+		return exit.Usagef("give an epic ID or name")
+	}
+	return nil
+}
+
 func newEpicView(env Env) *cobra.Command {
 	return &cobra.Command{
 		Use:         "view <epic>",
 		Short:       "Show an epic, by ID or exact name",
-		Args:        cobra.ExactArgs(1),
+		Args:        epicArg,
 		Annotations: map[string]string{OpsAnnotation: "getEpic,searchEpics,listMembers", IDArgsAnnotation: ""},
 		RunE: withDeps(env, func(cmd *cobra.Command, args []string, d *deps) error {
 			id, err := d.Resolver.Epic(args[0])
@@ -156,7 +168,7 @@ func newEpicStories(env Env) *cobra.Command {
 		Use:         "stories <epic>",
 		Short:       "List the stories of an epic, in position order",
 		Long:        "List the stories of an epic, in position order. The epic is an ID or an exact name.\nThe API default applies: archived stories are left out.",
-		Args:        cobra.ExactArgs(1),
+		Args:        epicArg,
 		Annotations: map[string]string{OpsAnnotation: "listEpicStories,searchEpics,listMembers", IDArgsAnnotation: ""},
 	}
 	limitFlag := cmd.Flags().String("limit", strconv.Itoa(defaultLimit), "maximum number of stories, or all")
@@ -185,7 +197,7 @@ func newEpicComment(env Env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:         "comment <epic>",
 		Short:       "Add a comment to an epic",
-		Args:        cobra.ExactArgs(1),
+		Args:        epicArg,
 		Annotations: map[string]string{OpsAnnotation: "createEpicComment,searchEpics,listMembers", IDArgsAnnotation: ""},
 	}
 	bodyFile := cmd.Flags().String("body-file", "", "read the comment text from this file; - is stdin")

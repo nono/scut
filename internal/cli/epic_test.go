@@ -130,6 +130,19 @@ func TestEpicCommentEmpty(t *testing.T) {
 	}
 }
 
+// A blank epic exits 2 before the token loads: this harness has no token.
+func TestEpicBlankNoToken(t *testing.T) {
+	h := newHarness(t, nil, "x", nil)
+	for _, args := range [][]string{
+		{"view", " "}, {"stories", ""}, {"comment", "\t", "--body-file", "-"}, {"update", " ", "--archive"},
+	} {
+		code, _, errs := h.run(append([]string{"epic"}, args...)...)
+		if code != 2 || !strings.Contains(errs, "give an epic ID or name") {
+			t.Errorf("%q: code %d, stderr %s", args, code, errs)
+		}
+	}
+}
+
 func TestEpicNoOwners(t *testing.T) {
 	e := epicFixture()
 	delete(e, "owners")

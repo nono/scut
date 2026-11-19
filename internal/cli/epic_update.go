@@ -12,7 +12,7 @@ func newEpicUpdate(env Env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:         "update <epic>",
 		Short:       "Change an epic, by ID or exact name",
-		Args:        cobra.ExactArgs(1),
+		Args:        epicArg,
 		Annotations: map[string]string{OpsAnnotation: "updateEpic,searchEpics,listEpicWorkflowStates,listMembers,getWhoami", IDArgsAnnotation: ""},
 	}
 	f := cmd.Flags()
