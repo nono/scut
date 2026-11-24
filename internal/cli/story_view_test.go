@@ -627,7 +627,7 @@ func TestViewManySlimComments(t *testing.T) {
 func TestViewManyCommentsFlag(t *testing.T) {
 	h := newHarness(t, nil, "", nil)
 	code, _, errs := h.run("story", "view", "5818", "5819", "--comments", "3")
-	if code != 2 || !strings.Contains(errs, "--comments needs a single story") {
+	if code != 2 || !strings.Contains(errs, `with several stories, --comments takes only none or 0, not \"3\"`) {
 		t.Errorf("code %d, stderr %s", code, errs)
 	}
 }

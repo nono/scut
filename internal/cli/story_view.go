@@ -134,19 +134,24 @@ func newStoryView(env Env) *cobra.Command {
 	fieldsFlag := valuesFlag(cmd.Flags(), "fields", "", "", fieldsUsage, validFields())
 	commentsFlag := valuesFlag(cmd.Flags(), "comments", "", strconv.Itoa(defaultComments), "number of newest comments, all, or none", commentValues)
 	// pflag stops at the flag with no value: the stories before it are known,
-	// the stories after it are not.
+	// the stories after it are not, so the example also gives the fix for
+	// several stories.
 	cmd.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
 		ferr := c.Parent().FlagErrorFunc()(c, err)
 		var ee *exit.Error
-		if f := missingValue(err); f != nil && f.Name == "comments" && len(c.Flags().Args()) > 1 && errors.As(ferr, &ee) {
+		if f := missingValue(err); f == nil || f.Name != "comments" || !errors.As(ferr, &ee) {
+			return ferr
+		}
+		if len(c.Flags().Args()) > 1 {
 			return manyComments(ee)
 		}
-		return ferr
+		ee.Suggestion += "; with several stories, leave out --comments"
+		return ee
 	})
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		nComments, err := parseCommentCount(*commentsFlag)
 		if len(args) > 1 && (err != nil || nComments != 0) && cmd.Flags().Changed("comments") {
-			return manyComments(exit.Usagef("--comments needs a single story"))
+			return manyComments(exit.Usagef("with several stories, --comments takes only none or 0, not %q", *commentsFlag))
 		}
 		if err != nil {
 			return err

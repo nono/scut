@@ -80,13 +80,18 @@ func TestUsageErrorsNameTheFix(t *testing.T) {
 		{[]string{"nothing-like-it"}, []string{"story", "epic"}, `run "scut usage"`},
 		// A story reference after the story group: story view.
 		{[]string{"story", "1234"}, []string{"view"}, `did you mean "scut story view 1234"?`},
-		{[]string{"story", "sc-1234", "--fields", "name"}, []string{"view"}, `did you mean "scut story view sc-1234"?`},
+		{[]string{"story", "sc-1234", "--fields", "name"}, []string{"view"}, `did you mean "scut story view 1234"?`},
+		{[]string{"story", "--", "-sc-1234"}, []string{"view"}, `did you mean "scut story view 1234"?`},
+		// The flags parsed before the error stay in the command.
+		{[]string{"story", "1234", "--profile", "other ws", "--human", "--fields", "name"}, []string{"view"}, `did you mean "scut story view 1234 --human --profile 'other ws'"?`},
+		{[]string{"get", "1234", "--profile=b"}, []string{"story"}, `did you mean "scut story view 1234 --profile b"?`},
 		// A verb of a noun: each noun command with that verb.
 		{[]string{"search", "foo"}, []string{"story"}, `did you mean "scut doc search", "scut epic search" or "scut story search"?`},
-		{[]string{"get", "1234"}, []string{"story"}, `did you mean "scut story view"?`},
+		{[]string{"get", "1234"}, []string{"story"}, `did you mean "scut story view 1234"?`},
+		{[]string{"view", "sc-1234"}, []string{"story"}, `did you mean "scut doc view", "scut epic view" or "scut story view 1234"?`},
 		{[]string{"show"}, []string{"story"}, `did you mean "scut story view"?`},
 		{[]string{"version"}, []string{"story"}, `did you mean "scut --version"?`},
-		{[]string{"story", "1234", "sc-5678"}, []string{"view"}, `did you mean "scut story view 1234 sc-5678"?`},
+		{[]string{"story", "1234", "sc-5678", "x"}, []string{"view"}, `did you mean "scut story view 1234 5678"?`},
 		// Aliases are for the root, and only story view takes stories.
 		{[]string{"story", "get"}, []string{"view"}, `run "scut story usage"`},
 		{[]string{"epic", "1234"}, []string{"view"}, `run "scut epic usage"`},
@@ -133,20 +138,32 @@ func TestKnownValuesNameTheFix(t *testing.T) {
 		{[]string{"story", "create", "--name", "n", "--type", "epic"}, types, "--type feature"},
 		{[]string{"doc", "view", "x", "--format", "pdf"}, formats, "--format markdown"},
 		{[]string{"api", "/x", "-X"}, methods, "--method GET"},
-		{[]string{"api", "/x", "-X", "--human"}, methods, "--method GET"},
 		{[]string{"api", "/x", "-X", "HEAD"}, methods, "--method GET"},
 		{[]string{"story", "search", "q", "--limit", "0"}, []string{"<number>", "all"}, "--limit all"},
 		{[]string{"story", "view", "1", "--comments", "some"}, []string{"<number>", "all", "none"}, "--comments all"},
-		// A missing value takes the next local flag as the value.
-		{[]string{"story", "create", "--type", "--name=n"}, types, "--type feature"},
-		{[]string{"story", "search", "--limit", "--fields", "name", "q"}, []string{"<number>", "all"}, "--limit all"},
 	} {
 		e := usageError(t, cli.NewRoot(emptyEnv()), c.args...)
 		if jsonOf(e["valid"]) != jsonOf(c.valid) || e["suggestion"] != fmt.Sprintf("for example %q", c.example) {
 			t.Errorf("%v: %v", c.args, e)
 		}
 	}
+	// A shorthand is named by its long name.
+	if e := usageError(t, cli.NewRoot(emptyEnv()), "api", "/x", "-X"); e["error"] != "flag needs an argument: --method" {
+		t.Errorf("-X: %v", e)
+	}
+	// One story before a bare --comments: the values, and the fix for several stories.
+	e := usageError(t, cli.NewRoot(emptyEnv()), "story", "view", "1", "--comments")
+	if jsonOf(e["valid"]) != jsonOf([]string{"<number>", "all", "none"}) || e["suggestion"] != commentsSuggestion {
+		t.Errorf("one story: %v", e)
+	}
+	// A bad value of another type keeps the pflag error.
+	if e := usageError(t, cli.NewRoot(emptyEnv()), "spec", "Story", "--depth", "x"); !strings.HasPrefix(e["error"].(string), `invalid argument "x" for "--depth" flag`) {
+		t.Errorf("--depth x: %v", e)
+	}
 }
+
+// commentsSuggestion is the suggestion of a missing --comments value with at most one story before it.
+const commentsSuggestion = `for example "--comments all"; with several stories, leave out --comments`
 
 // A value that starts with - and is not a flag is a bad value, not a missing one.
 func TestDashValueIsAValue(t *testing.T) {
@@ -160,14 +177,14 @@ func TestDashValueIsAValue(t *testing.T) {
 // also when pflag takes the next flag as the value.
 func TestMissingValueOfEachKnownSetFlag(t *testing.T) {
 	want := map[string]struct {
-		values  []string
-		example string
+		values     []string
+		suggestion string
 	}{
-		"limit":    {[]string{"<number>", "all"}, "all"},
-		"comments": {[]string{"<number>", "all", "none"}, "all"},
-		"type":     {[]string{"feature", "chore", "bug"}, "feature"},
-		"format":   {[]string{"markdown", "html"}, "markdown"},
-		"method":   {[]string{"GET", "POST", "PUT", "PATCH", "DELETE"}, "GET"},
+		"limit":    {[]string{"<number>", "all"}, `for example "--limit all"`},
+		"comments": {[]string{"<number>", "all", "none"}, commentsSuggestion},
+		"type":     {[]string{"feature", "chore", "bug"}, `for example "--type feature"`},
+		"format":   {[]string{"markdown", "html"}, `for example "--format markdown"`},
+		"method":   {[]string{"GET", "POST", "PUT", "PATCH", "DELETE"}, `for example "--method GET"`},
 	}
 	seen := map[string]bool{}
 	for _, c := range leaves(cli.NewRoot(emptyEnv())) {
@@ -178,10 +195,9 @@ func TestMissingValueOfEachKnownSetFlag(t *testing.T) {
 				return
 			}
 			seen[f.Name] = true
-			example := fmt.Sprintf("for example %q", "--"+f.Name+" "+w.example)
 			for _, next := range [][]string{nil, {"--human"}, {"--profile=x"}, {"-h"}} {
 				args := append(append(slices.Clone(path), "--"+f.Name), next...)
-				if e := usageError(t, cli.NewRoot(emptyEnv()), args...); e["error"] != "flag needs an argument: --"+f.Name || jsonOf(e["valid"]) != jsonOf(w.values) || e["suggestion"] != example {
+				if e := usageError(t, cli.NewRoot(emptyEnv()), args...); e["error"] != "flag needs an argument: --"+f.Name || jsonOf(e["valid"]) != jsonOf(w.values) || e["suggestion"] != w.suggestion {
 					t.Errorf("%v: %v", args, e)
 				}
 			}
@@ -199,7 +215,7 @@ func TestMissingFieldsValue(t *testing.T) {
 	known := usageError(t, cli.NewRoot(emptyEnv()), "story", "view", "1", "--fields", "nmae")["valid"]
 	for _, args := range [][]string{
 		{"story", "view", "1", "--fields"}, {"story", "search", "q", "--fields"}, {"story", "subtasks", "1", "--fields"}, {"epic", "stories", "1", "--fields"},
-		// Only --comments needs a single story.
+		// Only --comments has a rule for several stories.
 		{"story", "view", "1", "2", "--fields"},
 		{"story", "view", "1", "--fields", "nmae"},
 	} {

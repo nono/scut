@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -75,9 +76,7 @@ func noArgs(cmd *cobra.Command, args []string) error {
 	}
 	if len(args) > 0 {
 		e := groupError(cmd, fmt.Sprintf("unknown command %q for %q", args[0], cmd.CommandPath()))
-		if v := viewCommand(cmd, args); v != "" {
-			e.Suggestion = fmt.Sprintf("did you mean %q?", v)
-		} else if c := nounCommands(cmd, args[0]); len(c) > 0 {
+		if c := meantCommands(cmd, args); len(c) > 0 {
 			e.Suggestion = "did you mean " + orList(c) + "?"
 		} else if s := cmd.SuggestionsFor(args[0]); len(s) > 0 && strings.TrimSpace(args[0]) != "" {
 			// An empty name is a prefix of each name: make no guess.
@@ -88,48 +87,102 @@ func noArgs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// viewCommand returns "<group> view <args>" when the view subcommand of the
-// group takes stories, with the leading args that are story references.
-func viewCommand(group *cobra.Command, args []string) string {
-	for _, c := range group.Commands() {
-		if c.Name() != "view" || c.Annotations[IDArgsAnnotation] != "sc-" {
-			continue
-		}
-		line := c.CommandPath()
-		for _, a := range args {
-			if _, err := ref.Story(a); err != nil {
-				break
-			}
-			line += " " + strings.TrimSpace(a)
-		}
-		if line != c.CommandPath() {
-			return line
-		}
-	}
-	return ""
-}
-
-// verbAliases are words with no command of their own, and the command they mean.
+// verbAliases are words with no command of their own, and what they mean: a
+// command path, or a flag of the root.
 var verbAliases = map[string]string{"get": "story view", "show": "story view", "version": "--version"}
 
-// nounCommands returns the commands that a word given to the root means: its
-// alias, or else each "<noun> <word>" of the command tree.
-func nounCommands(root *cobra.Command, word string) []string {
-	if root.HasParent() {
-		return nil
-	}
-	if path, ok := verbAliases[word]; ok {
-		return []string{root.Name() + " " + path}
-	}
+// meantCommands returns the command lines that the unknown words args given
+// to cmd mean, each with the flags that cmd parsed before the error:
+//   - after a group whose view takes stories, and with story references:
+//     "<group> view <stories>";
+//   - at the root: the alias of the first word, or else each "<noun> <word>" of
+//     the command tree. A command that takes stories gets the story references
+//     after the word.
+//
+// A story is given as its ID, so the line needs no shell quoting.
+func meantCommands(cmd *cobra.Command, args []string) []string {
 	var out []string
-	for _, noun := range root.Commands() {
-		for _, c := range noun.Commands() {
-			if c.Name() == word && c.IsAvailableCommand() {
-				out = append(out, c.CommandPath())
+	add := func(line string, c *cobra.Command, ids []string) {
+		if c != nil && c.Annotations[IDArgsAnnotation] == "sc-" && len(ids) > 0 {
+			line += " " + strings.Join(ids, " ")
+		}
+		out = append(out, line+parsedFlags(cmd))
+	}
+	if cmd.HasParent() {
+		if view := subcommand(cmd, "view"); view != nil && view.Annotations[IDArgsAnnotation] == "sc-" {
+			if ids := storyIDsOf(args); len(ids) > 0 {
+				add(view.CommandPath(), view, ids)
 			}
+		}
+		return out
+	}
+	ids := storyIDsOf(args[1:])
+	if path, ok := verbAliases[args[0]]; ok {
+		c := cmd
+		for _, name := range strings.Fields(path) {
+			if c != nil {
+				c = subcommand(c, name)
+			}
+		}
+		add(cmd.Name()+" "+path, c, ids)
+		return out
+	}
+	for _, noun := range cmd.Commands() {
+		if c := subcommand(noun, args[0]); c != nil && c.IsAvailableCommand() {
+			add(c.CommandPath(), c, ids)
 		}
 	}
 	return out
+}
+
+// subcommand returns the subcommand of cmd with this name, or nil.
+func subcommand(cmd *cobra.Command, name string) *cobra.Command {
+	for _, c := range cmd.Commands() {
+		if c.Name() == name {
+			return c
+		}
+	}
+	return nil
+}
+
+// storyIDsOf returns the IDs of the leading args that are story references.
+func storyIDsOf(args []string) []string {
+	var ids []string
+	for _, a := range args {
+		id, err := ref.Story(a)
+		if err != nil {
+			break
+		}
+		ids = append(ids, strconv.FormatInt(id, 10))
+	}
+	return ids
+}
+
+// parsedFlags returns the flags that cmd parsed, as command-line words.
+func parsedFlags(cmd *cobra.Command) string {
+	var b strings.Builder
+	cmd.Flags().Visit(func(f *pflag.Flag) {
+		switch v := f.Value.String(); {
+		case f.Value.Type() == "bool" && v == "true":
+			b.WriteString(" --" + f.Name)
+		case f.Value.Type() == "bool":
+			b.WriteString(" --" + f.Name + "=" + v)
+		default:
+			b.WriteString(" --" + f.Name + " " + shellWord(v))
+		}
+	})
+	return b.String()
+}
+
+// plainWord is a word that a shell reads as it is.
+var plainWord = regexp.MustCompile(`^[A-Za-z0-9_./@:=,+-]+$`)
+
+// shellWord returns s quoted for a POSIX shell when it needs quotes.
+func shellWord(s string) string {
+	if plainWord.MatchString(s) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // orList returns the items quoted, as "a", "b" or "c".
