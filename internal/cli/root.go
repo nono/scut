@@ -104,7 +104,7 @@ func seeHelp(cmd *cobra.Command) string {
 
 // valuesAnnotation is the flag annotation with the values of a flag that takes
 // one of a known set. A value in angle brackets, such as <number>, is a kind of value.
-const valuesAnnotation = "scut_values"
+const valuesAnnotation = "scut/values"
 
 // valuesFlag defines a string flag that takes one of values.
 func valuesFlag(fs *pflag.FlagSet, name, value, usage string, values []string) *string {
