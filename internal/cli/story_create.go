@@ -50,7 +50,7 @@ func newStoryCreate(env Env) *cobra.Command {
 	}
 	f := cmd.Flags()
 	name := f.String("name", "", "story name (required)")
-	typ := valuesFlag(f, "type", "feature", "feature, chore or bug", storyTypes)
+	typ := valuesFlag(f, "type", "", "feature", "feature, chore or bug", storyTypes)
 	team := f.String("team", "", "team name; default: config")
 	workflow := f.String("workflow", "", "workflow of --state; default: config, else the default workflow of the team")
 	state := f.String("state", "", "workflow state name; default: config")

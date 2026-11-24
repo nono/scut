@@ -148,7 +148,7 @@ func newEpicSearch(env Env) *cobra.Command {
 		Args:        cobra.ExactArgs(1),
 		Annotations: map[string]string{OpsAnnotation: "searchEpics,listMembers"},
 	}
-	limitFlag := valuesFlag(cmd.Flags(), "limit", strconv.Itoa(defaultLimit), "maximum number of epics, or all", limitValues)
+	limitFlag := valuesFlag(cmd.Flags(), "limit", "", strconv.Itoa(defaultLimit), "maximum number of epics, or all", limitValues)
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		limit, err := parseLimit(*limitFlag)
 		if err != nil {
@@ -170,8 +170,8 @@ func newEpicStories(env Env) *cobra.Command {
 		Args:        epicArg,
 		Annotations: map[string]string{OpsAnnotation: "listEpicStories,searchEpics,listMembers", IDArgsAnnotation: ""},
 	}
-	limitFlag := valuesFlag(cmd.Flags(), "limit", strconv.Itoa(defaultLimit), "maximum number of stories, or all", limitValues)
-	fieldsFlag := valuesFlag(cmd.Flags(), "fields", "", fieldsUsage, validFields())
+	limitFlag := valuesFlag(cmd.Flags(), "limit", "", strconv.Itoa(defaultLimit), "maximum number of stories, or all", limitValues)
+	fieldsFlag := valuesFlag(cmd.Flags(), "fields", "", "", fieldsUsage, validFields())
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		limit, err := parseLimit(*limitFlag)
 		if err != nil {

@@ -28,9 +28,10 @@ func fieldValue(s string) any {
 }
 
 func newAPI(env Env) *cobra.Command {
-	var method, input string
+	var input string
 	var fields []string
 	var yes bool
+	var method *string
 	cmd := &cobra.Command{
 		Use:   "api <path>",
 		Short: "Send a raw request to the API",
@@ -65,7 +66,7 @@ func newAPI(env Env) *cobra.Command {
 				}
 				body = m
 			}
-			m := strings.ToUpper(method)
+			m := strings.ToUpper(*method)
 			if m == "" {
 				m = "GET"
 				if body != nil {
@@ -73,7 +74,7 @@ func newAPI(env Env) *cobra.Command {
 				}
 			}
 			if !slices.Contains(apiMethods, m) {
-				return withValues(exit.Usagef("method %q is not valid, use GET, POST, PUT, PATCH or DELETE", method), "method", apiMethods)
+				return withValues(exit.Usagef("method %q is not valid, use GET, POST, PUT, PATCH or DELETE", *method), "method", apiMethods)
 			}
 			if m == "DELETE" && !yes {
 				return exit.Usagef("DELETE needs --yes")
@@ -90,8 +91,7 @@ func newAPI(env Env) *cobra.Command {
 			})(cmd, args)
 		},
 	}
-	cmd.Flags().StringVarP(&method, "method", "X", "", "HTTP method (default GET, or POST with a body)")
-	_ = cmd.Flags().SetAnnotation("method", valuesAnnotation, apiMethods)
+	method = valuesFlag(cmd.Flags(), "method", "X", "", "HTTP method (default GET, or POST with a body)", apiMethods)
 	cmd.Flags().StringArrayVarP(&fields, "field", "f", nil, "body field key=value (repeat); numbers, true, false and null stay JSON")
 	cmd.Flags().StringVar(&input, "input", "", "send this file as the body, - for stdin")
 	cmd.Flags().BoolVar(&yes, "yes", false, "confirm a DELETE")

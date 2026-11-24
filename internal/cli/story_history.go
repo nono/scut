@@ -48,7 +48,7 @@ story view names state, type, tasks, links and fields.`,
 		Annotations: map[string]string{OpsAnnotation: "getStoryHistory,getMultipleStoriesHistory,listStories,listMembers", IDArgsAnnotation: "sc-"},
 	}
 	fieldsFlag := cmd.Flags().String("fields", "", "comma-separated attributes to show the changes of, for example workflow_state,owners")
-	limitFlag := valuesFlag(cmd.Flags(), "limit", strconv.Itoa(defaultLimit), "maximum number of changes, or all", limitValues)
+	limitFlag := valuesFlag(cmd.Flags(), "limit", "", strconv.Itoa(defaultLimit), "maximum number of changes, or all", limitValues)
 	descFlag := cmd.Flags().Bool("desc", false, "newest first")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		limit, err := parseLimit(*limitFlag)

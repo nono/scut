@@ -292,12 +292,6 @@ func TestViewBadComments(t *testing.T) {
 			t.Errorf("--comments %s: code %d, want 2", v, code)
 		}
 	}
-	// A missing value takes the next flag as the value.
-	code, _, errs := h.run("story", "view", "5818", "--comments", "--human")
-	e := decode(t, errs)
-	if code != 2 || !hasValid(e, "<number>", "all", "none") || e["suggestion"] != `for example "--comments all"` {
-		t.Errorf("code %d, stderr %s", code, errs)
-	}
 }
 
 // "--comments all" with a space reads all as the value, not as a story.
@@ -641,7 +635,7 @@ func TestViewManyCommentsFlag(t *testing.T) {
 // With several stories, --comments with no value or a count gives a fix that
 // works with several stories: TestViewMany and TestViewManyCommentsNone run it.
 func TestViewManyCommentsSuggestion(t *testing.T) {
-	for _, flags := range [][]string{{"--comments"}, {"--comments", "all"}, {"--comments", "3"}} {
+	for _, flags := range [][]string{{"--comments"}, {"--comments", "all"}, {"--comments", "3"}, {"--comments", "--human"}} {
 		h := newHarness(t, nil, "", nil)
 		code, _, errs := h.run(append([]string{"story", "view", "5818", "5819"}, flags...)...)
 		e := decode(t, errs)

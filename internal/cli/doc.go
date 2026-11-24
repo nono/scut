@@ -112,7 +112,7 @@ func newDocView(env Env) *cobra.Command {
 		Args:        cobra.ExactArgs(1),
 		Annotations: map[string]string{OpsAnnotation: "getDoc,searchDocs,listMembers"},
 	}
-	format := valuesFlag(cmd.Flags(), "format", "markdown", "content format: markdown or html", docFormats)
+	format := valuesFlag(cmd.Flags(), "format", "", "markdown", "content format: markdown or html", docFormats)
 	outFlag := cmd.Flags().String("out", "", "write the content to this file, which it replaces, and leave it out of the output")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		if !slices.Contains(docFormats, *format) {
@@ -200,7 +200,7 @@ func newDocSearch(env Env) *cobra.Command {
 		Args:        cobra.ExactArgs(1),
 		Annotations: map[string]string{OpsAnnotation: "searchDocs,listMembers"},
 	}
-	limitFlag := valuesFlag(cmd.Flags(), "limit", strconv.Itoa(defaultLimit), "maximum number of docs, or all", limitValues)
+	limitFlag := valuesFlag(cmd.Flags(), "limit", "", strconv.Itoa(defaultLimit), "maximum number of docs, or all", limitValues)
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		if strings.TrimSpace(args[0]) == "" {
 			return exit.Usagef("the search text is empty")

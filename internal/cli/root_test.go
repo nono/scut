@@ -117,17 +117,13 @@ func TestKnownValuesNameTheFix(t *testing.T) {
 		valid   []string
 		example string
 	}{
-		{[]string{"story", "create", "--type"}, types, "--type feature"},
 		{[]string{"story", "create", "--name", "n", "--type", "epic"}, types, "--type feature"},
-		{[]string{"doc", "view", "x", "--format"}, formats, "--format markdown"},
 		{[]string{"doc", "view", "x", "--format", "pdf"}, formats, "--format markdown"},
-		{[]string{"api", "/x", "--method"}, methods, "--method GET"},
 		{[]string{"api", "/x", "-X"}, methods, "--method GET"},
 		{[]string{"api", "/x", "-X", "HEAD"}, methods, "--method GET"},
 		{[]string{"story", "search", "q", "--limit", "0"}, []string{"<number>", "all"}, "--limit all"},
 		{[]string{"story", "view", "1", "--comments", "some"}, []string{"<number>", "all", "none"}, "--comments all"},
-		// A missing value takes the next flag as the value.
-		{[]string{"story", "history", "1", "--limit", "--human"}, []string{"<number>", "all"}, "--limit all"},
+		// A missing value takes the next local flag as the value.
 		{[]string{"story", "create", "--type", "--name=n"}, types, "--type feature"},
 		{[]string{"story", "search", "--limit", "--fields", "name", "q"}, []string{"<number>", "all"}, "--limit all"},
 	} {
@@ -159,19 +155,15 @@ func TestMissingValueOfEachKnownSetFlag(t *testing.T) {
 		"format":   {[]string{"markdown", "html"}, "markdown"},
 		"method":   {[]string{"GET", "POST", "PUT", "PATCH", "DELETE"}, "GET"},
 	}
-	n := 0
-	var walk func(c *cobra.Command)
-	walk = func(c *cobra.Command) {
-		for _, s := range c.Commands() {
-			walk(s)
-		}
+	seen := map[string]bool{}
+	for _, c := range leaves(cli.NewRoot(emptyEnv())) {
 		path := strings.Fields(c.CommandPath())[1:]
 		c.LocalFlags().VisitAll(func(f *pflag.Flag) {
 			w, ok := want[f.Name]
 			if !ok {
 				return
 			}
-			n++
+			seen[f.Name] = true
 			example := fmt.Sprintf("for example %q", "--"+f.Name+" "+w.example)
 			for _, next := range [][]string{nil, {"--human"}, {"--profile=x"}, {"-h"}} {
 				args := append(append(slices.Clone(path), "--"+f.Name), next...)
@@ -181,9 +173,10 @@ func TestMissingValueOfEachKnownSetFlag(t *testing.T) {
 			}
 		})
 	}
-	walk(cli.NewRoot(emptyEnv()))
-	if n < 11 {
-		t.Errorf("%d flags, want 11 or more", n)
+	for name := range want {
+		if !seen[name] {
+			t.Errorf("no --%s flag", name)
+		}
 	}
 }
 

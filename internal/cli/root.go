@@ -106,11 +106,58 @@ func seeHelp(cmd *cobra.Command) string {
 // one of a known set. A value in angle brackets, such as <number>, is a kind of value.
 const valuesAnnotation = "scut/values"
 
-// valuesFlag defines a string flag that takes one of values.
-func valuesFlag(fs *pflag.FlagSet, name, value, usage string, values []string) *string {
-	p := fs.String(name, value, usage)
+// errFlagAsValue is the cause of the parse error of a value that is a flag.
+var errFlagAsValue = errors.New("the value is a flag")
+
+// valuesValue is a string flag value that refuses a flag of fs: pflag takes the
+// word after a flag as its value, so such a value is a missing value.
+type valuesValue struct {
+	p  *string
+	fs *pflag.FlagSet
+}
+
+func (v valuesValue) String() string { return *v.p }
+func (v valuesValue) Type() string   { return "string" }
+
+func (v valuesValue) Set(s string) error {
+	if isFlag(v.fs, s) {
+		return errFlagAsValue
+	}
+	*v.p = s
+	return nil
+}
+
+// isFlag reports whether s names a flag of fs: --name, --name=value or -n.
+func isFlag(fs *pflag.FlagSet, s string) bool {
+	if name, ok := strings.CutPrefix(s, "--"); ok {
+		name, _, _ = strings.Cut(name, "=")
+		return fs.Lookup(name) != nil
+	}
+	if short, ok := strings.CutPrefix(s, "-"); ok && short != "" {
+		return fs.ShorthandLookup(short[:1]) != nil
+	}
+	return false
+}
+
+// valuesFlag defines a string flag whose values, or the parts of its values,
+// are in values.
+func valuesFlag(fs *pflag.FlagSet, name, shorthand, value, usage string, values []string) *string {
+	p := &value
+	fs.VarP(valuesValue{p, fs}, name, shorthand, usage)
 	_ = fs.SetAnnotation(name, valuesAnnotation, values)
 	return p
+}
+
+// missingValue returns the flag of a missing-value error: no value, or a value
+// that is a flag.
+func missingValue(err error) *pflag.Flag {
+	if re := (*pflag.ValueRequiredError)(nil); errors.As(err, &re) {
+		return re.GetFlag()
+	}
+	if ie := (*pflag.InvalidValueError)(nil); errors.As(err, &ie) && errors.Is(err, errFlagAsValue) {
+		return ie.GetFlag()
+	}
+	return nil
 }
 
 // withValues puts values in e.Valid, and an example in e.Suggestion: the first value that is not a kind.
@@ -126,7 +173,7 @@ func withValues(e *exit.Error, flag string, values []string) *exit.Error {
 }
 
 // flagError is a flag parse error, with the flags of cmd in valid when the flag is unknown,
-// and the values of the flag when its value is missing and it takes one of a known set.
+// and the values of the flag when its value is missing and it has a known set.
 // On a group, cobra parses the flags before it looks for the subcommand: an
 // argument before the flag is an unknown subcommand.
 func flagError(cmd *cobra.Command, err error) error {
@@ -142,9 +189,10 @@ func flagError(cmd *cobra.Command, err error) error {
 			}
 		})
 	}
-	if re := (*pflag.ValueRequiredError)(nil); errors.As(err, &re) {
-		if values := re.GetFlag().Annotations[valuesAnnotation]; values != nil {
-			return withValues(e, re.GetFlag().Name, values)
+	if f := missingValue(err); f != nil {
+		e.Msg = "flag needs an argument: --" + f.Name
+		if values := f.Annotations[valuesAnnotation]; values != nil {
+			return withValues(e, f.Name, values)
 		}
 	}
 	return e
@@ -197,44 +245,12 @@ func NewRoot(env Env) *cobra.Command {
 	return root
 }
 
-// takenValue returns the error of a flag with a known set of values whose
-// value is the next flag: pflag takes the word after a flag as its value.
-func takenValue(cmd *cobra.Command) error {
-	var err error
-	cmd.Flags().Visit(func(f *pflag.Flag) {
-		if values := f.Annotations[valuesAnnotation]; err == nil && values != nil && isFlag(cmd.Flags(), f.Value.String()) {
-			err = withValues(exit.Usagef("flag needs an argument: --%s", f.Name), f.Name, values)
-		}
-	})
-	return err
-}
-
-// isFlag reports whether s names a flag of fs: --name, --name=value or -n.
-func isFlag(fs *pflag.FlagSet, s string) bool {
-	if name, ok := strings.CutPrefix(s, "--"); ok {
-		name, _, _ = strings.Cut(name, "=")
-		return fs.Lookup(name) != nil
-	}
-	if short, ok := strings.CutPrefix(s, "-"); ok && short != "" {
-		return fs.ShorthandLookup(short[:1]) != nil
-	}
-	return false
-}
-
 // usageArgs wraps the Args check of each command: a positional-argument error
 // exits 2, with the usage line as the suggestion. An *exit.Error keeps its code,
-// and a usage error with no suggestion gets the usage line. Before the check,
-// a flag whose value is the next flag is a missing value. A leaf with no Args
-// check gets one, so that it runs before RunE.
+// and a usage error with no suggestion gets the usage line.
 func usageArgs(c *cobra.Command) {
-	if old := c.Args; old != nil || !c.HasSubCommands() {
+	if old := c.Args; old != nil {
 		c.Args = func(cmd *cobra.Command, args []string) error {
-			if err := takenValue(cmd); err != nil {
-				return err
-			}
-			if old == nil {
-				return nil
-			}
 			err := old(cmd, args)
 			if err == nil {
 				return nil

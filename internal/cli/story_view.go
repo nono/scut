@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 
 	"github.com/nono/scut/internal/exit"
 	"github.com/nono/scut/internal/ref"
@@ -133,14 +132,13 @@ func newStoryView(env Env) *cobra.Command {
 		Short:       "Show stories; default story from the git branch",
 		Annotations: map[string]string{OpsAnnotation: "getStory,listStoryComments,listStoryChecklistItems,listStories,listMembers", IDArgsAnnotation: "sc-"},
 	}
-	fieldsFlag := valuesFlag(cmd.Flags(), "fields", "", fieldsUsage, validFields())
-	commentsFlag := valuesFlag(cmd.Flags(), "comments", strconv.Itoa(defaultComments), "number of newest comments, all, or none", commentValues)
+	fieldsFlag := valuesFlag(cmd.Flags(), "fields", "", "", fieldsUsage, validFields())
+	commentsFlag := valuesFlag(cmd.Flags(), "comments", "", strconv.Itoa(defaultComments), "number of newest comments, all, or none", commentValues)
 	// pflag stops at the flag with no value: the stories before it are known.
 	cmd.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
 		ferr := c.Parent().FlagErrorFunc()(c, err)
-		var re *pflag.ValueRequiredError
 		var ee *exit.Error
-		if errors.As(err, &re) && re.GetFlag().Name == "comments" && len(c.Flags().Args()) > 1 && errors.As(ferr, &ee) {
+		if f := missingValue(err); f != nil && f.Name == "comments" && len(c.Flags().Args()) > 1 && errors.As(ferr, &ee) {
 			return manyComments(ee)
 		}
 		return ferr
