@@ -178,6 +178,11 @@ func TestRunLogBadFlagHasNoArgCount(t *testing.T) {
 		}
 	}
 	h := newHarness(t, anyRoute(), "", tokenVars())
+	h.run("story", "view", "1", "2", "--comments")
+	if l := lastLine(t, h); l["exit"] != 2.0 || l["args_n"] != nil {
+		t.Errorf("missing value of a flag: %v", l)
+	}
+	h = newHarness(t, anyRoute(), "", tokenVars())
 	h.run("story", "view", "1", "2", "--limit", "x")
 	if l := lastLine(t, h); l["args_n"] != nil {
 		t.Errorf("unknown flag of a known command: %v", l)

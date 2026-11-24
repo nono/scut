@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/nono/scut/internal/exit"
 	"github.com/nono/scut/internal/ref"
@@ -102,6 +104,14 @@ func apiFields(list string) ([]string, error) {
 // commentValues are the values of --comments.
 var commentValues = []string{"<number>", "all", "none"}
 
+// manyComments gives the fix of a --comments error with several stories:
+// with no --comments, each story has its comments.
+func manyComments(e *exit.Error) *exit.Error {
+	e.Valid = []string{"none"}
+	e.Suggestion = "leave out --comments to get the comments of each story"
+	return e
+}
+
 // parseCommentCount returns the number of comments to fetch, -1 for all.
 func parseCommentCount(s string) (int, error) {
 	switch s {
@@ -125,13 +135,23 @@ func newStoryView(env Env) *cobra.Command {
 	}
 	fieldsFlag := cmd.Flags().String("fields", "", fieldsUsage)
 	commentsFlag := valuesFlag(cmd.Flags(), "comments", strconv.Itoa(defaultComments), "number of newest comments, all, or none", commentValues)
+	// pflag stops at the flag with no value: the stories before it are known.
+	cmd.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
+		ferr := c.Parent().FlagErrorFunc()(c, err)
+		var re *pflag.ValueRequiredError
+		var ee *exit.Error
+		if errors.As(err, &re) && re.GetFlag().Name == "comments" && len(c.Flags().Args()) > 1 && errors.As(ferr, &ee) {
+			return manyComments(ee)
+		}
+		return ferr
+	})
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		nComments, err := parseCommentCount(*commentsFlag)
 		if err != nil {
 			return err
 		}
 		if len(args) > 1 && nComments != 0 && cmd.Flags().Changed("comments") {
-			return exit.Usagef("--comments needs a single story")
+			return manyComments(exit.Usagef("--comments needs a single story"))
 		}
 		ids, err := storyIDs(env, args)
 		if err != nil {

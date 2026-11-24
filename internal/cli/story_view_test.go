@@ -638,6 +638,19 @@ func TestViewManyCommentsFlag(t *testing.T) {
 	}
 }
 
+// With several stories, --comments with no value or a count gives a fix that
+// works with several stories: TestViewMany and TestViewManyCommentsNone run it.
+func TestViewManyCommentsSuggestion(t *testing.T) {
+	for _, flags := range [][]string{{"--comments"}, {"--comments", "all"}, {"--comments", "3"}} {
+		h := newHarness(t, nil, "", nil)
+		code, _, errs := h.run(append([]string{"story", "view", "5818", "5819"}, flags...)...)
+		e := decode(t, errs)
+		if code != 2 || e["suggestion"] != "leave out --comments to get the comments of each story" || jsonOf(e["valid"]) != `["none"]` {
+			t.Errorf("%v: code %d, stderr %s", flags, code, errs)
+		}
+	}
+}
+
 // --comments none, or 0, with several stories gives no comments.
 func TestViewManyCommentsNone(t *testing.T) {
 	s1 := storyFixture(t)
