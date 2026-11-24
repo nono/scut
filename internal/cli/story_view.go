@@ -99,6 +99,9 @@ func apiFields(list string) ([]string, error) {
 	return out, nil
 }
 
+// commentValues are the values of --comments.
+var commentValues = []string{"<number>", "all", "none"}
+
 // parseCommentCount returns the number of comments to fetch, -1 for all.
 func parseCommentCount(s string) (int, error) {
 	switch s {
@@ -109,7 +112,7 @@ func parseCommentCount(s string) (int, error) {
 	}
 	n, err := strconv.Atoi(s)
 	if err != nil || n < 0 {
-		return 0, exit.Usagef("--comments takes a number, \"all\" or \"none\", not %q", s)
+		return 0, withValues(exit.Usagef("--comments takes a number, \"all\" or \"none\", not %q", s), "comments", commentValues)
 	}
 	return n, nil
 }
@@ -121,7 +124,7 @@ func newStoryView(env Env) *cobra.Command {
 		Annotations: map[string]string{OpsAnnotation: "getStory,listStoryComments,listStoryChecklistItems,listStories,listMembers", IDArgsAnnotation: "sc-"},
 	}
 	fieldsFlag := cmd.Flags().String("fields", "", fieldsUsage)
-	commentsFlag := cmd.Flags().String("comments", strconv.Itoa(defaultComments), "number of newest comments, all, or none")
+	commentsFlag := valuesFlag(cmd.Flags(), "comments", strconv.Itoa(defaultComments), "number of newest comments, all, or none", commentValues)
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		nComments, err := parseCommentCount(*commentsFlag)
 		if err != nil {

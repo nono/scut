@@ -14,7 +14,7 @@ func newStorySubtasks(env Env) *cobra.Command {
 		Args:        cobra.MaximumNArgs(1),
 		Annotations: map[string]string{OpsAnnotation: "listStorySubTaskStories,listMembers", IDArgsAnnotation: "sc-"},
 	}
-	limitFlag := cmd.Flags().String("limit", strconv.Itoa(defaultLimit), "maximum number of stories, or all")
+	limitFlag := valuesFlag(cmd.Flags(), "limit", strconv.Itoa(defaultLimit), "maximum number of stories, or all", limitValues)
 	fieldsFlag := cmd.Flags().String("fields", "", fieldsUsage)
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		limit, err := parseLimit(*limitFlag)

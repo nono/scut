@@ -292,6 +292,25 @@ func TestViewBadComments(t *testing.T) {
 			t.Errorf("--comments %s: code %d, want 2", v, code)
 		}
 	}
+	// A missing value takes the next flag as the value.
+	code, _, errs := h.run("story", "view", "5818", "--comments", "--human")
+	e := decode(t, errs)
+	if code != 2 || !hasValid(e, "<number>", "all", "none") || e["suggestion"] != `for example "--comments all"` {
+		t.Errorf("code %d, stderr %s", code, errs)
+	}
+}
+
+// "--comments all" with a space reads all as the value, not as a story.
+func TestViewCommentsAllWithFields(t *testing.T) {
+	var c calls
+	h := viewHarness(t, &c, storyFixture(t), nil)
+	code, out, errs := h.run("story", "view", "5818", "--fields", "name,comments", "--comments", "all")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if _, ok := decode(t, out)["comments"]; !ok {
+		t.Errorf("no comments: %s", out)
+	}
 }
 
 func TestViewMany(t *testing.T) {

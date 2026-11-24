@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/nono/scut/internal/cli"
 	"github.com/nono/scut/internal/exit"
@@ -80,6 +81,13 @@ func TestUsageErrorsNameTheFix(t *testing.T) {
 		{[]string{"story", "view", "1", "--feilds", "id"}, []string{"--fields", "--comments", "--human"}, `see "scut story view --help"`},
 		{[]string{"story", "view", "1", "-z"}, []string{"--fields"}, `see "scut story view --help"`},
 		{[]string{"spec", "Story", "--depth", "x"}, nil, `see "scut spec --help"`},
+		// A flag with a known set of values and no value: the values and an example.
+		{[]string{"story", "view", "1", "--comments"}, []string{"<number>", "all", "none"}, `for example "--comments all"`},
+		{[]string{"story", "search", "q", "--limit"}, []string{"<number>", "all"}, `for example "--limit all"`},
+		{[]string{"story", "create", "--type"}, []string{"feature", "chore", "bug"}, `for example "--type feature"`},
+		{[]string{"doc", "view", "x", "--format"}, []string{"markdown", "html"}, `for example "--format markdown"`},
+		// A missing value takes the next flag as the value.
+		{[]string{"story", "history", "1", "--limit", "--human"}, []string{"<number>", "all"}, `for example "--limit all"`},
 		// A leaf that takes no arguments: extra ones are a wrong count, not a command.
 		{[]string{"whoami", "extra"}, nil, "usage: scut whoami"},
 		{[]string{"team", "list", "x"}, nil, "usage: scut team list"},
@@ -101,6 +109,34 @@ func TestUsageErrorsNameTheFix(t *testing.T) {
 		if e["suggestion"] != c.suggestion {
 			t.Errorf("%v: suggestion %q, want %q", c.args, e["suggestion"], c.suggestion)
 		}
+	}
+}
+
+// Each --limit and --comments flag gives its values when its value is missing.
+func TestMissingValueOfEachKnownSetFlag(t *testing.T) {
+	want := map[string][]string{"limit": {"<number>", "all"}, "comments": {"<number>", "all", "none"}}
+	n := 0
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		for _, s := range c.Commands() {
+			walk(s)
+		}
+		path := strings.Fields(c.CommandPath())[1:]
+		c.LocalFlags().VisitAll(func(f *pflag.Flag) {
+			values, ok := want[f.Name]
+			if !ok {
+				return
+			}
+			n++
+			args := append(slices.Clone(path), "--"+f.Name)
+			if e := usageError(t, cli.NewRoot(emptyEnv()), args...); !hasValid(e, values...) || e["suggestion"] != `for example "--`+f.Name+` all"` {
+				t.Errorf("%v: %v", args, e)
+			}
+		})
+	}
+	walk(cli.NewRoot(emptyEnv()))
+	if n < 8 {
+		t.Errorf("%d flags, want 8 or more", n)
 	}
 }
 

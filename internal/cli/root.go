@@ -102,7 +102,31 @@ func seeHelp(cmd *cobra.Command) string {
 	return fmt.Sprintf("see %q", cmd.CommandPath()+" --help")
 }
 
-// flagError is a flag parse error, with the flags of cmd in valid when the flag is unknown.
+// valuesAnnotation is the flag annotation with the values of a flag that takes
+// one of a known set. A value in angle brackets, such as <number>, is a kind of value.
+const valuesAnnotation = "scut_values"
+
+// valuesFlag defines a string flag that takes one of values.
+func valuesFlag(fs *pflag.FlagSet, name, value, usage string, values []string) *string {
+	p := fs.String(name, value, usage)
+	_ = fs.SetAnnotation(name, valuesAnnotation, values)
+	return p
+}
+
+// withValues puts values in e.Valid, and an example in e.Suggestion: the first value that is not a kind.
+func withValues(e *exit.Error, flag string, values []string) *exit.Error {
+	e.Valid = values
+	for _, v := range values {
+		if !strings.HasPrefix(v, "<") {
+			e.Suggestion = fmt.Sprintf("for example %q", "--"+flag+" "+v)
+			break
+		}
+	}
+	return e
+}
+
+// flagError is a flag parse error, with the flags of cmd in valid when the flag is unknown,
+// and the values of the flag when its value is missing and it takes one of a known set.
 // On a group, cobra parses the flags before it looks for the subcommand: an
 // argument before the flag is an unknown subcommand.
 func flagError(cmd *cobra.Command, err error) error {
@@ -117,6 +141,11 @@ func flagError(cmd *cobra.Command, err error) error {
 				e.Valid = append(e.Valid, "--"+f.Name)
 			}
 		})
+	}
+	if re := (*pflag.ValueRequiredError)(nil); errors.As(err, &re) {
+		if values := re.GetFlag().Annotations[valuesAnnotation]; values != nil {
+			return withValues(e, re.GetFlag().Name, values)
+		}
 	}
 	return e
 }

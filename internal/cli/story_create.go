@@ -50,7 +50,7 @@ func newStoryCreate(env Env) *cobra.Command {
 	}
 	f := cmd.Flags()
 	name := f.String("name", "", "story name (required)")
-	typ := f.String("type", "feature", "feature, chore or bug")
+	typ := valuesFlag(f, "type", "feature", "feature, chore or bug", storyTypes)
 	team := f.String("team", "", "team name; default: config")
 	workflow := f.String("workflow", "", "workflow of --state; default: config, else the default workflow of the team")
 	state := f.String("state", "", "workflow state name; default: config")
@@ -71,7 +71,7 @@ func newStoryCreate(env Env) *cobra.Command {
 			return exit.Usagef("--name is required")
 		}
 		if !slices.Contains(storyTypes, *typ) {
-			return &exit.Error{Code: exit.Usage, Msg: "--type takes feature, chore or bug, not " + `"` + *typ + `"`, Valid: storyTypes}
+			return withValues(exit.Usagef("--type takes feature, chore or bug, not %q", *typ), "type", storyTypes)
 		}
 		specs, err := parseFieldSpecs(*fields)
 		if err != nil {

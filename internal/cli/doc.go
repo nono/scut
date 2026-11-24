@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -99,6 +100,9 @@ func newDocGroup(env Env) *cobra.Command {
 	return g
 }
 
+// docFormats are the values of doc view --format.
+var docFormats = []string{"markdown", "html"}
+
 func newDocView(env Env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "view <doc>",
@@ -108,11 +112,11 @@ func newDocView(env Env) *cobra.Command {
 		Args:        cobra.ExactArgs(1),
 		Annotations: map[string]string{OpsAnnotation: "getDoc,searchDocs,listMembers"},
 	}
-	format := cmd.Flags().String("format", "markdown", "content format: markdown or html")
+	format := valuesFlag(cmd.Flags(), "format", "markdown", "content format: markdown or html", docFormats)
 	outFlag := cmd.Flags().String("out", "", "write the content to this file, which it replaces, and leave it out of the output")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
-		if *format != "markdown" && *format != "html" {
-			return &exit.Error{Code: exit.Usage, Msg: fmt.Sprintf("--format takes markdown or html, not %q", *format), Valid: []string{"html", "markdown"}}
+		if !slices.Contains(docFormats, *format) {
+			return withValues(exit.Usagef("--format takes markdown or html, not %q", *format), "format", docFormats)
 		}
 		id, title, err := ref.Doc(args[0]) // before the token is read
 		if err != nil {
@@ -196,7 +200,7 @@ func newDocSearch(env Env) *cobra.Command {
 		Args:        cobra.ExactArgs(1),
 		Annotations: map[string]string{OpsAnnotation: "searchDocs,listMembers"},
 	}
-	limitFlag := cmd.Flags().String("limit", strconv.Itoa(defaultLimit), "maximum number of docs, or all")
+	limitFlag := valuesFlag(cmd.Flags(), "limit", strconv.Itoa(defaultLimit), "maximum number of docs, or all", limitValues)
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		if strings.TrimSpace(args[0]) == "" {
 			return exit.Usagef("the search text is empty")
