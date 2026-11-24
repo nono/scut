@@ -128,6 +128,8 @@ func TestKnownValuesNameTheFix(t *testing.T) {
 		{[]string{"story", "view", "1", "--comments", "some"}, []string{"<number>", "all", "none"}, "--comments all"},
 		// A missing value takes the next flag as the value.
 		{[]string{"story", "history", "1", "--limit", "--human"}, []string{"<number>", "all"}, "--limit all"},
+		{[]string{"story", "create", "--type", "--name=n"}, types, "--type feature"},
+		{[]string{"story", "search", "--limit", "--fields", "name", "q"}, []string{"<number>", "all"}, "--limit all"},
 	} {
 		e := usageError(t, cli.NewRoot(emptyEnv()), c.args...)
 		if jsonOf(e["valid"]) != jsonOf(c.valid) || e["suggestion"] != fmt.Sprintf("for example %q", c.example) {
@@ -136,9 +138,27 @@ func TestKnownValuesNameTheFix(t *testing.T) {
 	}
 }
 
-// Each --limit and --comments flag gives its values when its value is missing.
+// A value that starts with - and is not a flag is a bad value, not a missing one.
+func TestDashValueIsAValue(t *testing.T) {
+	e := usageError(t, cli.NewRoot(emptyEnv()), "story", "search", "q", "--limit", "-1")
+	if e["error"] != `--limit takes a number above 0 or "all", not "-1"` {
+		t.Errorf("%v", e)
+	}
+}
+
+// Each flag with a known set of values gives them when its value is missing,
+// also when pflag takes the next flag as the value.
 func TestMissingValueOfEachKnownSetFlag(t *testing.T) {
-	want := map[string][]string{"limit": {"<number>", "all"}, "comments": {"<number>", "all", "none"}}
+	want := map[string]struct {
+		values  []string
+		example string
+	}{
+		"limit":    {[]string{"<number>", "all"}, "all"},
+		"comments": {[]string{"<number>", "all", "none"}, "all"},
+		"type":     {[]string{"feature", "chore", "bug"}, "feature"},
+		"format":   {[]string{"markdown", "html"}, "markdown"},
+		"method":   {[]string{"GET", "POST", "PUT", "PATCH", "DELETE"}, "GET"},
+	}
 	n := 0
 	var walk func(c *cobra.Command)
 	walk = func(c *cobra.Command) {
@@ -147,20 +167,23 @@ func TestMissingValueOfEachKnownSetFlag(t *testing.T) {
 		}
 		path := strings.Fields(c.CommandPath())[1:]
 		c.LocalFlags().VisitAll(func(f *pflag.Flag) {
-			values, ok := want[f.Name]
+			w, ok := want[f.Name]
 			if !ok {
 				return
 			}
 			n++
-			args := append(slices.Clone(path), "--"+f.Name)
-			if e := usageError(t, cli.NewRoot(emptyEnv()), args...); jsonOf(e["valid"]) != jsonOf(values) || e["suggestion"] != `for example "--`+f.Name+` all"` {
-				t.Errorf("%v: %v", args, e)
+			example := fmt.Sprintf("for example %q", "--"+f.Name+" "+w.example)
+			for _, next := range [][]string{nil, {"--human"}, {"--profile=x"}, {"-h"}} {
+				args := append(append(slices.Clone(path), "--"+f.Name), next...)
+				if e := usageError(t, cli.NewRoot(emptyEnv()), args...); jsonOf(e["valid"]) != jsonOf(w.values) || e["suggestion"] != example {
+					t.Errorf("%v: %v", args, e)
+				}
 			}
 		})
 	}
 	walk(cli.NewRoot(emptyEnv()))
-	if n < 8 {
-		t.Errorf("%d flags, want 8 or more", n)
+	if n < 11 {
+		t.Errorf("%d flags, want 11 or more", n)
 	}
 }
 

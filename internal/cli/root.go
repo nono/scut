@@ -197,12 +197,44 @@ func NewRoot(env Env) *cobra.Command {
 	return root
 }
 
+// takenValue returns the error of a flag with a known set of values whose
+// value is the next flag: pflag takes the word after a flag as its value.
+func takenValue(cmd *cobra.Command) error {
+	var err error
+	cmd.Flags().Visit(func(f *pflag.Flag) {
+		if values := f.Annotations[valuesAnnotation]; err == nil && values != nil && isFlag(cmd.Flags(), f.Value.String()) {
+			err = withValues(exit.Usagef("flag needs an argument: --%s", f.Name), f.Name, values)
+		}
+	})
+	return err
+}
+
+// isFlag reports whether s names a flag of fs: --name, --name=value or -n.
+func isFlag(fs *pflag.FlagSet, s string) bool {
+	if name, ok := strings.CutPrefix(s, "--"); ok {
+		name, _, _ = strings.Cut(name, "=")
+		return fs.Lookup(name) != nil
+	}
+	if short, ok := strings.CutPrefix(s, "-"); ok && short != "" {
+		return fs.ShorthandLookup(short[:1]) != nil
+	}
+	return false
+}
+
 // usageArgs wraps the Args check of each command: a positional-argument error
 // exits 2, with the usage line as the suggestion. An *exit.Error keeps its code,
-// and a usage error with no suggestion gets the usage line.
+// and a usage error with no suggestion gets the usage line. Before the check,
+// a flag whose value is the next flag is a missing value. A leaf with no Args
+// check gets one, so that it runs before RunE.
 func usageArgs(c *cobra.Command) {
-	if old := c.Args; old != nil {
+	if old := c.Args; old != nil || !c.HasSubCommands() {
 		c.Args = func(cmd *cobra.Command, args []string) error {
+			if err := takenValue(cmd); err != nil {
+				return err
+			}
+			if old == nil {
+				return nil
+			}
 			err := old(cmd, args)
 			if err == nil {
 				return nil
