@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -81,13 +82,6 @@ func TestUsageErrorsNameTheFix(t *testing.T) {
 		{[]string{"story", "view", "1", "--feilds", "id"}, []string{"--fields", "--comments", "--human"}, `see "scut story view --help"`},
 		{[]string{"story", "view", "1", "-z"}, []string{"--fields"}, `see "scut story view --help"`},
 		{[]string{"spec", "Story", "--depth", "x"}, nil, `see "scut spec --help"`},
-		// A flag with a known set of values and no value: the values and an example.
-		{[]string{"story", "view", "1", "--comments"}, []string{"<number>", "all", "none"}, `for example "--comments all"`},
-		{[]string{"story", "search", "q", "--limit"}, []string{"<number>", "all"}, `for example "--limit all"`},
-		{[]string{"story", "create", "--type"}, []string{"feature", "chore", "bug"}, `for example "--type feature"`},
-		{[]string{"doc", "view", "x", "--format"}, []string{"markdown", "html"}, `for example "--format markdown"`},
-		// A missing value takes the next flag as the value.
-		{[]string{"story", "history", "1", "--limit", "--human"}, []string{"<number>", "all"}, `for example "--limit all"`},
 		// A leaf that takes no arguments: extra ones are a wrong count, not a command.
 		{[]string{"whoami", "extra"}, nil, "usage: scut whoami"},
 		{[]string{"team", "list", "x"}, nil, "usage: scut team list"},
@@ -112,6 +106,32 @@ func TestUsageErrorsNameTheFix(t *testing.T) {
 	}
 }
 
+// A flag with a known set of values gives the values and an example when its
+// value is missing or not valid.
+func TestKnownValuesNameTheFix(t *testing.T) {
+	types := []string{"feature", "chore", "bug"}
+	formats := []string{"markdown", "html"}
+	for _, c := range []struct {
+		args    []string
+		valid   []string
+		example string
+	}{
+		{[]string{"story", "create", "--type"}, types, "--type feature"},
+		{[]string{"story", "create", "--name", "n", "--type", "epic"}, types, "--type feature"},
+		{[]string{"doc", "view", "x", "--format"}, formats, "--format markdown"},
+		{[]string{"doc", "view", "x", "--format", "pdf"}, formats, "--format markdown"},
+		{[]string{"story", "search", "q", "--limit", "0"}, []string{"<number>", "all"}, "--limit all"},
+		{[]string{"story", "view", "1", "--comments", "some"}, []string{"<number>", "all", "none"}, "--comments all"},
+		// A missing value takes the next flag as the value.
+		{[]string{"story", "history", "1", "--limit", "--human"}, []string{"<number>", "all"}, "--limit all"},
+	} {
+		e := usageError(t, cli.NewRoot(emptyEnv()), c.args...)
+		if jsonOf(e["valid"]) != jsonOf(c.valid) || e["suggestion"] != fmt.Sprintf("for example %q", c.example) {
+			t.Errorf("%v: %v", c.args, e)
+		}
+	}
+}
+
 // Each --limit and --comments flag gives its values when its value is missing.
 func TestMissingValueOfEachKnownSetFlag(t *testing.T) {
 	want := map[string][]string{"limit": {"<number>", "all"}, "comments": {"<number>", "all", "none"}}
@@ -129,7 +149,7 @@ func TestMissingValueOfEachKnownSetFlag(t *testing.T) {
 			}
 			n++
 			args := append(slices.Clone(path), "--"+f.Name)
-			if e := usageError(t, cli.NewRoot(emptyEnv()), args...); !hasValid(e, values...) || e["suggestion"] != `for example "--`+f.Name+` all"` {
+			if e := usageError(t, cli.NewRoot(emptyEnv()), args...); jsonOf(e["valid"]) != jsonOf(values) || e["suggestion"] != `for example "--`+f.Name+` all"` {
 				t.Errorf("%v: %v", args, e)
 			}
 		})
