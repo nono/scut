@@ -85,6 +85,12 @@ func TestUsageErrorsNameTheFix(t *testing.T) {
 		// A command that takes stories gets as many as it takes, or <story>.
 		{[]string{"get", "--fields", "name", "1234"}, []string{"story"}, `did you mean "scut story view <story>"?`},
 		{[]string{"comment", "1234", "sc-99"}, []string{"story"}, `did you mean "scut epic comment" or "scut story comment 1234"?`},
+		// Other arguments: the usage line of the command, as a template.
+		{[]string{"link", "1234", "blocks", "5678"}, []string{"story"}, `did you mean "scut story link <story> <verb> <story> [<verb> <story>]..."?`},
+		{[]string{"files", "1234"}, []string{"story"}, `did you mean "scut story files [<story>] --out <dir>"?`},
+		// The line has none of the other words.
+		{[]string{"get", "1234", "--profile=b"}, []string{"story"}, `did you mean "scut story view 1234"?`},
+		{[]string{"story", "1234", "--profile", "other", "--human", "--fields", "name"}, []string{"view"}, `did you mean "scut story view 1234"?`},
 		// A verb of a noun: each noun command with that verb.
 		{[]string{"search", "foo"}, []string{"story"}, `did you mean "scut doc search", "scut epic search" or "scut story search"?`},
 		{[]string{"get", "1234"}, []string{"story"}, `did you mean "scut story view 1234"?`},

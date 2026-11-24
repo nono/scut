@@ -95,24 +95,32 @@ var verbAliases = map[string]string{"get": "story view", "show": "story view", "
 //   - after a group whose view takes stories, and with story references:
 //     "<group> view <stories>";
 //   - at the root: the alias of the first word, or else each "<noun> <word>" of
-//     the command tree. A command that takes stories gets the story references
-//     after the word, as many as it takes, or <story> when none is known: on a
-//     story branch, the line with no story would show another story.
+//     the command tree. A command whose arguments are stories gets the story
+//     references after the word, as many as it takes, or <story> when none is
+//     known: a story after an unknown flag is lost, and on a story branch the
+//     line with no story shows the branch story. A command with other
+//     arguments gets its usage arguments, as a template.
 //
 // A story is given as its ID, so the IDs need no shell quoting. The lines have
-// none of the other words: pflag stops at the first unknown flag, so the words
-// after it are not known.
+// none of the other words: pflag stops at the first unknown flag, so the
+// words after it are not known, the help command does not parse them, and a
+// flag of the root, such as --version, is not a flag of the meant command.
 func meantCommands(cmd *cobra.Command, args []string) []string {
 	var out []string
 	add := func(line string, c *cobra.Command, ids []string) {
 		if c != nil && c.Annotations[IDArgsAnnotation] == "sc-" {
-			if !strings.Contains(c.Use, "<story>…") {
-				ids = ids[:min(len(ids), 1)]
+			switch usage := strings.TrimSpace(strings.TrimPrefix(c.Use, c.Name())); usage {
+			case "<story>…", "[<story>…]", "<story>", "[<story>]":
+				if !strings.Contains(usage, "…") {
+					ids = ids[:min(len(ids), 1)]
+				}
+				if len(ids) == 0 {
+					ids = []string{"<story>"}
+				}
+				line += " " + strings.Join(ids, " ")
+			default:
+				line += " " + usage
 			}
-			if len(ids) == 0 {
-				ids = []string{"<story>"}
-			}
-			line += " " + strings.Join(ids, " ")
 		}
 		out = append(out, line)
 	}
