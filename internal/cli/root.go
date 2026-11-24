@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -92,21 +91,30 @@ func noArgs(cmd *cobra.Command, args []string) error {
 var verbAliases = map[string]string{"get": "story view", "show": "story view", "version": "--version"}
 
 // meantCommands returns the command lines that the unknown words args given
-// to cmd mean, each with the flags that cmd parsed before the error:
+// to cmd mean:
 //   - after a group whose view takes stories, and with story references:
 //     "<group> view <stories>";
 //   - at the root: the alias of the first word, or else each "<noun> <word>" of
 //     the command tree. A command that takes stories gets the story references
-//     after the word.
+//     after the word, as many as it takes, or <story> when none is known: on a
+//     story branch, the line with no story would show another story.
 //
-// A story is given as its ID, so the line needs no shell quoting.
+// A story is given as its ID, so the IDs need no shell quoting. The lines have
+// none of the other words: pflag stops at the first unknown flag, so the words
+// after it are not known.
 func meantCommands(cmd *cobra.Command, args []string) []string {
 	var out []string
 	add := func(line string, c *cobra.Command, ids []string) {
-		if c != nil && c.Annotations[IDArgsAnnotation] == "sc-" && len(ids) > 0 {
+		if c != nil && c.Annotations[IDArgsAnnotation] == "sc-" {
+			if !strings.Contains(c.Use, "<story>…") {
+				ids = ids[:min(len(ids), 1)]
+			}
+			if len(ids) == 0 {
+				ids = []string{"<story>"}
+			}
 			line += " " + strings.Join(ids, " ")
 		}
-		out = append(out, line+parsedFlags(cmd))
+		out = append(out, line)
 	}
 	if cmd.HasParent() {
 		if view := subcommand(cmd, "view"); view != nil && view.Annotations[IDArgsAnnotation] == "sc-" {
@@ -156,33 +164,6 @@ func storyIDsOf(args []string) []string {
 		ids = append(ids, strconv.FormatInt(id, 10))
 	}
 	return ids
-}
-
-// parsedFlags returns the flags that cmd parsed, as command-line words.
-func parsedFlags(cmd *cobra.Command) string {
-	var b strings.Builder
-	cmd.Flags().Visit(func(f *pflag.Flag) {
-		switch v := f.Value.String(); {
-		case f.Value.Type() == "bool" && v == "true":
-			b.WriteString(" --" + f.Name)
-		case f.Value.Type() == "bool":
-			b.WriteString(" --" + f.Name + "=" + v)
-		default:
-			b.WriteString(" --" + f.Name + " " + shellWord(v))
-		}
-	})
-	return b.String()
-}
-
-// plainWord is a word that a shell reads as it is.
-var plainWord = regexp.MustCompile(`^[A-Za-z0-9_./@:=,+-]+$`)
-
-// shellWord returns s quoted for a POSIX shell when it needs quotes.
-func shellWord(s string) string {
-	if plainWord.MatchString(s) {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // orList returns the items quoted, as "a", "b" or "c".

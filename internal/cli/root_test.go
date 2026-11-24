@@ -82,14 +82,14 @@ func TestUsageErrorsNameTheFix(t *testing.T) {
 		{[]string{"story", "1234"}, []string{"view"}, `did you mean "scut story view 1234"?`},
 		{[]string{"story", "sc-1234", "--fields", "name"}, []string{"view"}, `did you mean "scut story view 1234"?`},
 		{[]string{"story", "--", "-sc-1234"}, []string{"view"}, `did you mean "scut story view 1234"?`},
-		// The flags parsed before the error stay in the command.
-		{[]string{"story", "1234", "--profile", "other ws", "--human", "--fields", "name"}, []string{"view"}, `did you mean "scut story view 1234 --human --profile 'other ws'"?`},
-		{[]string{"get", "1234", "--profile=b"}, []string{"story"}, `did you mean "scut story view 1234 --profile b"?`},
+		// A command that takes stories gets as many as it takes, or <story>.
+		{[]string{"get", "--fields", "name", "1234"}, []string{"story"}, `did you mean "scut story view <story>"?`},
+		{[]string{"comment", "1234", "sc-99"}, []string{"story"}, `did you mean "scut epic comment" or "scut story comment 1234"?`},
 		// A verb of a noun: each noun command with that verb.
 		{[]string{"search", "foo"}, []string{"story"}, `did you mean "scut doc search", "scut epic search" or "scut story search"?`},
 		{[]string{"get", "1234"}, []string{"story"}, `did you mean "scut story view 1234"?`},
 		{[]string{"view", "sc-1234"}, []string{"story"}, `did you mean "scut doc view", "scut epic view" or "scut story view 1234"?`},
-		{[]string{"show"}, []string{"story"}, `did you mean "scut story view"?`},
+		{[]string{"show"}, []string{"story"}, `did you mean "scut story view <story>"?`},
 		{[]string{"version"}, []string{"story"}, `did you mean "scut --version"?`},
 		{[]string{"story", "1234", "sc-5678", "x"}, []string{"view"}, `did you mean "scut story view 1234 5678"?`},
 		// Aliases are for the root, and only story view takes stories.
