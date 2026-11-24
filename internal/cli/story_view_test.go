@@ -294,6 +294,19 @@ func TestViewBadComments(t *testing.T) {
 	}
 }
 
+// "--comments all" with a space reads all as the value, not as a story.
+func TestViewCommentsAllWithFields(t *testing.T) {
+	var c calls
+	h := viewHarness(t, &c, storyFixture(t), nil)
+	code, out, errs := h.run("story", "view", "5818", "--fields", "name,comments", "--comments", "all")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errs)
+	}
+	if _, ok := decode(t, out)["comments"]; !ok {
+		t.Errorf("no comments: %s", out)
+	}
+}
+
 func TestViewMany(t *testing.T) {
 	var c calls
 	s1, s2 := storyFixture(t), storyFixture(t)
@@ -614,8 +627,21 @@ func TestViewManySlimComments(t *testing.T) {
 func TestViewManyCommentsFlag(t *testing.T) {
 	h := newHarness(t, nil, "", nil)
 	code, _, errs := h.run("story", "view", "5818", "5819", "--comments", "3")
-	if code != 2 || !strings.Contains(errs, "--comments needs a single story") {
+	if code != 2 || !strings.Contains(errs, `with several stories, --comments takes only none or 0, not \"3\"`) {
 		t.Errorf("code %d, stderr %s", code, errs)
+	}
+}
+
+// With several stories, --comments with no value, a count, all or a bad value gives a fix that
+// works with several stories: TestViewMany and TestViewManyCommentsNone run it.
+func TestViewManyCommentsSuggestion(t *testing.T) {
+	for _, flags := range [][]string{{"--comments"}, {"--comments", "all"}, {"--comments", "3"}, {"--comments", "--human"}, {"--comments", "true"}} {
+		h := newHarness(t, nil, "", nil)
+		code, _, errs := h.run(append([]string{"story", "view", "5818", "5819"}, flags...)...)
+		e := decode(t, errs)
+		if code != 2 || e["suggestion"] != "leave out --comments to get the comments of each story" || jsonOf(e["valid"]) != `["none"]` {
+			t.Errorf("%v: code %d, stderr %s", flags, code, errs)
+		}
 	}
 }
 

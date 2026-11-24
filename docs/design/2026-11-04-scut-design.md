@@ -141,7 +141,7 @@ Writes need the story-write or comment-write scope, or `w`. `story unlink` and `
 
 ### Errors and exit codes (G11)
 
-Errors go to stderr as one JSON object. The object has `error`, `status` (HTTP status, if any), `api` (the API error body), `suggestion`, and `valid` (the valid names when a name did not resolve).
+Errors go to stderr as one JSON object. The object has `error`, `status` (HTTP status, if any), `api` (the API error body), `suggestion`, and `valid` (the valid names or values when a name or value is missing or did not resolve).
 
 | Code | Meaning |
 |---|---|
@@ -157,8 +157,9 @@ Before `scut` parses a body, it checks the status and the `Content-Type`.
 
 A command checks its flags and arguments before it reads the token, so such a usage error is exit 2 also with no token. A check that needs a config value comes after, because the config loads with the token: with no token, `story create` with no `--state` and no `state` in the config exits 4. An error of the command tree names the fix:
 
-- Unknown command, or a group with no subcommand: `valid` has the subcommands. `suggestion` is `did you mean "<name>"?` when a name is near, else `see "<command> --help"`. An empty name gets no guess. Cobra parses the flags of a group before it looks for the subcommand, so `story veiw 1 --fields x` is also an unknown command, not an unknown flag of `story`.
-- Unknown flag: `valid` has the flags of the command. Each flag parse error has `suggestion` `see "<command> --help"`.
+- Unknown command, or a group with no subcommand: `valid` has the subcommands. `suggestion`, in this order: `did you mean "scut story view <ids>"?` when the first word after `story` is a story reference, with the IDs of the leading story references; at the root, each `scut <noun> <word>` of the command tree (`get` and `show` mean `story view`, `version` means `--version`), for agents that run scut without the skill, with the story IDs after the word for a command whose arguments are stories (as many as it takes, or `<story>` when none is known), or the usage arguments of a command with other arguments, as a template; `did you mean "<name>"?` when a name is near; else `run "<command> usage"`. An empty name gets no guess. A suggested line has none of the other words of the command: pflag stops at the first unknown flag, the help command does not parse them, and a root flag such as `--version` is not a flag of the meant command. Cobra parses the flags of a group before it looks for the subcommand, so `story veiw 1 --fields x` is also an unknown command, not an unknown flag of `story`.
+- Unknown flag: `valid` has the flags of the command. Each flag parse error has `suggestion` `see "<command> --help"`, except for a flag with a known set of values (defined with `valuesFlag`, such as `--comments`).
+- A flag with a known set of values and a missing or bad value: `valid` has the values, and `suggestion` an example, such as `for example "--comments all"`. `<number>` in `valid` is a kind of value. pflag takes the word after a flag as its value, so `--limit --human` is also a missing value: a value that is a flag of the command. With several stories, a bad `--comments` value, or a missing one after the stories, suggests to leave out `--comments`. pflag stops at the flag, so the stories after it are not known: with at most one story before it, the example of a missing `--comments` value adds "with several stories, leave out --comments". `--flag value` and `--flag=value` are the same to pflag, so `--limit=--human` is also a missing value.
 - `help <topic>` with a topic that does not exist: the unknown-command error, exit 2. The cobra help command printed the root help and exited 0. Words after a leaf command are its arguments: `help story view 1` shows the help of `story view`.
 - Wrong number of arguments, also to a command that takes none: `suggestion` is the usage line, for example `usage: scut story search <query>`.
 

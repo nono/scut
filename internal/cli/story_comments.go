@@ -17,7 +17,7 @@ func newStoryComments(env Env) *cobra.Command {
 		Args:        cobra.ExactArgs(1),
 		Annotations: map[string]string{OpsAnnotation: "listStoryComments,listMembers", IDArgsAnnotation: "sc-"},
 	}
-	limitFlag := cmd.Flags().String("limit", strconv.Itoa(defaultLimit), "maximum number of comments, or all")
+	limitFlag := valuesFlag(cmd.Flags(), "limit", "", strconv.Itoa(defaultLimit), "maximum number of comments, or all", limitValues)
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		limit, err := parseLimit(*limitFlag)
 		if err != nil {

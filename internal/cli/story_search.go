@@ -17,6 +17,9 @@ const (
 	maxPageSize  = 100
 )
 
+// limitValues are the values of --limit.
+var limitValues = []string{"<number>", "all"}
+
 // parseLimit returns the item limit, -1 for "all".
 func parseLimit(s string) (int, error) {
 	if s == "all" {
@@ -24,7 +27,7 @@ func parseLimit(s string) (int, error) {
 	}
 	n, err := strconv.Atoi(s)
 	if err != nil || n < 1 {
-		return 0, exit.Usagef("--limit takes a number above 0 or \"all\", not %q", s)
+		return 0, withValues(exit.Usagef("--limit takes a number above 0 or \"all\", not %q", s), "limit", limitValues)
 	}
 	return n, nil
 }
@@ -128,8 +131,8 @@ func newStorySearch(env Env) *cobra.Command {
 		Args:        cobra.ExactArgs(1),
 		Annotations: map[string]string{OpsAnnotation: "searchStories,listMembers"},
 	}
-	limitFlag := cmd.Flags().String("limit", strconv.Itoa(defaultLimit), "maximum number of stories, or all")
-	fieldsFlag := cmd.Flags().String("fields", "", fieldsUsage)
+	limitFlag := valuesFlag(cmd.Flags(), "limit", "", strconv.Itoa(defaultLimit), "maximum number of stories, or all", limitValues)
+	fieldsFlag := valuesFlag(cmd.Flags(), "fields", "", "", fieldsUsage, validFields())
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		limit, err := parseLimit(*limitFlag)
 		if err != nil {

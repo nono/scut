@@ -3,7 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"maps"
 	"net/url"
 	"slices"
@@ -86,7 +86,7 @@ func apiFields(list string) ([]string, error) {
 			f = a
 		}
 		if !slices.Contains(storyFieldNames, f) && !slices.Contains(apiStoryFields, f) {
-			return nil, &exit.Error{Code: exit.Usage, Msg: fmt.Sprintf("unknown field %q", f), Valid: validFields()}
+			return nil, withValues(exit.Usagef("unknown field %q", f), "fields", validFields())
 		}
 		f = apiName(f)
 		if !slices.Contains(out, f) {
@@ -99,6 +99,17 @@ func apiFields(list string) ([]string, error) {
 	return out, nil
 }
 
+// commentValues are the values of --comments.
+var commentValues = []string{"<number>", "all", "none"}
+
+// manyComments gives the fix of a --comments error with several stories:
+// with no --comments, each story has its comments.
+func manyComments(e *exit.Error) *exit.Error {
+	e.Valid = []string{"none"}
+	e.Suggestion = "leave out --comments to get the comments of each story"
+	return e
+}
+
 // parseCommentCount returns the number of comments to fetch, -1 for all.
 func parseCommentCount(s string) (int, error) {
 	switch s {
@@ -109,7 +120,7 @@ func parseCommentCount(s string) (int, error) {
 	}
 	n, err := strconv.Atoi(s)
 	if err != nil || n < 0 {
-		return 0, exit.Usagef("--comments takes a number, \"all\" or \"none\", not %q", s)
+		return 0, withValues(exit.Usagef("--comments takes a number, \"all\" or \"none\", not %q", s), "comments", commentValues)
 	}
 	return n, nil
 }
@@ -120,15 +131,30 @@ func newStoryView(env Env) *cobra.Command {
 		Short:       "Show stories; default story from the git branch",
 		Annotations: map[string]string{OpsAnnotation: "getStory,listStoryComments,listStoryChecklistItems,listStories,listMembers", IDArgsAnnotation: "sc-"},
 	}
-	fieldsFlag := cmd.Flags().String("fields", "", fieldsUsage)
-	commentsFlag := cmd.Flags().String("comments", strconv.Itoa(defaultComments), "number of newest comments, all, or none")
+	fieldsFlag := valuesFlag(cmd.Flags(), "fields", "", "", fieldsUsage, validFields())
+	commentsFlag := valuesFlag(cmd.Flags(), "comments", "", strconv.Itoa(defaultComments), "number of newest comments, all, or none", commentValues)
+	// pflag stops at the flag with no value: the stories before it are known,
+	// the stories after it are not, so the example also gives the fix for
+	// several stories.
+	cmd.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
+		ferr := c.Parent().FlagErrorFunc()(c, err)
+		var ee *exit.Error
+		if f := missingValue(err); f == nil || f.Name != "comments" || !errors.As(ferr, &ee) {
+			return ferr
+		}
+		if len(c.Flags().Args()) > 1 {
+			return manyComments(ee)
+		}
+		ee.Suggestion += "; with several stories, leave out --comments"
+		return ee
+	})
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		nComments, err := parseCommentCount(*commentsFlag)
+		if len(args) > 1 && (err != nil || nComments != 0) && cmd.Flags().Changed("comments") {
+			return manyComments(exit.Usagef("with several stories, --comments takes only none or 0, not %q", *commentsFlag))
+		}
 		if err != nil {
 			return err
-		}
-		if len(args) > 1 && nComments != 0 && cmd.Flags().Changed("comments") {
-			return exit.Usagef("--comments needs a single story")
 		}
 		ids, err := storyIDs(env, args)
 		if err != nil {

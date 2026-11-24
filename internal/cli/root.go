@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/nono/scut/internal/config"
 	"github.com/nono/scut/internal/exit"
+	"github.com/nono/scut/internal/ref"
 	"github.com/nono/scut/internal/runlog"
 	"github.com/nono/scut/internal/transport"
 )
@@ -73,8 +75,10 @@ func noArgs(cmd *cobra.Command, args []string) error {
 	}
 	if len(args) > 0 {
 		e := groupError(cmd, fmt.Sprintf("unknown command %q for %q", args[0], cmd.CommandPath()))
-		// An empty name is a prefix of each name: make no guess.
-		if s := cmd.SuggestionsFor(args[0]); len(s) > 0 && strings.TrimSpace(args[0]) != "" {
+		if c := meantCommands(cmd, args); len(c) > 0 {
+			e.Suggestion = "did you mean " + orList(c) + "?"
+		} else if s := cmd.SuggestionsFor(args[0]); len(s) > 0 && strings.TrimSpace(args[0]) != "" {
+			// An empty name is a prefix of each name: make no guess.
 			e.Suggestion = fmt.Sprintf("did you mean %q?", s[0])
 		}
 		return e
@@ -82,9 +86,109 @@ func noArgs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// verbAliases are words with no command of their own, and what they mean: a
+// command path, or a flag of the root.
+var verbAliases = map[string]string{"get": "story view", "show": "story view", "version": "--version"}
+
+// meantCommands returns the command lines that the unknown words args given
+// to cmd mean:
+//   - after a group whose view takes stories, and with story references:
+//     "<group> view <stories>";
+//   - at the root: the alias of the first word, or else each "<noun> <word>" of
+//     the command tree. A command whose arguments are stories gets the story
+//     references after the word, as many as it takes, or <story> when none is
+//     known: a story after an unknown flag is lost, and on a story branch the
+//     line with no story shows the branch story. A command with other
+//     arguments gets its usage arguments, as a template.
+//
+// A story is given as its ID, so the IDs need no shell quoting. The lines have
+// none of the other words: pflag stops at the first unknown flag, so the
+// words after it are not known, the help command does not parse them, and a
+// flag of the root, such as --version, is not a flag of the meant command.
+func meantCommands(cmd *cobra.Command, args []string) []string {
+	var out []string
+	add := func(line string, c *cobra.Command, ids []string) {
+		if c != nil && c.Annotations[IDArgsAnnotation] == "sc-" {
+			switch usage := strings.TrimSpace(strings.TrimPrefix(c.Use, c.Name())); usage {
+			case "<story>…", "[<story>…]", "<story>", "[<story>]":
+				if !strings.Contains(usage, "…") {
+					ids = ids[:min(len(ids), 1)]
+				}
+				if len(ids) == 0 {
+					ids = []string{"<story>"}
+				}
+				line += " " + strings.Join(ids, " ")
+			default:
+				line += " " + usage
+			}
+		}
+		out = append(out, line)
+	}
+	if cmd.HasParent() {
+		if view := subcommand(cmd, "view"); view != nil && view.Annotations[IDArgsAnnotation] == "sc-" {
+			if ids := storyIDsOf(args); len(ids) > 0 {
+				add(view.CommandPath(), view, ids)
+			}
+		}
+		return out
+	}
+	ids := storyIDsOf(args[1:])
+	if path, ok := verbAliases[args[0]]; ok {
+		c := cmd
+		for _, name := range strings.Fields(path) {
+			if c != nil {
+				c = subcommand(c, name)
+			}
+		}
+		add(cmd.Name()+" "+path, c, ids)
+		return out
+	}
+	for _, noun := range cmd.Commands() {
+		if c := subcommand(noun, args[0]); c != nil && c.IsAvailableCommand() {
+			add(c.CommandPath(), c, ids)
+		}
+	}
+	return out
+}
+
+// subcommand returns the subcommand of cmd with this name, or nil.
+func subcommand(cmd *cobra.Command, name string) *cobra.Command {
+	for _, c := range cmd.Commands() {
+		if c.Name() == name {
+			return c
+		}
+	}
+	return nil
+}
+
+// storyIDsOf returns the IDs of the leading args that are story references.
+func storyIDsOf(args []string) []string {
+	var ids []string
+	for _, a := range args {
+		id, err := ref.Story(a)
+		if err != nil {
+			break
+		}
+		ids = append(ids, strconv.FormatInt(id, 10))
+	}
+	return ids
+}
+
+// orList returns the items quoted, as "a", "b" or "c".
+func orList(items []string) string {
+	q := make([]string, len(items))
+	for i, s := range items {
+		q[i] = strconv.Quote(s)
+	}
+	if len(q) == 1 {
+		return q[0]
+	}
+	return strings.Join(q[:len(q)-1], ", ") + " or " + q[len(q)-1]
+}
+
 // groupError is a usage error of a group: valid has its subcommands.
 func groupError(cmd *cobra.Command, msg string) *exit.Error {
-	return &exit.Error{Code: exit.Usage, Msg: msg, Valid: subcommandNames(cmd), Suggestion: seeHelp(cmd)}
+	return &exit.Error{Code: exit.Usage, Msg: msg, Valid: subcommandNames(cmd), Suggestion: fmt.Sprintf("run %q", cmd.CommandPath()+" usage")}
 }
 
 // subcommandNames returns the names of the subcommands that a user can run.
@@ -102,7 +206,79 @@ func seeHelp(cmd *cobra.Command) string {
 	return fmt.Sprintf("see %q", cmd.CommandPath()+" --help")
 }
 
-// flagError is a flag parse error, with the flags of cmd in valid when the flag is unknown.
+// valuesAnnotation is the flag annotation with the values of a flag that takes
+// one of a known set. A value in angle brackets, such as <number>, is a kind of value.
+const valuesAnnotation = "scut/values"
+
+// errFlagAsValue is the cause of the parse error of a value that is a flag.
+var errFlagAsValue = errors.New("the value is a flag")
+
+// valuesValue is a string flag value that refuses a flag of fs: pflag takes the
+// word after a flag as its value, so such a value is a missing value.
+// --flag=--other gets the same error.
+type valuesValue struct {
+	p  *string
+	fs *pflag.FlagSet
+}
+
+func (v valuesValue) String() string { return *v.p }
+func (v valuesValue) Type() string   { return "string" }
+
+func (v valuesValue) Set(s string) error {
+	if isFlag(v.fs, s) {
+		return errFlagAsValue
+	}
+	*v.p = s
+	return nil
+}
+
+// isFlag reports whether s names a flag of fs: --name, --name=value or -n.
+func isFlag(fs *pflag.FlagSet, s string) bool {
+	if name, ok := strings.CutPrefix(s, "--"); ok {
+		name, _, _ = strings.Cut(name, "=")
+		return fs.Lookup(name) != nil
+	}
+	if short, ok := strings.CutPrefix(s, "-"); ok && short != "" {
+		return fs.ShorthandLookup(short[:1]) != nil
+	}
+	return false
+}
+
+// valuesFlag defines a string flag whose values, or the parts of its values,
+// are in values.
+func valuesFlag(fs *pflag.FlagSet, name, shorthand, value, usage string, values []string) *string {
+	p := &value
+	fs.VarP(valuesValue{p, fs}, name, shorthand, usage)
+	_ = fs.SetAnnotation(name, valuesAnnotation, values)
+	return p
+}
+
+// missingValue returns the flag of a missing-value error: no value, or a value
+// that is a flag.
+func missingValue(err error) *pflag.Flag {
+	if re := (*pflag.ValueRequiredError)(nil); errors.As(err, &re) {
+		return re.GetFlag()
+	}
+	if ie := (*pflag.InvalidValueError)(nil); errors.As(err, &ie) && errors.Is(err, errFlagAsValue) {
+		return ie.GetFlag()
+	}
+	return nil
+}
+
+// withValues puts values in e.Valid, and an example in e.Suggestion: the first value that is not a kind.
+func withValues(e *exit.Error, flag string, values []string) *exit.Error {
+	e.Valid = values
+	for _, v := range values {
+		if !strings.HasPrefix(v, "<") {
+			e.Suggestion = fmt.Sprintf("for example %q", "--"+flag+" "+v)
+			break
+		}
+	}
+	return e
+}
+
+// flagError is a flag parse error, with the flags of cmd in valid when the flag is unknown,
+// and the values of the flag when its value is missing and it has a known set.
 // On a group, cobra parses the flags before it looks for the subcommand: an
 // argument before the flag is an unknown subcommand.
 func flagError(cmd *cobra.Command, err error) error {
@@ -117,6 +293,12 @@ func flagError(cmd *cobra.Command, err error) error {
 				e.Valid = append(e.Valid, "--"+f.Name)
 			}
 		})
+	}
+	if f := missingValue(err); f != nil {
+		e.Msg = "flag needs an argument: --" + f.Name
+		if values := f.Annotations[valuesAnnotation]; values != nil {
+			return withValues(e, f.Name, values)
+		}
 	}
 	return e
 }
