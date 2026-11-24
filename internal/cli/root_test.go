@@ -111,6 +111,7 @@ func TestUsageErrorsNameTheFix(t *testing.T) {
 func TestKnownValuesNameTheFix(t *testing.T) {
 	types := []string{"feature", "chore", "bug"}
 	formats := []string{"markdown", "html"}
+	methods := []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
 	for _, c := range []struct {
 		args    []string
 		valid   []string
@@ -120,6 +121,9 @@ func TestKnownValuesNameTheFix(t *testing.T) {
 		{[]string{"story", "create", "--name", "n", "--type", "epic"}, types, "--type feature"},
 		{[]string{"doc", "view", "x", "--format"}, formats, "--format markdown"},
 		{[]string{"doc", "view", "x", "--format", "pdf"}, formats, "--format markdown"},
+		{[]string{"api", "/x", "--method"}, methods, "--method GET"},
+		{[]string{"api", "/x", "-X"}, methods, "--method GET"},
+		{[]string{"api", "/x", "-X", "HEAD"}, methods, "--method GET"},
 		{[]string{"story", "search", "q", "--limit", "0"}, []string{"<number>", "all"}, "--limit all"},
 		{[]string{"story", "view", "1", "--comments", "some"}, []string{"<number>", "all", "none"}, "--comments all"},
 		// A missing value takes the next flag as the value.

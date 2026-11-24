@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -11,7 +12,7 @@ import (
 	"github.com/nono/scut/internal/exit"
 )
 
-var apiMethods = map[string]bool{"GET": true, "POST": true, "PUT": true, "PATCH": true, "DELETE": true}
+var apiMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
 
 // fieldValue returns the JSON value of a -f value: a JSON number, true,
 // false or null as is, anything else as a string.
@@ -71,8 +72,8 @@ func newAPI(env Env) *cobra.Command {
 					m = "POST"
 				}
 			}
-			if !apiMethods[m] {
-				return exit.Usagef("method %q is not valid, use GET, POST, PUT, PATCH or DELETE", method)
+			if !slices.Contains(apiMethods, m) {
+				return withValues(exit.Usagef("method %q is not valid, use GET, POST, PUT, PATCH or DELETE", method), "method", apiMethods)
 			}
 			if m == "DELETE" && !yes {
 				return exit.Usagef("DELETE needs --yes")
@@ -90,6 +91,7 @@ func newAPI(env Env) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&method, "method", "X", "", "HTTP method (default GET, or POST with a body)")
+	_ = cmd.Flags().SetAnnotation("method", valuesAnnotation, apiMethods)
 	cmd.Flags().StringArrayVarP(&fields, "field", "f", nil, "body field key=value (repeat); numbers, true, false and null stay JSON")
 	cmd.Flags().StringVar(&input, "input", "", "send this file as the body, - for stdin")
 	cmd.Flags().BoolVar(&yes, "yes", false, "confirm a DELETE")
