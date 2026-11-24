@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/nono/scut/internal/config"
 	"github.com/nono/scut/internal/exit"
+	"github.com/nono/scut/internal/ref"
 	"github.com/nono/scut/internal/runlog"
 	"github.com/nono/scut/internal/transport"
 )
@@ -73,8 +75,12 @@ func noArgs(cmd *cobra.Command, args []string) error {
 	}
 	if len(args) > 0 {
 		e := groupError(cmd, fmt.Sprintf("unknown command %q for %q", args[0], cmd.CommandPath()))
-		// An empty name is a prefix of each name: make no guess.
-		if s := cmd.SuggestionsFor(args[0]); len(s) > 0 && strings.TrimSpace(args[0]) != "" {
+		if v := viewCommand(cmd, args[0]); v != "" {
+			e.Suggestion = fmt.Sprintf("did you mean %q?", v)
+		} else if c := nounCommands(cmd, args[0]); len(c) > 0 {
+			e.Suggestion = "did you mean " + orList(c) + "?"
+		} else if s := cmd.SuggestionsFor(args[0]); len(s) > 0 && strings.TrimSpace(args[0]) != "" {
+			// An empty name is a prefix of each name: make no guess.
 			e.Suggestion = fmt.Sprintf("did you mean %q?", s[0])
 		}
 		return e
@@ -82,9 +88,57 @@ func noArgs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// viewCommand returns "<group> view <arg>" when arg is a story reference and
+// the view subcommand of the group takes stories.
+func viewCommand(group *cobra.Command, arg string) string {
+	for _, c := range group.Commands() {
+		if c.Name() == "view" && c.Annotations[IDArgsAnnotation] == "sc-" {
+			if _, err := ref.Story(arg); err == nil {
+				return c.CommandPath() + " " + arg
+			}
+		}
+	}
+	return ""
+}
+
+// verbAliases are words with no command of their own, and the command they mean.
+var verbAliases = map[string]string{"get": "story view", "show": "story view"}
+
+// nounCommands returns the commands that a word given to the root means: its
+// alias, or else each "<noun> <word>" of the command tree.
+func nounCommands(root *cobra.Command, word string) []string {
+	if root.HasParent() {
+		return nil
+	}
+	if path, ok := verbAliases[word]; ok {
+		return []string{root.Name() + " " + path}
+	}
+	var out []string
+	for _, noun := range root.Commands() {
+		for _, c := range noun.Commands() {
+			if c.Name() == word && c.IsAvailableCommand() {
+				out = append(out, c.CommandPath())
+			}
+		}
+	}
+	return out
+}
+
+// orList returns the items quoted, as "a", "b" or "c".
+func orList(items []string) string {
+	q := make([]string, len(items))
+	for i, s := range items {
+		q[i] = strconv.Quote(s)
+	}
+	if len(q) == 1 {
+		return q[0]
+	}
+	return strings.Join(q[:len(q)-1], ", ") + " or " + q[len(q)-1]
+}
+
 // groupError is a usage error of a group: valid has its subcommands.
 func groupError(cmd *cobra.Command, msg string) *exit.Error {
-	return &exit.Error{Code: exit.Usage, Msg: msg, Valid: subcommandNames(cmd), Suggestion: seeHelp(cmd)}
+	return &exit.Error{Code: exit.Usage, Msg: msg, Valid: subcommandNames(cmd), Suggestion: fmt.Sprintf("run %q", cmd.CommandPath()+" usage")}
 }
 
 // subcommandNames returns the names of the subcommands that a user can run.

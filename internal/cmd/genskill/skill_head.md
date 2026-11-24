@@ -1,6 +1,6 @@
 # scut
 
-`scut` is a command line client for the Shortcut REST API v4. Use it for all Shortcut work.
+`scut` is a command line client for the Shortcut REST API v4. Use it for all Shortcut work. Also load this skill before you run any `scut` command.
 
 ## Rules
 

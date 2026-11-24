@@ -75,8 +75,16 @@ func TestUsageErrorsNameTheFix(t *testing.T) {
 		{[]string{"--nope"}, []string{"--human", "--version"}, `see "scut --help"`},
 		{[]string{"--profile"}, nil, `see "scut --help"`},
 		{[]string{"story", "veiw"}, []string{"view", "comment"}, `did you mean "view"?`},
-		{[]string{"story", "nothing-like-it"}, []string{"view"}, `see "scut story --help"`},
-		{[]string{"story"}, []string{"view", "update"}, `see "scut story --help"`},
+		{[]string{"story", "nothing-like-it"}, []string{"view"}, `run "scut story usage"`},
+		{[]string{"story"}, []string{"view", "update"}, `run "scut story usage"`},
+		{[]string{"nothing-like-it"}, []string{"story", "epic"}, `run "scut usage"`},
+		// A story reference after the story group: story view.
+		{[]string{"story", "1234"}, []string{"view"}, `did you mean "scut story view 1234"?`},
+		{[]string{"story", "sc-1234", "--fields", "name"}, []string{"view"}, `did you mean "scut story view sc-1234"?`},
+		// A verb of a noun: each noun command with that verb.
+		{[]string{"search", "foo"}, []string{"story"}, `did you mean "scut doc search", "scut epic search" or "scut story search"?`},
+		{[]string{"get", "1234"}, []string{"story"}, `did you mean "scut story view"?`},
+		{[]string{"show"}, []string{"story"}, `did you mean "scut story view"?`},
 		{[]string{"story", "search"}, nil, "usage: scut story search <query>"},
 		{[]string{"workflow", "states", "a", "b"}, nil, "usage: scut workflow states [<workflow>]"},
 		{[]string{"story", "view", "1", "--feilds", "id"}, []string{"--fields", "--comments", "--human"}, `see "scut story view --help"`},
@@ -91,7 +99,7 @@ func TestUsageErrorsNameTheFix(t *testing.T) {
 		{[]string{"story", "veiw", "1", "--fields", "name"}, []string{"view"}, `did you mean "view"?`},
 		{[]string{"story", "--yes"}, []string{"--human"}, `see "scut story --help"`},
 		// An empty name matches every name by prefix: no guess.
-		{[]string{"story", ""}, []string{"view"}, `see "scut story --help"`},
+		{[]string{"story", ""}, []string{"view"}, `run "scut story usage"`},
 	} {
 		e := usageError(t, cli.NewRoot(emptyEnv()), c.args...)
 		if !hasValid(e, c.valid...) {
@@ -195,6 +203,25 @@ func TestMissingFieldsValue(t *testing.T) {
 			t.Errorf("%v: %v", args, e)
 		}
 	}
+}
+
+// The generic suggestion of a group, run "<group> usage", runs.
+func TestEachGroupHasUsage(t *testing.T) {
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		if !c.HasSubCommands() {
+			return
+		}
+		h := newHarness(t, nil, "", nil)
+		args := append(slices.Clone(strings.Fields(c.CommandPath())[1:]), "usage")
+		if code, out, errs := h.run(args...); code != 0 || out == "" {
+			t.Errorf("%v: code %d, stderr %s", args, code, errs)
+		}
+		for _, s := range c.Commands() {
+			walk(s)
+		}
+	}
+	walk(cli.NewRoot(emptyEnv()))
 }
 
 // help on a topic that does not exist is the unknown-command error, not the root help.
