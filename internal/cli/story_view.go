@@ -133,7 +133,7 @@ func newStoryView(env Env) *cobra.Command {
 		Short:       "Show stories; default story from the git branch",
 		Annotations: map[string]string{OpsAnnotation: "getStory,listStoryComments,listStoryChecklistItems,listStories,listMembers", IDArgsAnnotation: "sc-"},
 	}
-	fieldsFlag := cmd.Flags().String("fields", "", fieldsUsage)
+	fieldsFlag := valuesFlag(cmd.Flags(), "fields", "", fieldsUsage, validFields())
 	commentsFlag := valuesFlag(cmd.Flags(), "comments", strconv.Itoa(defaultComments), "number of newest comments, all, or none", commentValues)
 	// pflag stops at the flag with no value: the stories before it are known.
 	cmd.SetFlagErrorFunc(func(c *cobra.Command, err error) error {

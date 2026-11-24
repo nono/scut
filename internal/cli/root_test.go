@@ -187,6 +187,17 @@ func TestMissingValueOfEachKnownSetFlag(t *testing.T) {
 	}
 }
 
+// A missing --fields value gives the same names as an unknown field.
+func TestMissingFieldsValue(t *testing.T) {
+	known := usageError(t, cli.NewRoot(emptyEnv()), "story", "view", "1", "--fields", "nmae")["valid"]
+	for _, path := range [][]string{{"story", "view", "1"}, {"story", "search", "q"}, {"story", "subtasks", "1"}, {"epic", "stories", "1"}} {
+		e := usageError(t, cli.NewRoot(emptyEnv()), append(path, "--fields")...)
+		if jsonOf(e["valid"]) != jsonOf(known) || e["suggestion"] != `for example "--fields app_url"` {
+			t.Errorf("%v: %v", path, e)
+		}
+	}
+}
+
 // help on a topic that does not exist is the unknown-command error, not the root help.
 func TestHelpUnknownTopic(t *testing.T) {
 	for _, c := range []struct {

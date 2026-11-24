@@ -132,7 +132,7 @@ func newStorySearch(env Env) *cobra.Command {
 		Annotations: map[string]string{OpsAnnotation: "searchStories,listMembers"},
 	}
 	limitFlag := valuesFlag(cmd.Flags(), "limit", strconv.Itoa(defaultLimit), "maximum number of stories, or all", limitValues)
-	fieldsFlag := cmd.Flags().String("fields", "", fieldsUsage)
+	fieldsFlag := valuesFlag(cmd.Flags(), "fields", "", fieldsUsage, validFields())
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		limit, err := parseLimit(*limitFlag)
 		if err != nil {
