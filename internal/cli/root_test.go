@@ -85,6 +85,11 @@ func TestUsageErrorsNameTheFix(t *testing.T) {
 		{[]string{"search", "foo"}, []string{"story"}, `did you mean "scut doc search", "scut epic search" or "scut story search"?`},
 		{[]string{"get", "1234"}, []string{"story"}, `did you mean "scut story view"?`},
 		{[]string{"show"}, []string{"story"}, `did you mean "scut story view"?`},
+		{[]string{"version"}, []string{"story"}, `did you mean "scut --version"?`},
+		{[]string{"story", "1234", "sc-5678"}, []string{"view"}, `did you mean "scut story view 1234 sc-5678"?`},
+		// Aliases are for the root, and only story view takes stories.
+		{[]string{"story", "get"}, []string{"view"}, `run "scut story usage"`},
+		{[]string{"epic", "1234"}, []string{"view"}, `run "scut epic usage"`},
 		{[]string{"story", "search"}, nil, "usage: scut story search <query>"},
 		{[]string{"workflow", "states", "a", "b"}, nil, "usage: scut workflow states [<workflow>]"},
 		{[]string{"story", "view", "1", "--feilds", "id"}, []string{"--fields", "--comments", "--human"}, `see "scut story view --help"`},

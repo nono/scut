@@ -75,7 +75,7 @@ func noArgs(cmd *cobra.Command, args []string) error {
 	}
 	if len(args) > 0 {
 		e := groupError(cmd, fmt.Sprintf("unknown command %q for %q", args[0], cmd.CommandPath()))
-		if v := viewCommand(cmd, args[0]); v != "" {
+		if v := viewCommand(cmd, args); v != "" {
 			e.Suggestion = fmt.Sprintf("did you mean %q?", v)
 		} else if c := nounCommands(cmd, args[0]); len(c) > 0 {
 			e.Suggestion = "did you mean " + orList(c) + "?"
@@ -88,21 +88,29 @@ func noArgs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// viewCommand returns "<group> view <arg>" when arg is a story reference and
-// the view subcommand of the group takes stories.
-func viewCommand(group *cobra.Command, arg string) string {
+// viewCommand returns "<group> view <args>" when the view subcommand of the
+// group takes stories, with the leading args that are story references.
+func viewCommand(group *cobra.Command, args []string) string {
 	for _, c := range group.Commands() {
-		if c.Name() == "view" && c.Annotations[IDArgsAnnotation] == "sc-" {
-			if _, err := ref.Story(arg); err == nil {
-				return c.CommandPath() + " " + arg
+		if c.Name() != "view" || c.Annotations[IDArgsAnnotation] != "sc-" {
+			continue
+		}
+		line := c.CommandPath()
+		for _, a := range args {
+			if _, err := ref.Story(a); err != nil {
+				break
 			}
+			line += " " + strings.TrimSpace(a)
+		}
+		if line != c.CommandPath() {
+			return line
 		}
 	}
 	return ""
 }
 
 // verbAliases are words with no command of their own, and the command they mean.
-var verbAliases = map[string]string{"get": "story view", "show": "story view"}
+var verbAliases = map[string]string{"get": "story view", "show": "story view", "version": "--version"}
 
 // nounCommands returns the commands that a word given to the root means: its
 // alias, or else each "<noun> <word>" of the command tree.
