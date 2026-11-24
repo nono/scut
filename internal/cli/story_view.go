@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"maps"
 	"net/url"
 	"slices"
@@ -87,7 +86,7 @@ func apiFields(list string) ([]string, error) {
 			f = a
 		}
 		if !slices.Contains(storyFieldNames, f) && !slices.Contains(apiStoryFields, f) {
-			return nil, &exit.Error{Code: exit.Usage, Msg: fmt.Sprintf("unknown field %q", f), Valid: validFields()}
+			return nil, withValues(exit.Usagef("unknown field %q", f), "fields", validFields())
 		}
 		f = apiName(f)
 		if !slices.Contains(out, f) {
@@ -134,7 +133,8 @@ func newStoryView(env Env) *cobra.Command {
 	}
 	fieldsFlag := valuesFlag(cmd.Flags(), "fields", "", "", fieldsUsage, validFields())
 	commentsFlag := valuesFlag(cmd.Flags(), "comments", "", strconv.Itoa(defaultComments), "number of newest comments, all, or none", commentValues)
-	// pflag stops at the flag with no value: the stories before it are known.
+	// pflag stops at the flag with no value: the stories before it are known,
+	// the stories after it are not.
 	cmd.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
 		ferr := c.Parent().FlagErrorFunc()(c, err)
 		var ee *exit.Error
@@ -145,11 +145,11 @@ func newStoryView(env Env) *cobra.Command {
 	})
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		nComments, err := parseCommentCount(*commentsFlag)
+		if len(args) > 1 && (err != nil || nComments != 0) && cmd.Flags().Changed("comments") {
+			return manyComments(exit.Usagef("--comments needs a single story"))
+		}
 		if err != nil {
 			return err
-		}
-		if len(args) > 1 && nComments != 0 && cmd.Flags().Changed("comments") {
-			return manyComments(exit.Usagef("--comments needs a single story"))
 		}
 		ids, err := storyIDs(env, args)
 		if err != nil {

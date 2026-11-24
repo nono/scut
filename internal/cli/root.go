@@ -111,6 +111,7 @@ var errFlagAsValue = errors.New("the value is a flag")
 
 // valuesValue is a string flag value that refuses a flag of fs: pflag takes the
 // word after a flag as its value, so such a value is a missing value.
+// --flag=--other gets the same error.
 type valuesValue struct {
 	p  *string
 	fs *pflag.FlagSet

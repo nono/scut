@@ -120,6 +120,7 @@ func TestKnownValuesNameTheFix(t *testing.T) {
 		{[]string{"story", "create", "--name", "n", "--type", "epic"}, types, "--type feature"},
 		{[]string{"doc", "view", "x", "--format", "pdf"}, formats, "--format markdown"},
 		{[]string{"api", "/x", "-X"}, methods, "--method GET"},
+		{[]string{"api", "/x", "-X", "--human"}, methods, "--method GET"},
 		{[]string{"api", "/x", "-X", "HEAD"}, methods, "--method GET"},
 		{[]string{"story", "search", "q", "--limit", "0"}, []string{"<number>", "all"}, "--limit all"},
 		{[]string{"story", "view", "1", "--comments", "some"}, []string{"<number>", "all", "none"}, "--comments all"},
@@ -167,7 +168,7 @@ func TestMissingValueOfEachKnownSetFlag(t *testing.T) {
 			example := fmt.Sprintf("for example %q", "--"+f.Name+" "+w.example)
 			for _, next := range [][]string{nil, {"--human"}, {"--profile=x"}, {"-h"}} {
 				args := append(append(slices.Clone(path), "--"+f.Name), next...)
-				if e := usageError(t, cli.NewRoot(emptyEnv()), args...); jsonOf(e["valid"]) != jsonOf(w.values) || e["suggestion"] != example {
+				if e := usageError(t, cli.NewRoot(emptyEnv()), args...); e["error"] != "flag needs an argument: --"+f.Name || jsonOf(e["valid"]) != jsonOf(w.values) || e["suggestion"] != example {
 					t.Errorf("%v: %v", args, e)
 				}
 			}
@@ -183,10 +184,15 @@ func TestMissingValueOfEachKnownSetFlag(t *testing.T) {
 // A missing --fields value gives the same names as an unknown field.
 func TestMissingFieldsValue(t *testing.T) {
 	known := usageError(t, cli.NewRoot(emptyEnv()), "story", "view", "1", "--fields", "nmae")["valid"]
-	for _, path := range [][]string{{"story", "view", "1"}, {"story", "search", "q"}, {"story", "subtasks", "1"}, {"epic", "stories", "1"}} {
-		e := usageError(t, cli.NewRoot(emptyEnv()), append(path, "--fields")...)
+	for _, args := range [][]string{
+		{"story", "view", "1", "--fields"}, {"story", "search", "q", "--fields"}, {"story", "subtasks", "1", "--fields"}, {"epic", "stories", "1", "--fields"},
+		// Only --comments needs a single story.
+		{"story", "view", "1", "2", "--fields"},
+		{"story", "view", "1", "--fields", "nmae"},
+	} {
+		e := usageError(t, cli.NewRoot(emptyEnv()), args...)
 		if jsonOf(e["valid"]) != jsonOf(known) || e["suggestion"] != `for example "--fields app_url"` {
-			t.Errorf("%v: %v", path, e)
+			t.Errorf("%v: %v", args, e)
 		}
 	}
 }
