@@ -632,7 +632,7 @@ func TestViewManyCommentsFlag(t *testing.T) {
 	}
 }
 
-// With several stories, --comments with no value or a count gives a fix that
+// With several stories, --comments with no value, a count, all or a bad value gives a fix that
 // works with several stories: TestViewMany and TestViewManyCommentsNone run it.
 func TestViewManyCommentsSuggestion(t *testing.T) {
 	for _, flags := range [][]string{{"--comments"}, {"--comments", "all"}, {"--comments", "3"}, {"--comments", "--human"}, {"--comments", "true"}} {
